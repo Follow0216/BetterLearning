@@ -1,0 +1,24 @@
+# ---------- 工具/时序目录（不应入库） ----------
+.arts/
+.codeartsdoer/
+
+# ---------- 操作系统 ----------
+.DS_Store
+
+# ---------- 构建产物（根级兜底，覆盖各模块子目录） ----------
+**/build/
+**/target/
+**/oh_modules/
+**/node_modules/
+**/.hvigor/
+**/.cxx/
+**/.preview/
+**/.test/
+*.log
+
+# ---------- 本地环境与 IDE ----------
+local.properties
+.idea/
+*.iml
+*.iml.bak
+.vscode/

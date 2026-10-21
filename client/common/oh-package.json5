@@ -1,0 +1,9 @@
+{
+  "name": "common",
+  "version": "0.0.1",
+  "description": "Public base layer placeholder",
+  "main": "Index.ets",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}
