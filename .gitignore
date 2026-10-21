@@ -22,3 +22,10 @@ local.properties
 *.iml
 *.iml.bak
 .vscode/
+
+# ---------- Next.js / Web ----------
+**/.next/
+**/out/
+**/.turbo/
+**/*.tsbuildinfo
+**/.env*.local
