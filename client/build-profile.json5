@@ -6,7 +6,7 @@
         "name": "default",
         "signingConfig": "default",
         "targetSdkVersion": "26.0.0",
-        "compatibleSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "6.1.1(24)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
@@ -17,25 +17,50 @@
       }
     ],
     "buildModeSet": [
-      { "name": "debug" },
-      { "name": "release" }
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
     ]
   },
   "modules": [
     {
       "name": "phone",
       "srcPath": "./apps/phone",
-      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     },
     {
       "name": "tablet",
       "srcPath": "./apps/tablet",
-      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     },
     {
       "name": "common",
       "srcPath": "./common",
-      "targets": [{ "name": "default", "applyToProducts": ["default"] }]
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     }
   ]
 }
