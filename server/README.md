@@ -1,0 +1,258 @@
+# BetterLearning 服务端
+
+认证与用户资料服务，基于 Spring Boot 4.0.8、Java 17、PostgreSQL、Redis。本服务只使用已准备好的基础设施，不负责创建数据库实例、Redis 实例或系统账号。
+
+## 1. 环境要求
+
+- JDK 17。
+- PostgreSQL。自动化测试使用 `postgres:18.3` 镜像。
+- Redis。自动化测试使用 `redis:7.4.2` 镜像。
+- Docker。集成测试通过 Testcontainers 启动临时 PostgreSQL 与 Redis，Docker 必须可用。
+- Maven 使用仓库自带的 `server/mvnw`，无需单独安装；wrapper 固定 Maven 3.9.11。
+
+## 2. 本地配置
+
+在仓库根目录手工复制模板：
+
+```bash
+cp .env.example .env.local
+```
+
+然后编辑 `.env.local`：
+
+1. 填写 `SPRING_DATASOURCE_PASSWORD`。
+2. 生成自己的 JWT 密钥并填入 `APP_JWT_SECRET_BASE64`：
+
+   ```bash
+   openssl rand -base64 32
+   ```
+
+`.env.local` 已被 `.gitignore` 忽略，**不得提交**，也不要写入任何共享密钥。仓库中的 `.env.example` 只保留空密码和空密钥，不提供可用密钥。
+
+### 2.1 环境变量
+
+| 变量 | 默认值 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `SERVER_PORT` | `8080` | 否 | HTTP 端口 |
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://127.0.0.1:5432/betterlearning` | 否 | 数据库地址 |
+| `SPRING_DATASOURCE_USERNAME` | `betterlearning` | 否 | 数据库用户名 |
+| `SPRING_DATASOURCE_PASSWORD` | 无 | **是** | 数据库密码 |
+| `SPRING_DATA_REDIS_HOST` | `127.0.0.1` | 否 | Redis 主机 |
+| `SPRING_DATA_REDIS_PORT` | `6379` | 否 | Redis 端口 |
+| `SPRING_DATA_REDIS_DATABASE` | `0` | 否 | Redis 库编号 |
+| `SPRING_DATA_REDIS_USERNAME` | 空 | 否 | Redis 用户名 |
+| `SPRING_DATA_REDIS_PASSWORD` | 空 | 否 | Redis 密码 |
+| `APP_JWT_SECRET_BASE64` | 无 | **是** | Base64 编码的 HMAC 密钥，解码后至少 32 字节 |
+| `APP_JWT_ISSUER` | 无 | **是** | JWT 签发者 |
+| `APP_JWT_AUDIENCE` | 无 | **是** | JWT 受众 |
+| `APP_JWT_ACCESS_TOKEN_TTL` | `PT2H` | 否 | 令牌有效期，默认 2 小时，不自动续期 |
+| `APP_CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:3001` | 否 | 逗号分隔的精确 origin，不支持 `*`、通配符或路径 |
+| `APP_DOCS_ENABLED` | `false` | 否 | 同时控制 Swagger UI 与 `/v3/api-docs`；本地示例为 `true` |
+| `APP_AUTH_LOGIN_IP_LIMIT` | `30` | 否 | 登录按来源 IP 的固定窗口上限 |
+| `APP_AUTH_LOGIN_USERNAME_LIMIT` | `10` | 否 | 登录按规范化用户名的固定窗口上限 |
+| `APP_AUTH_LOGIN_WINDOW` | `PT1M` | 否 | 登录限流窗口 |
+| `APP_AUTH_REGISTRATION_IP_LIMIT` | `10` | 否 | 注册按来源 IP 的固定窗口上限 |
+| `APP_AUTH_REGISTRATION_WINDOW` | `PT1H` | 否 | 注册限流窗口 |
+
+### 2.2 环境文件加载规则
+
+根目录 `start-server.sh` 按以下优先级加载：
+
+1. 显式指定的 `BETTERLEARNING_ENV_FILE`。
+2. 仓库根目录 `.env.local`。
+3. 当前进程已有的环境变量。
+
+文件中的同名变量覆盖当前进程变量。显式指定的文件不存在或不可读时脚本直接失败；默认 `.env.local` 缺失但进程环境齐全时仍可启动。
+
+文件解析只支持简化格式：
+
+- 每行 `KEY=VALUE` 或 `export KEY=VALUE`。
+- 支持空行、CRLF、独立成行的 `#` 注释，以及成对的单引号或双引号。
+- **不支持** shell 变量插值、命令替换、行内注释或多行值。
+- 变量名必须匹配 `[A-Za-z_][A-Za-z0-9_]*`。
+
+若仓库路径或环境文件路径包含空格，调用脚本时请给路径加引号，例如：
+
+```bash
+"/path/with space/start-server.sh" --check
+BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
+```
+
+## 3. 数据库迁移
+
+应用启动时由 Flyway 自动执行 `server/src/main/resources/db/migration` 下的迁移。请使用为本服务单独准备的数据库，不要把迁移指向共享库或生产库。
+
+## 4. 启动
+
+在仓库根目录：
+
+```bash
+./start-server.sh --check
+./start-server.sh
+```
+
+`--check` 只检查 JDK 17 与必填环境变量是否存在，**不验证**数据库/Redis 连接、JWT 格式或 Spring 配置；真正启动时由 Spring Boot 完成全部配置校验。
+
+也可以手工导出环境变量后直接用 Maven 启动：
+
+```bash
+export SPRING_DATASOURCE_PASSWORD='...'
+export APP_JWT_SECRET_BASE64='...'
+export APP_JWT_ISSUER='betterlearning-server'
+export APP_JWT_AUDIENCE='betterlearning-api'
+cd server
+./mvnw spring-boot:run
+```
+
+打包并运行独立进程：
+
+```bash
+cd server
+./mvnw -DskipTests package
+java -jar target/server-0.0.1-SNAPSHOT.jar
+```
+
+`./mvnw package` 会先运行测试；`-DskipTests` 只跳过测试，不会跳过编译。
+
+## 5. REST 接口
+
+| 方法 | 路径 | 认证 | 成功状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| `POST` | `/api/v1/users` | 匿名 | `201` | 注册用户 |
+| `POST` | `/api/v1/sessions` | 匿名 | `201` | 登录并签发 JWT |
+| `GET` | `/api/v1/users/me` | Bearer | `200` | 获取当前用户资料 |
+| `PATCH` | `/api/v1/users/me` | Bearer | `200` | 绑定、更换或解绑手机号/邮箱 |
+| `PATCH` | `/api/v1/users/me/password` | Bearer | `204` | 修改密码 |
+| `DELETE` | `/api/v1/sessions/current` | Bearer | `204` | 退出当前会话 |
+
+### 5.1 Swagger
+
+开启 `APP_DOCS_ENABLED=true` 后：
+
+- Swagger UI：<http://localhost:8080/swagger-ui/index.html>
+- OpenAPI JSON：<http://localhost:8080/v3/api-docs>
+
+开关默认关闭，`.env.example` 中本地示例为 `true`。
+
+推荐操作顺序：
+
+1. `POST /api/v1/users` 注册。
+2. `POST /api/v1/sessions` 登录，复制响应中的 `accessToken`。
+3. 点击 Swagger UI 的 **Authorize**，只填写 JWT 本身，不要手动添加 `Bearer` 前缀；界面会自动生成 `Authorization: Bearer <token>`。
+4. `GET /api/v1/users/me` 查看资料。
+5. `PATCH /api/v1/users/me` 绑定、更换或解绑联系方式。
+6. `PATCH /api/v1/users/me/password` 修改密码；成功后该账号此前签发的所有 JWT 立即失效。
+7. 重新执行 `POST /api/v1/sessions` 登录，获取新 `accessToken`，并再次点击 **Authorize** 填入新 JWT。
+8. `DELETE /api/v1/sessions/current` 退出当前会话；必须使用重新登录后的新 token，旧 token 已无法通过认证。
+
+### 5.2 注册与登录
+
+- 注册只接受 `username`、`password`、`confirmPassword` 三个字段，角色固定为 `USER`，不接受客户端指定角色或账号编号。
+- 账号编号由数据库生成，响应中以字符串 `accountId` 返回，避免前端精度丢失。
+- 用户名先去首尾空白，再把英文字母转小写，然后校验规范化后的 3~32 个字符；仅支持中文、ASCII 字母、数字和下划线。
+- 密码不 trim；注册要求 8~64 个字符且 UTF-8 不超过 72 字节，登录只要求非空且不超过上限。
+- 手机号和邮箱只在个人中心填写，注册时不接收，也不用于登录或找回密码。
+
+### 5.3 个人资料
+
+`PATCH /api/v1/users/me` 只处理请求体中出现的字段：
+
+- 字段缺失：不修改。
+- 显式 `null`：解绑该联系方式。
+- 空串或格式错误：`400 A0400`。
+- 手机号或邮箱已被其他账号占用：`409 A0154` 或 `409 A0155`，原值保持不变。
+
+### 5.4 改密与退出
+
+- 改密需要旧密码、新密码和确认密码；成功后 `token_version` 递增，**该账号此前签发的所有 JWT 立即失效**，不签发新令牌。
+- 若密码已被其他请求修改，返回 `409 A0444`，本次修改未生效，需要重新登录后再试。
+- 退出只删除当前 JWT 的 `jti` 对应会话，同账号其他端的会话继续有效。
+- JWT 默认 2 小时有效，不自动续期；过期后需要重新登录。
+
+### 5.5 错误码
+
+对外 `code` 为 5 位字符串：首位 A 表示用户端错误、B 表示系统执行错误、C 表示第三方服务错误，后四位为编号。编号与 HTTP 状态码相互独立。完整说明、触发场景与迁移指引见 [docs/error-codes.md](docs/error-codes.md)。
+
+| 状态 | `code` | Java 枚举 | 含义 |
+| --- | --- | --- | --- |
+| `400` | `A0400` | `INVALID_PARAM` | 字段校验失败；改密时旧密码错误体现在 `fieldErrors.oldPassword` |
+| `400` | `A0427` | `INVALID_JSON` | 请求体格式错误、含未知字段或类型不匹配 |
+| `401` | `A0200` | `UNAUTHORIZED` | 未认证、令牌无效/过期/已失效，或用户名密码错误 |
+| `403` | `A0300` | `FORBIDDEN` | 已认证但无权限，或 CORS origin 被拒绝 |
+| `404` | `A0606` | `NOT_FOUND` | 路径不存在，或文档端点未开启 |
+| `405` | `A0507` | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
+| `415` | `A0428` | `UNSUPPORTED_MEDIA_TYPE` | 媒体类型不受支持 |
+| `409` | `A0111` | `USERNAME_EXISTS` | 用户名已存在 |
+| `409` | `A0154` | `PHONE_ALREADY_BOUND` | 手机号已绑定其他账号 |
+| `409` | `A0155` | `EMAIL_ALREADY_BOUND` | 邮箱已绑定其他账号 |
+| `409` | `A0444` | `PASSWORD_CHANGE_CONFLICT` | 密码已被其他请求修改，本次改密未生效 |
+| `429` | `A0501` | `RATE_LIMITED` | 注册或登录触发限流 |
+| `503` | `C0001` | `SERVICE_UNAVAILABLE` | 数据库或 Redis 不可用；请求结果可能不确定，应先查询状态确认，勿盲目重试 |
+| `500` | `B0001` | `INTERNAL_ERROR` | 服务器内部错误 |
+
+错误响应统一包含 `code`、`message`、`traceId`；`traceId` 同时写入响应头 `X-Request-Id`。登录失败统一返回 `401 A0200`，不区分账号不存在与密码错误，避免泄露账号是否存在。
+
+### 5.6 管理员
+
+- 不提供默认管理员。
+- 没有公开的角色提升接口或管理界面。
+- 如确需受控提升，只能在数据库中按**指定用户名**执行，并先确认目标唯一：
+
+  ```sql
+  UPDATE app_user SET role = 'ADMIN' WHERE username = '要提升的用户名';
+  ```
+
+  `username` 有唯一约束，正常情况下该语句只影响一行；执行前应先 `SELECT` 确认目标账号。
+
+## 6. 代码格式检查
+
+```bash
+cd server
+./mvnw validate          # validate 阶段自动执行 Checkstyle
+./mvnw checkstyle:check  # 仅执行 Checkstyle
+```
+
+使用固定版本 `maven-checkstyle-plugin` 3.6.0（默认 Checkstyle 9.3），规则位于 `config/checkstyle/checkstyle.xml`，覆盖 `src/main/java` 与 `src/test/java`：
+
+- `FileTabCharacter`：禁止 Tab；
+- `NewlineAtEndOfFile`：文件必须以换行结尾；
+- `Indentation`：4 空格基本缩进、8 空格续行；
+- `RightCurly`：`} else {`、`} catch {`、`} finally {` 保持同一行。
+
+违规时构建失败。该配置只检查上述格式子集，不代表阿里巴巴 Java 开发手册全量合规，也未启用命名、Javadoc、复杂度等其他规则。
+
+2026-10-22 实际验证：`./mvnw validate` 与 `./mvnw checkstyle:check` 均为 0 违规，`./mvnw test-compile` BUILD SUCCESS。
+
+## 7. 测试
+
+```bash
+cd server
+./mvnw test                # 全量：单元、配置边界与容器集成测试
+./mvnw test -Punit         # 仅单元与配置边界测试，不启动容器
+./mvnw test -Pintegration  # 仅容器集成测试，需 Docker
+./mvnw package
+```
+
+默认 `./mvnw test` 执行全部测试，不跳过任何测试类。16 个依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
+
+2026-10-22 实测：`-Punit` 执行 20 个类共 192 项，`-Pintegration` 执行 16 个类共 131 项，两组无交集，合计 36 个测试类。
+
+现有测试类已覆盖的主要范围：
+
+| 范围 | 测试类 |
+| --- | --- |
+| 配置绑定与启动校验 | `config/AppPropertiesBindingTests`、`config/AppPropertiesValidationTests` |
+| 迁移与持久化 | `dao/UserPersistenceIntegrationTests`、`exception/UniqueConstraintMappingIntegrationTests` |
+| 注册、校验与 JSON 绑定 | `controller/UserRegistrationIntegrationTests`、`validation/UserRequestValidationTests`、`model/dto/UserRequestJacksonTests`、`converter/UserConverterTests`、`model/dataobject/UserDOTests` |
+| 登录与限流 | `controller/SessionLoginIntegrationTests`、`manager/RedisRateLimitManagerIntegrationTests`、`service/impl/SessionServiceImplTests` |
+| JWT 与会话 | `security/JwtTokenServiceTests`、`manager/RedisSessionManagerIntegrationTests`、`service/impl/SessionServiceImplLogoutTests` |
+| 安全链、CORS 与依赖故障 | `security/SecurityFilterChainIntegrationTests`、`security/SecurityDependencyFailureIntegrationTests`、`security/JwtRejectionIntegrationTests`、`security/RedisOutageIntegrationTests`、`security/TraceIdFilterTests`、`exception/GlobalExceptionHandlerTests` |
+| 资料、改密与并发 | `controller/UserProfileIntegrationTests`、`controller/ChangePasswordIntegrationTests`、`service/impl/UserServiceImplPasswordTests`、`controller/ConcurrentCredentialIntegrationTests` |
+| 退出 | `controller/SessionLogoutIntegrationTests` |
+| Swagger/OpenAPI | `controller/ApiDocumentationEnabledIntegrationTests`、`controller/ApiDocumentationDisabledIntegrationTests` |
+
+以上测试类覆盖六个接口的主要成功与失败路径。2026-10-22 最终回归 `./mvnw -o clean verify` 实际执行：36 个测试类、323 个用例全部通过（0 失败、0 错误、0 跳过），Checkstyle 0 违规，可执行 jar 打包成功；独立进程 HTTP 冒烟 19/19 项通过。详见 [docs/backend-conventions-validation.md](docs/backend-conventions-validation.md)。
+
+更早的 28 个测试类、272 个用例与 52 项独立进程验收属于上一轮历史证据，见 [docs/design/auth-acceptance.md](../docs/design/auth-acceptance.md)，不代表本轮结果。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
+
+本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。验收使用的临时容器与服务已清理，本仓库不保留任何测试服务或临时密钥。

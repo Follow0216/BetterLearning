@@ -1,0 +1,393 @@
+package com.betterlearning.server.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+
+import tools.jackson.databind.json.JsonMapper;
+
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Tag("integration")
+class ApiDocumentationEnabledIntegrationTests {
+
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
+            .asCompatibleSubstituteFor("postgres");
+
+    private static final String PASSWORD = " Passw0rd! ";
+
+    private static final String SECRET = Base64.getEncoder().encodeToString(
+            "betterlearning-security-integration-secret".getBytes(StandardCharsets.UTF_8));
+
+    private static final Pattern SCRIPT_SOURCE = Pattern.compile("src=\"([^\"]+)\"");
+
+    @Container
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
+            .withDatabaseName("betterlearning")
+            .withUsername("test")
+            .withPassword("test");
+
+    @Container
+    static final GenericContainer<?> REDIS =
+            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
+            .withExposedPorts(6379);
+
+    @DynamicPropertySource
+    static void registerProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("app.jwt.secret-base64", () -> SECRET);
+        registry.add("app.jwt.issuer", () -> "betterlearning-test");
+        registry.add("app.jwt.audience", () -> "betterlearning-client");
+        registry.add("app.auth.login.ip-limit", () -> "1000");
+        registry.add("app.auth.login.username-limit", () -> "1000");
+        registry.add("app.auth.registration.ip-limit", () -> "1000");
+        registry.add("app.cors.allowed-origins[0]", () -> "http://localhost:3000");
+        registry.add("APP_DOCS_ENABLED", () -> "true");
+    }
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .build();
+
+    @LocalServerPort
+    private int port;
+
+    private String baseUrl;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private JsonMapper jsonMapper;
+
+    @BeforeEach
+    void cleanState() {
+        baseUrl = "http://127.0.0.1:" + port;
+        jdbcTemplate.update("TRUNCATE TABLE app_user RESTART IDENTITY");
+        redisTemplate.execute((RedisCallback<Void>) connection -> {
+            connection.serverCommands().flushDb();
+            return null;
+        });
+    }
+
+    @Test
+    void servesSwaggerUiAndStaticAssets() throws Exception {
+        HttpResponse<String> ui = get("/swagger-ui/index.html");
+
+        assertThat(ui.statusCode()).isEqualTo(200);
+        assertThat(ui.body()).contains("Swagger UI");
+
+        Matcher matcher = SCRIPT_SOURCE.matcher(ui.body());
+        assertThat(matcher.find()).isTrue();
+        String scriptPath = resolveAssetPath(matcher.group(1));
+        HttpResponse<String> script = get(scriptPath);
+
+        assertThat(script.statusCode()).isEqualTo(200);
+        assertThat(script.body()).isNotBlank();
+    }
+
+    @Test
+    void servesOpenApiDocumentAndSwaggerConfig() throws Exception {
+        HttpResponse<String> docsResponse = get("/v3/api-docs");
+        assertThat(docsResponse.statusCode()).isEqualTo(200);
+
+        HttpResponse<String> configResponse = get("/v3/api-docs/swagger-config");
+        assertThat(configResponse.statusCode()).isEqualTo(200);
+        Map<String, Object> config = jsonBody(configResponse);
+        assertThat(config.get("url")).isEqualTo("/v3/api-docs");
+    }
+
+    @Test
+    void documentsExactlyTheSixBusinessOperations() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        assertThat(docs.get("openapi")).isEqualTo("3.1.0");
+        Map<String, Object> paths = asMap(docs.get("paths"));
+
+        assertThat(paths.keySet()).containsExactlyInAnyOrder(
+                "/api/v1/users",
+                "/api/v1/sessions",
+                "/api/v1/sessions/current",
+                "/api/v1/users/me",
+                "/api/v1/users/me/password");
+        assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/admin")
+                || path.startsWith("/api/v1/test"));
+
+        assertOperation(docs, "/api/v1/users", "post", "201");
+        assertOperation(docs, "/api/v1/sessions", "post", "201");
+        assertOperation(docs, "/api/v1/sessions/current", "delete", "204");
+        assertOperation(docs, "/api/v1/users/me", "get", "200");
+        assertOperation(docs, "/api/v1/users/me", "patch", "200");
+        assertOperation(docs, "/api/v1/users/me/password", "patch", "204");
+    }
+
+    @Test
+    void requiresBearerOnlyForProtectedOperations() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+
+        Map<String, Object> scheme = asMap(
+                asMap(asMap(docs.get("components")).get("securitySchemes")).get("bearerAuth"));
+        assertThat(scheme.get("type")).isEqualTo("http");
+        assertThat(scheme.get("scheme")).isEqualTo("bearer");
+        assertThat(scheme.get("bearerFormat")).isEqualTo("JWT");
+        assertThat(scheme.get("description").toString())
+                .contains("Authorize").contains("只填写 JWT").contains("不要添加 Bearer 前缀");
+
+        assertThat(asList(operation(docs, "/api/v1/users", "post").get("security")))
+                .isNullOrEmpty();
+        assertThat(asList(operation(docs, "/api/v1/sessions", "post").get("security")))
+                .isNullOrEmpty();
+        for (String[] protectedOperation : List.of(
+                new String[] {"/api/v1/sessions/current", "delete"},
+                new String[] {"/api/v1/users/me", "get"},
+                new String[] {"/api/v1/users/me", "patch"},
+                new String[] {"/api/v1/users/me/password", "patch"})) {
+            assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
+                    .get("security")))
+                    .anySatisfy(requirement ->
+                    assertThat(asMap(requirement)).containsKey("bearerAuth"));
+        }
+    }
+
+    @Test
+    void documentsLoginResponseAndPasswordSchemas() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+
+        Map<String, Object> loginResponse = asMap(asMap(operation(docs, "/api/v1/sessions", "post")
+                .get("responses")).get("201"));
+        assertThat(responseSchema(loginResponse)).isEqualTo("#/components/schemas/SessionVO");
+
+        Map<String, Object> sessionProperties = asMap(asMap(schemas.get("SessionVO"))
+                .get("properties"));
+        assertThat(sessionProperties.keySet())
+                .containsExactlyInAnyOrder("accessToken", "tokenType", "expiresIn", "user");
+        assertThat(description(sessionProperties.get("expiresIn"))).contains("7200")
+                .contains("不").contains("续期");
+
+        Map<String, Object> registerProperties = asMap(asMap(schemas.get("RegisterUserRequest"))
+                .get("properties"));
+        assertPassword(registerProperties.get("password"), 8);
+        assertPassword(registerProperties.get("confirmPassword"), 8);
+        assertThat(description(registerProperties.get("password"))).contains("72");
+
+        Map<String, Object> changePasswordProperties = asMap(asMap(schemas
+                .get("ChangePasswordRequest")).get("properties"));
+        assertPassword(changePasswordProperties.get("oldPassword"), 1);
+        assertPassword(changePasswordProperties.get("newPassword"), 8);
+        assertPassword(changePasswordProperties.get("confirmPassword"), 8);
+
+        Map<String, Object> loginProperties = asMap(asMap(schemas.get("LoginRequest"))
+                .get("properties"));
+        assertPassword(loginProperties.get("password"), 1);
+    }
+
+    @Test
+    void documentsFiveCharacterErrorCodesAndNewDescriptions() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+        Map<String, Object> codeSchema = asMap(asMap(asMap(schemas.get("ApiErrorVO"))
+                .get("properties")).get("code"));
+
+        assertThat(codeSchema.get("pattern")).isEqualTo("^[ABC][0-9]{4}$");
+        assertThat(codeSchema.get("example")).isEqualTo("A0400");
+        assertThat(asList(codeSchema.get("enum"))).containsExactly(
+                "A0400", "A0427", "A0200", "A0300", "A0606", "A0507", "A0428",
+                "A0111", "A0154", "A0155", "A0444", "A0501", "C0001", "B0001");
+        assertThat(description(codeSchema)).contains("5 位").contains("HTTP 状态码无关");
+
+        Map<String, Object> registrationResponses = asMap(operation(docs, "/api/v1/users", "post")
+                .get("responses"));
+        assertThat(description(registrationResponses.get("400")))
+                .contains("A0400").contains("A0427").doesNotContain("INVALID_");
+        assertThat(description(registrationResponses.get("409"))).contains("A0111");
+        assertThat(description(registrationResponses.get("429"))).contains("A0501");
+        assertThat(description(registrationResponses.get("503"))).contains("C0001");
+
+        Map<String, Object> profileResponses = asMap(operation(docs, "/api/v1/users/me", "patch")
+                .get("responses"));
+        assertThat(description(profileResponses.get("409")))
+                .contains("A0154").contains("A0155");
+
+        Map<String, Object> passwordResponses = asMap(operation(docs,
+                "/api/v1/users/me/password", "patch").get("responses"));
+        assertThat(description(passwordResponses.get("409"))).contains("A0444");
+    }
+
+    @Test
+    void hidesInternalFieldsAndAuthenticationPrincipal() throws Exception {
+        HttpResponse<String> response = get("/v3/api-docs");
+        Map<String, Object> docs = jsonBody(response);
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+
+        Map<String, Object> updateProperties = asMap(asMap(schemas.get("UpdateProfileRequest"))
+                .get("properties"));
+        assertThat(updateProperties.keySet()).containsExactlyInAnyOrder("phone", "email");
+        assertThat(asMap(schemas.get("UpdateProfileRequest"))).doesNotContainKey("required");
+        assertNullableString(updateProperties.get("phone"), "UpdateProfileRequest.phone");
+        assertNullableString(updateProperties.get("email"), "UpdateProfileRequest.email");
+        assertThat(response.body()).doesNotContain("phoneProvided")
+                .doesNotContain("emailProvided")
+                .doesNotContain("AuthenticatedAccount")
+                .doesNotContain("jwtId");
+
+        Map<String, Object> userProperties = asMap(asMap(schemas.get("UserVO")).get("properties"));
+        assertThat(userProperties.keySet()).contains("accountId", "username", "phone", "email",
+                "role", "createdAt", "updatedAt");
+        assertThat(asMap(userProperties.get("accountId")).get("type")).isEqualTo("string");
+        assertNullableString(userProperties.get("phone"), "UserVO.phone");
+        assertNullableString(userProperties.get("email"), "UserVO.email");
+
+        Map<String, Object> profileOperation = operation(docs, "/api/v1/users/me", "patch");
+        assertThat(description(profileOperation.get("description")))
+                .contains("不修改").contains("解绑").contains("400").contains("409");
+        assertThat(profileOperation).doesNotContainKey("parameters");
+    }
+
+    @Test
+    void forbidsAdditionalPropertiesOnAllRequestSchemas() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+
+        for (String schemaName : List.of("RegisterUserRequest", "LoginRequest",
+                "UpdateProfileRequest", "ChangePasswordRequest")) {
+            assertThat(asMap(schemas.get(schemaName)).get("additionalProperties"))
+                    .as(schemaName).isEqualTo(false);
+        }
+    }
+
+    @Test
+    void documentsNormalizedUsernameLengthWithoutRawMaxLength() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+
+        Map<String, Object> registerUsername = asMap(asMap(asMap(schemas
+                .get("RegisterUserRequest")).get("properties")).get("username"));
+        assertThat(registerUsername.get("minLength")).isEqualTo(3);
+        assertThat(registerUsername).doesNotContainKey("maxLength");
+        assertThat(description(registerUsername)).contains("规范化后").contains("32");
+
+        Map<String, Object> loginUsername = asMap(asMap(asMap(schemas
+                .get("LoginRequest")).get("properties")).get("username"));
+        assertThat(loginUsername.get("minLength")).isEqualTo(3);
+        assertThat(loginUsername).doesNotContainKey("maxLength");
+        assertThat(description(loginUsername)).contains("规范化后").contains("32");
+    }
+
+    private void assertOperation(Map<String, Object> docs, String path, String method,
+            String successStatus) {
+        Map<String, Object> operation = operation(docs, path, method);
+        assertThat(description(operation.get("summary"))).containsPattern("[\\u4e00-\\u9fa5]");
+
+        Map<String, Object> responses = asMap(operation.get("responses"));
+        assertThat(responses).containsKey(successStatus);
+        Map<String, Object> success = asMap(responses.get(successStatus));
+        if ("204".equals(successStatus)) {
+            assertThat(success).doesNotContainKey("content");
+        } else {
+            assertThat(success).containsKey("content");
+        }
+        for (String errorStatus : List.of("400", "401", "409", "429", "503")) {
+            if (!responses.containsKey(errorStatus)) {
+                continue;
+            }
+            Map<String, Object> error = asMap(responses.get(errorStatus));
+            String code = description(error.get("description"));
+            assertThat(code).containsPattern("[ABC][0-9]{4}|请求参数");
+        }
+    }
+
+    private Map<String, Object> operation(Map<String, Object> docs, String path, String method) {
+        return asMap(asMap(asMap(docs.get("paths")).get(path)).get(method));
+    }
+
+    private String responseSchema(Map<String, Object> response) {
+        Map<String, Object> content = asMap(response.get("content"));
+        assertThat(content).isNotEmpty();
+        Map<String, Object> media = asMap(content.values().iterator().next());
+        return (String) asMap(media.get("schema")).get("$ref");
+    }
+
+    private static void assertPassword(Object schemaValue, int minLength) {
+        Map<String, Object> schema = asMap(schemaValue);
+        assertThat(schema.get("format")).isEqualTo("password");
+        assertThat(schema.get("writeOnly")).isEqualTo(true);
+        assertThat(schema.get("minLength")).isEqualTo(minLength);
+        assertThat(schema.get("maxLength")).isEqualTo(64);
+    }
+
+    private static void assertNullableString(Object schemaValue, String field) {
+        Map<String, Object> schema = asMap(schemaValue);
+        Object type = schema.get("type");
+        assertThat(type).as(field).isInstanceOf(List.class);
+        assertThat(asList(type)).as(field).containsExactlyInAnyOrder("string", "null");
+    }
+
+    private static String description(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Object description = map.get("description");
+            return description == null ? "" : description.toString();
+        }
+        return value == null ? "" : value.toString();
+    }
+
+    private String resolveAssetPath(String source) {
+        if (source.startsWith("./")) {
+            return "/swagger-ui/" + source.substring(2);
+        }
+        return source.startsWith("/") ? source : "/swagger-ui/" + source;
+    }
+
+    private HttpResponse<String> get(String path) throws Exception {
+        return httpClient.send(HttpRequest.newBuilder(URI.create(baseUrl + path)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> jsonBody(HttpResponse<String> response) {
+        return jsonMapper.readValue(response.body(), Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object value) {
+        return (Map<String, Object>) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> asList(Object value) {
+        return (List<Object>) value;
+    }
+}
