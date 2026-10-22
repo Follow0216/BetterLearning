@@ -1,5 +1,6 @@
 package com.betterlearning.server.exception;
 
+
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -18,6 +19,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -208,6 +210,50 @@ public class GlobalExceptionHandler {
                 TraceIdContext.resolve(request), exception);
         return respond(ErrorCode.SERVICE_UNAVAILABLE, ErrorCode.SERVICE_UNAVAILABLE.getMessage(),
                 null, request);
+    }
+
+    /**
+     * 处理事务提交或回滚失败：仅当原始应用异常明确为数据库资源故障时返回 503 C0001，
+     * 其他事务系统异常（包括无原始应用异常、映射或未知事务失败）仍返回 500 B0001。
+     *
+     * @param exception 事务系统异常
+     * @param request 当前请求
+     * @return 标准错误响应
+     */
+    @ExceptionHandler(TransactionSystemException.class)
+    public ResponseEntity<ApiErrorVO> handleTransactionSystem(TransactionSystemException exception,
+            HttpServletRequest request) {
+        if (hasDatabaseResourceFailure(exception)) {
+            SafeFailureDiagnostics.logError(log, OPERATION_DEPENDENCY_UNAVAILABLE,
+                    TraceIdContext.resolve(request), exception);
+            return respond(ErrorCode.SERVICE_UNAVAILABLE,
+                    ErrorCode.SERVICE_UNAVAILABLE.getMessage(), null, request);
+        }
+        SafeFailureDiagnostics.logError(log, OPERATION_UNHANDLED,
+                TraceIdContext.resolve(request), exception);
+        return respond(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.getMessage(), null,
+                request);
+    }
+
+    /**
+     * 判断事务系统异常的原始应用异常是否为数据库资源故障；回滚异常自身不作为判定依据。
+     *
+     * @param exception 事务系统异常
+     * @return 非空原始应用异常链包含 {@link DataAccessResourceFailureException} 时为 true
+     */
+    private static boolean hasDatabaseResourceFailure(TransactionSystemException exception) {
+        Throwable original = exception.getApplicationException();
+        if (original == null) {
+            return false;
+        }
+        Throwable current = original;
+        while (current != null) {
+            if (current instanceof DataAccessResourceFailureException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**

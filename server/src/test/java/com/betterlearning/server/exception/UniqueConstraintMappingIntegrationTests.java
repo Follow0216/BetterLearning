@@ -15,7 +15,7 @@ import javax.sql.DataSource;
 
 import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
-import com.betterlearning.server.dao.impl.JdbcUserDao;
+
 import com.betterlearning.server.dao.support.UserConstraintTranslator;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.enums.UserUniqueField;
@@ -26,8 +26,10 @@ import com.betterlearning.server.model.vo.ApiErrorVO;
 import com.betterlearning.server.security.TraceIdContext;
 import com.betterlearning.server.service.UserService;
 import com.betterlearning.server.service.impl.UserServiceImpl;
+import com.betterlearning.server.support.MybatisTestContext;
 
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -79,6 +81,8 @@ class UniqueConstraintMappingIntegrationTests {
 
     private static UserDao userDao;
 
+    private static MybatisTestContext mybatisContext;
+
     private static UserService userService;
 
     private static GlobalExceptionHandler handler;
@@ -92,10 +96,18 @@ class UniqueConstraintMappingIntegrationTests {
                 .load()
                 .migrate();
         jdbcTemplate = new JdbcTemplate(dataSource);
-        userDao = new JdbcUserDao(jdbcTemplate);
+        mybatisContext = MybatisTestContext.create(dataSource);
+        userDao = mybatisContext.userDao();
         userService = new UserServiceImpl(userDao, new BCryptPasswordEncoder(),
                 new UserConverter(), NO_LIMIT_MANAGER);
         handler = new GlobalExceptionHandler(new ApiErrorResponseFactory());
+    }
+
+    @AfterAll
+    static void closeMybatisContext() {
+        if (mybatisContext != null) {
+            mybatisContext.close();
+        }
     }
 
     @BeforeEach
@@ -238,6 +250,38 @@ class UniqueConstraintMappingIntegrationTests {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getCode()).isEqualTo("B0001");
         assertThat(response.getBody().getMessage()).isEqualTo("服务器内部错误");
+    }
+
+    @Test
+    void keepsConstraintDiagnosticsFreeOfSqlAndSensitiveValues() {
+        String sensitiveUsername = "sensitive_marker_user";
+        String sensitivePassword = "SensitivePassw0rd!";
+        userDao.insert(sensitiveUsername, "hash-marker");
+
+        RegisterUserDTO request = new RegisterUserDTO();
+        request.setUsername(sensitiveUsername);
+        request.setPassword(sensitivePassword);
+        request.setConfirmPassword(sensitivePassword);
+
+        Throwable failure = catchThrowable(
+                () -> userService.register(request, "127.0.0.1"));
+        assertThat(failure).isInstanceOf(BusinessException.class);
+
+        String diagnostics = SafeFailureDiagnostics.describe(failure);
+        assertThat(diagnostics).doesNotContain(sensitiveUsername, sensitivePassword,
+                "hash-marker", "INSERT", "SELECT", "app_user", "uk_app_user_username");
+
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+        httpRequest.setAttribute(TraceIdContext.REQUEST_ATTRIBUTE, "trace-leak");
+        ResponseEntity<ApiErrorVO> response = handler.handleBusiness(
+                (BusinessException) failure, httpRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getMessage()).doesNotContain(sensitiveUsername,
+                sensitivePassword, "hash-marker", "INSERT", "SELECT", "app_user",
+                "uk_app_user_username");
+        assertThat(response.getBody().getFieldErrors()).isNullOrEmpty();
     }
 
     private static String registerConcurrently(String username, CountDownLatch ready,

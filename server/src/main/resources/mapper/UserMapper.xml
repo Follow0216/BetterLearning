@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.dao.mapper.UserMapper">
+
+    <select id="insertReturningAccountId" resultType="java.lang.Long"
+            affectData="true" flushCache="true" useCache="false">
+        INSERT INTO app_user (username, password_hash)
+        VALUES (#{username}, #{passwordHash})
+        RETURNING account_id
+    </select>
+
+    <update id="updateContactInfo">
+        UPDATE app_user
+        SET updated_at = CURRENT_TIMESTAMP
+        <if test="phoneProvided">
+            , phone = #{phone,jdbcType=VARCHAR}
+        </if>
+        <if test="emailProvided">
+            , email = #{email,jdbcType=VARCHAR}
+        </if>
+        WHERE account_id = #{accountId}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE app_user
+        SET password_hash = #{newPasswordHash},
+            token_version = token_version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE account_id = #{accountId}
+          AND token_version = #{expectedTokenVersion}
+          AND password_hash = #{expectedPasswordHash}
+    </update>
+
+</mapper>

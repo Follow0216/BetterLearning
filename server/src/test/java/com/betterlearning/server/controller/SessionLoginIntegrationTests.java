@@ -21,7 +21,8 @@ import com.betterlearning.server.config.AppAuthProperties;
 import com.betterlearning.server.config.AppJwtProperties;
 import com.betterlearning.server.config.JwtConfiguration;
 import com.betterlearning.server.converter.UserConverter;
-import com.betterlearning.server.dao.impl.JdbcUserDao;
+import com.betterlearning.server.dao.UserDao;
+import com.betterlearning.server.support.MybatisTestContext;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
 import com.betterlearning.server.exception.GlobalExceptionHandler;
 import com.betterlearning.server.manager.RateLimitManager;
@@ -97,7 +98,9 @@ class SessionLoginIntegrationTests {
 
     private static JdbcTemplate jdbcTemplate;
 
-    private static JdbcUserDao userDao;
+    private static UserDao userDao;
+
+    private static MybatisTestContext mybatisContext;
 
     private static PasswordEncoder passwordEncoder;
 
@@ -126,7 +129,8 @@ class SessionLoginIntegrationTests {
                 .load()
                 .migrate();
         jdbcTemplate = new JdbcTemplate(dataSource);
-        userDao = new JdbcUserDao(jdbcTemplate);
+        mybatisContext = MybatisTestContext.create(dataSource);
+        userDao = mybatisContext.userDao();
         passwordEncoder = new BCryptPasswordEncoder();
         Clock clock = Clock.systemUTC();
         AppJwtProperties jwtProperties = jwtProperties();
@@ -157,6 +161,9 @@ class SessionLoginIntegrationTests {
 
     @AfterAll
     static void tearDown() {
+        if (mybatisContext != null) {
+            mybatisContext.close();
+        }
         if (redisConnectionFactory != null) {
             redisConnectionFactory.destroy();
         }

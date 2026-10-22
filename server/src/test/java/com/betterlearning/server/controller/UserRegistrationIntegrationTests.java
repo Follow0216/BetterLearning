@@ -17,7 +17,7 @@ import javax.sql.DataSource;
 
 import com.betterlearning.server.config.AppAuthProperties;
 import com.betterlearning.server.converter.UserConverter;
-import com.betterlearning.server.dao.impl.JdbcUserDao;
+import com.betterlearning.server.support.MybatisTestContext;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
 import com.betterlearning.server.exception.GlobalExceptionHandler;
 import com.betterlearning.server.manager.RedisRateLimitManager;
@@ -79,6 +79,8 @@ class UserRegistrationIntegrationTests {
 
     private static JdbcTemplate jdbcTemplate;
 
+    private static MybatisTestContext mybatisContext;
+
     private static LettuceConnectionFactory redisConnectionFactory;
 
     private static StringRedisTemplate redisTemplate;
@@ -98,6 +100,7 @@ class UserRegistrationIntegrationTests {
                 .load()
                 .migrate();
         jdbcTemplate = new JdbcTemplate(dataSource);
+        mybatisContext = MybatisTestContext.create(dataSource);
         passwordEncoder = new BCryptPasswordEncoder();
         jsonMapper = JsonMapper.builder()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -117,7 +120,7 @@ class UserRegistrationIntegrationTests {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         UserServiceImpl userService = new UserServiceImpl(
-                new JdbcUserDao(jdbcTemplate), passwordEncoder, new UserConverter(),
+                mybatisContext.userDao(), passwordEncoder, new UserConverter(),
                 new RedisRateLimitManager(redisTemplate, authProperties));
         mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService))
                 .setControllerAdvice(
@@ -130,6 +133,9 @@ class UserRegistrationIntegrationTests {
 
     @AfterAll
     static void tearDownRedis() {
+        if (mybatisContext != null) {
+            mybatisContext.close();
+        }
         if (redisConnectionFactory != null) {
             redisConnectionFactory.destroy();
         }

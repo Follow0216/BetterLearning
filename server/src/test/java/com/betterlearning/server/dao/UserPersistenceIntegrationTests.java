@@ -7,13 +7,14 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
-import com.betterlearning.server.dao.impl.JdbcUserDao;
 import com.betterlearning.server.enums.UserUniqueField;
 import com.betterlearning.server.exception.UserUniqueConflictException;
 import com.betterlearning.server.model.dataobject.UserDO;
+import com.betterlearning.server.support.MybatisTestContext;
 
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -50,6 +51,8 @@ class UserPersistenceIntegrationTests {
 
     private static UserDao userDao;
 
+    private static MybatisTestContext mybatisContext;
+
     private static MigrateResult migrateResult;
 
     @BeforeAll
@@ -61,7 +64,15 @@ class UserPersistenceIntegrationTests {
                 .load()
                 .migrate();
         jdbcTemplate = new JdbcTemplate(dataSource);
-        userDao = new JdbcUserDao(jdbcTemplate);
+        mybatisContext = MybatisTestContext.create(dataSource);
+        userDao = mybatisContext.userDao();
+    }
+
+    @AfterAll
+    static void closeMybatisContext() {
+        if (mybatisContext != null) {
+            mybatisContext.close();
+        }
     }
 
     @BeforeEach

@@ -14,6 +14,7 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.model.vo.ApiErrorVO;
 import com.betterlearning.server.security.TraceIdContext;
 
+import org.apache.ibatis.exceptions.PersistenceException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.transaction.TransactionSystemException;
 
 class GlobalExceptionHandlerLoggingTests {
 
@@ -111,6 +113,77 @@ class GlobalExceptionHandlerLoggingTests {
 
         assertThat(appender.list).isEmpty();
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void mapsRollbackFailureWithDatabaseResourceApplicationExceptionToServiceUnavailable() {
+        TransactionSystemException exception = new TransactionSystemException(
+                "Could not roll back JDBC transaction", new SQLException("Connection is closed"));
+        exception.initApplicationException(new DataAccessResourceFailureException(
+                "database unavailable", new SQLException("Connection is closed")));
+
+        ResponseEntity<ApiErrorVO> response = handler.handleTransactionSystem(exception, request());
+
+        assertThatSingleSafeEvent("dependency_unavailable");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("C0001");
+    }
+
+    @Test
+    void keepsRollbackFailureWithoutApplicationExceptionAsUnhandledServerError() {
+        TransactionSystemException exception = new TransactionSystemException(
+                "Could not roll back JDBC transaction",
+                new SQLException("duplicate key value", "23505"));
+
+        ResponseEntity<ApiErrorVO> response = handler.handleTransactionSystem(exception, request());
+
+        assertThatSingleSafeEvent("unhandled_exception");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("B0001");
+    }
+
+    @Test
+    void keepsIntegrityApplicationExceptionAsUnhandledServerError() {
+        TransactionSystemException exception = new TransactionSystemException(
+                "Could not roll back JDBC transaction", new SQLException("rollback interrupted"));
+        exception.initApplicationException(
+                new DataIntegrityViolationException("duplicate key value"));
+
+        ResponseEntity<ApiErrorVO> response = handler.handleTransactionSystem(exception, request());
+
+        assertThatSingleSafeEvent("unhandled_exception");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("B0001");
+    }
+
+    @Test
+    void keepsMappingApplicationExceptionAsUnhandledServerError() {
+        TransactionSystemException exception = new TransactionSystemException(
+                "commit failed", new SQLException("commit interrupted"));
+        exception.initApplicationException(new PersistenceException("mapping failed"));
+
+        ResponseEntity<ApiErrorVO> response = handler.handleTransactionSystem(exception, request());
+
+        assertThatSingleSafeEvent("unhandled_exception");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("B0001");
+    }
+
+    @Test
+    void keepsUnknownTransactionFailureAsUnhandledServerError() {
+        TransactionSystemException exception = new TransactionSystemException(
+                "commit failed", new IllegalStateException("unexpected state"));
+
+        ResponseEntity<ApiErrorVO> response = handler.handleTransactionSystem(exception, request());
+
+        assertThatSingleSafeEvent("unhandled_exception");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("B0001");
     }
 
     private void assertThatSingleSafeEvent(String operation) {

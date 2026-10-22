@@ -231,6 +231,21 @@ class SecurityFilterChainIntegrationTests {
     }
 
     @Test
+    void appliesDemotedDatabaseRoleToExistingToken() throws Exception {
+        register("alice_01");
+        String token = login("alice_01");
+        jdbcTemplate.update("UPDATE app_user SET role = 'ADMIN' WHERE username = ?", "alice_01");
+        assertThat(get("/api/v1/admin/test/ping", token).statusCode()).isEqualTo(200);
+
+        jdbcTemplate.update("UPDATE app_user SET role = 'USER' WHERE username = ?", "alice_01");
+
+        assertErrorEnvelope(get("/api/v1/admin/test/ping", token), 403, "A0300");
+        HttpResponse<String> protectedResponse = get("/api/v1/test/protected", token);
+        assertThat(protectedResponse.statusCode()).isEqualTo(200);
+        assertThat(jsonBody(protectedResponse).get("role")).isEqualTo("USER");
+    }
+
+    @Test
     void rejectsSessionOwnedByAnotherAccount() throws Exception {
         register("alice_01");
         register("bob_01");

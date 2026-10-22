@@ -2,6 +2,11 @@ package com.betterlearning.server.model.dataobject;
 
 import java.time.OffsetDateTime;
 
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
 /**
  * 账号数据库行对象。
  *
@@ -14,33 +19,43 @@ import java.time.OffsetDateTime;
  * @author BetterLearning
  * @since 2026-10-22
  */
+@TableName("app_user")
 public class UserDO {
 
     /** 数据库主键；未赋值或映射缺失时为 {@code null}，业务读取后必须校验非空。 */
+    @TableId(value = "account_id", type = IdType.AUTO)
     private Long accountId;
 
     /** 规范化后的登录用户名。 */
+    @TableField("username")
     private String username;
 
     /** BCrypt 口令哈希；敏感值，仅用于认证，不得写入日志或响应。 */
+    @TableField("password_hash")
     private String passwordHash;
 
     /** E.164 手机号；未绑定时为 {@code null}。 */
+    @TableField("phone")
     private String phone;
 
     /** 小写邮箱；未绑定时为 {@code null}。 */
+    @TableField("email")
     private String email;
 
     /** 角色标识，如 {@code USER} 或 {@code ADMIN}。 */
+    @TableField("role")
     private String role;
 
     /** 令牌版本；数据库非空，映射层不得把缺失值静默转为 0。 */
+    @TableField("token_version")
     private Integer tokenVersion;
 
     /** 创建时间。 */
+    @TableField("created_at")
     private OffsetDateTime createdAt;
 
     /** 最后更新时间。 */
+    @TableField("updated_at")
     private OffsetDateTime updatedAt;
 
     /**

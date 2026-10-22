@@ -82,6 +82,12 @@ BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 
 应用启动时由 Flyway 自动执行 `server/src/main/resources/db/migration` 下的迁移。请使用为本服务单独准备的数据库，不要把迁移指向共享库或生产库。
 
+### 3.1 持久化实现
+
+用户表通过 MyBatis-Plus 3.5.17 访问，starter 传递 MyBatis 3.5.19 与 mybatis-spring 4.0.0。`UserDao` 边界保持不变，`MybatisUserDao` 是唯一生产实现；`UserDO` 使用显式 `@TableName`／`@TableId`／`@TableField` 映射，`UserMapper.xml` 固定注册的 `RETURNING account_id`、联系方式动态 `UPDATE` 与密码 CAS 语句。
+
+二级缓存关闭、`localCacheScope=STATEMENT`、`SIMPLE` 执行器、驼峰映射与 `NoLoggingImpl` 由 `config/MybatisConfiguration` 固定，不新增部署环境变量，也不启用含参数值的 SQL 日志。迁移实现与完整验收见 [docs/mybatis-migration-validation.md](docs/mybatis-migration-validation.md)。
+
 ## 4. 启动
 
 在仓库根目录：
@@ -233,9 +239,9 @@ cd server
 ./mvnw package
 ```
 
-默认 `./mvnw test` 执行全部测试，不跳过任何测试类。16 个依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
+默认 `./mvnw test` 执行全部测试，不跳过任何测试类。18 个依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
 
-2026-10-22 实测：`-Punit` 执行 20 个类共 192 项，`-Pintegration` 执行 16 个类共 131 项，两组无交集，合计 36 个测试类。
+2026-10-22 MyBatis-Plus 迁移后，本轮 `./mvnw -o clean verify` 报告按测试标签统计：unit 23 个类共 216 项、integration 18 个类共 137 项，合计 41 个测试类、353 项；最终门禁未另跑这两个 profile。
 
 现有测试类已覆盖的主要范围：
 
@@ -243,6 +249,7 @@ cd server
 | --- | --- |
 | 配置绑定与启动校验 | `config/AppPropertiesBindingTests`、`config/AppPropertiesValidationTests` |
 | 迁移与持久化 | `dao/UserPersistenceIntegrationTests`、`exception/UniqueConstraintMappingIntegrationTests` |
+| MyBatis 迁移与故障边界 | `config/MybatisConfigurationTests`、`dao/MybatisRuntimeIntegrationTests`、`dao/impl/MybatisUserDaoTests`、`dao/support/MybatisExceptionTranslatorTests`、`security/DatabaseOutageIntegrationTests`、`exception/GlobalExceptionHandlerLoggingTests` |
 | 注册、校验与 JSON 绑定 | `controller/UserRegistrationIntegrationTests`、`validation/UserRequestValidationTests`、`model/dto/UserRequestJacksonTests`、`converter/UserConverterTests`、`model/dataobject/UserDOTests` |
 | 登录与限流 | `controller/SessionLoginIntegrationTests`、`manager/RedisRateLimitManagerIntegrationTests`、`service/impl/SessionServiceImplTests` |
 | JWT 与会话 | `security/JwtTokenServiceTests`、`manager/RedisSessionManagerIntegrationTests`、`service/impl/SessionServiceImplLogoutTests` |
@@ -251,8 +258,8 @@ cd server
 | 退出 | `controller/SessionLogoutIntegrationTests` |
 | Swagger/OpenAPI | `controller/ApiDocumentationEnabledIntegrationTests`、`controller/ApiDocumentationDisabledIntegrationTests` |
 
-以上测试类覆盖六个接口的主要成功与失败路径。2026-10-22 最终回归 `./mvnw -o clean verify` 实际执行：36 个测试类、323 个用例全部通过（0 失败、0 错误、0 跳过），Checkstyle 0 违规，可执行 jar 打包成功；独立进程 HTTP 冒烟 19/19 项通过。详见 [docs/backend-conventions-validation.md](docs/backend-conventions-validation.md)。
+以上测试类覆盖六个接口的主要成功与失败路径。2026-10-22 MyBatis-Plus 迁移最终回归 `./mvnw -o clean verify` 实际执行：41 个测试类、353 个用例全部通过（按测试标签统计：unit 23 类 216 项、integration 18 类 137 项；0 失败、0 错误、0 跳过），最终门禁未另跑 `-Punit`／`-Pintegration`；Checkstyle 0 违规，可执行 jar 打包成功；同一 jar 的独立进程 HTTP 冒烟 44/44 项通过。详见 [docs/mybatis-migration-validation.md](docs/mybatis-migration-validation.md)。
 
-更早的 28 个测试类、272 个用例与 52 项独立进程验收属于上一轮历史证据，见 [docs/design/auth-acceptance.md](../docs/design/auth-acceptance.md)，不代表本轮结果。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
+迁移前的 36 个测试类、323 个用例与 19/19 项独立进程冒烟属于历史证据，见 [docs/backend-conventions-validation.md](docs/backend-conventions-validation.md)；更早的 28 个测试类、272 个用例与 52 项独立进程验收见 [docs/design/auth-acceptance.md](../docs/design/auth-acceptance.md)。这些历史记录不代表本轮结果，且保持原样。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
 
 本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。验收使用的临时容器与服务已清理，本仓库不保留任何测试服务或临时密钥。
