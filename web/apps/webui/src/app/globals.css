@@ -3,6 +3,15 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --auth-bg: #f5f8fe;
+  --auth-text: #152744;
+  --auth-muted: #71829b;
+  --auth-primary: #246bff;
+  --auth-brand-deep: #0b1e43;
+  --auth-primary-hover: #1b57d6;
+  --auth-primary-soft: #e8f0ff;
+  --auth-border: #e2eaf5;
+  --auth-danger: #c62f3b;
 }
 
 @theme inline {
@@ -29,4 +38,23 @@ body {
     "Microsoft YaHei",
     "Noto Sans SC",
     sans-serif;
+}
+.auth-wordmark {
+  font-size: 22px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .auth-wordmark {
+    font-size: 28px;
+  }
+}
+
+@media (min-width: 960px) {
+  .auth-wordmark {
+    font-size: 36px;
+  }
 }

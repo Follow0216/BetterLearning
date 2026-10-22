@@ -53,6 +53,8 @@ cp .env.example .env.local
 | `APP_AUTH_LOGIN_WINDOW` | `PT1M` | 否 | 登录限流窗口 |
 | `APP_AUTH_REGISTRATION_IP_LIMIT` | `10` | 否 | 注册按来源 IP 的固定窗口上限 |
 | `APP_AUTH_REGISTRATION_WINDOW` | `PT1H` | 否 | 注册限流窗口 |
+| `SPRING_SECURITY_USER_NAME` | 无 | dev 必填 | dev profile 初始化普通 USER 账号的用户名，去首尾空白并转小写 |
+| `SPRING_SECURITY_USER_PASSWORD` | 无 | dev 必填 | dev profile 初始化账号的密码，不 trim，8~64 个字符且 UTF-8 不超过 72 字节 |
 
 ### 2.2 环境文件加载规则
 
@@ -77,6 +79,25 @@ cp .env.example .env.local
 "/path/with space/start-server.sh" --check
 BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 ```
+
+### 2.3 dev 账号初始化
+
+仅在 `dev` profile 下，`DevUserAccountInitializer` 会在 Flyway 迁移完成后读取
+`SPRING_SECURITY_USER_NAME` 与 `SPRING_SECURITY_USER_PASSWORD`，确保 `app_user` 中存在一个
+`USER` 角色账号。该账号使用现有 `POST /api/v1/sessions` 与 JWT 登录，不启用 HTTP Basic／表单登录，
+不创建 `ADMIN`，也不新增接口。非 dev profile 不注册该初始化器。
+
+- 变量缺失、空白或格式非法时，在写库前阻止启动；错误信息只包含变量名与错误类型。
+- 变量按原始字面值读取，密码中的 `${...}` 不解析、不替换；用户名仍按现有规则规范化与校验。
+- 用户名去首尾空白并转小写；密码不 trim。密码要求 8~64 个字符、不能全为空白，且 UTF-8 不超过 72 字节。
+- 同名账号不存在时插入，数据库默认 `role=USER`、`token_version=0`。
+- 同名账号已存在且角色为 `USER`、密码匹配时，不修改账号、哈希、令牌版本或资料。
+- 同名账号密码不同或角色不是 `USER` 时启动失败，不覆盖、不改密、不提权。
+- 并发创建遇到用户名唯一冲突时，会在干净事务中回读并复核；其他数据库异常继续向上抛出。
+
+`application-dev.properties` 不再引用 `SPRING_SECURITY_USER_*`，避免配置文件再次引用变量并解析占位符；
+标准 `SPRING_SECURITY_USER_*` 仍可按 Boot relaxed binding 绑定到 `spring.security.user.*`，
+但业务账号由 dev 初始化器直接读取原始环境变量负责。业务登录始终使用数据库用户与 JWT，不启用 Basic。
 
 ## 3. 数据库迁移
 
