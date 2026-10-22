@@ -5,8 +5,7 @@ import javax.sql.DataSource;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.dao.UserDao;
-import com.betterlearning.server.dao.impl.MybatisUserDao;
-import com.betterlearning.server.dao.mapper.UserMapper;
+import com.betterlearning.server.mapper.UserMapper;
 
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -37,7 +36,7 @@ public final class MybatisTestContext implements AutoCloseable {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.registerBean(DataSource.class, () -> dataSource);
         context.register(MybatisConfiguration.class, MybatisPlusAutoConfiguration.class);
-        context.register(MybatisUserDao.class);
+        context.register(UserDao.class);
         context.refresh();
         return new MybatisTestContext(context);
     }

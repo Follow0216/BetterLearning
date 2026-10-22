@@ -1,4 +1,4 @@
-package com.betterlearning.server.dao.mapper;
+package com.betterlearning.server.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.betterlearning.server.model.dataobject.UserDO;

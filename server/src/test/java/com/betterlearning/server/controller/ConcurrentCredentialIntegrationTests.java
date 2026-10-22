@@ -6,12 +6,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -32,6 +28,10 @@ import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.model.dataobject.UserDO;
 import com.betterlearning.server.model.dto.ChangePasswordDTO;
 import com.betterlearning.server.service.UserService;
+import com.betterlearning.server.support.IntegrationContainers;
+import com.betterlearning.server.support.IntegrationProperties;
+import com.betterlearning.server.support.TestData;
+import com.betterlearning.server.support.TestHttpClient;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -39,7 +39,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -50,7 +49,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -58,9 +56,6 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
 class ConcurrentCredentialIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = " Passw0rd! ";
 
@@ -72,40 +67,24 @@ class ConcurrentCredentialIntegrationTests {
             "betterlearning-security-integration-secret".getBytes(StandardCharsets.UTF_8));
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS = IntegrationContainers.redis();
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-        registry.add("app.jwt.secret-base64", () -> SECRET);
-        registry.add("app.jwt.issuer", () -> "betterlearning-test");
-        registry.add("app.jwt.audience", () -> "betterlearning-client");
-        registry.add("app.auth.login.ip-limit", () -> "1000");
-        registry.add("app.auth.login.username-limit", () -> "1000");
-        registry.add("app.auth.registration.ip-limit", () -> "1000");
-        registry.add("app.cors.allowed-origins[0]", () -> "http://localhost:3000");
+        IntegrationProperties.registerInfrastructure(registry, POSTGRES, REDIS);
+        IntegrationProperties.registerJwt(registry, SECRET, "betterlearning-test",
+                "betterlearning-client");
+        IntegrationProperties.registerRateLimits(registry);
+        IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
     }
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
 
     @LocalServerPort
     private int port;
 
-    private String baseUrl;
+    private TestHttpClient http;
 
     @Autowired
     private UserService userService;
@@ -127,12 +106,8 @@ class ConcurrentCredentialIntegrationTests {
 
     @BeforeEach
     void cleanState() {
-        baseUrl = "http://127.0.0.1:" + port;
-        jdbcTemplate.update("TRUNCATE TABLE app_user RESTART IDENTITY");
-        redisTemplate.execute((RedisCallback<Void>) connection -> {
-            connection.serverCommands().flushDb();
-            return null;
-        });
+        http = new TestHttpClient(port, jsonMapper);
+        TestData.clean(jdbcTemplate, redisTemplate);
     }
 
     @Test
@@ -264,14 +239,11 @@ class ConcurrentCredentialIntegrationTests {
     }
 
     private HttpResponse<String> post(String path, String body) throws Exception {
-        return httpClient.send(HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return http.post(path, body);
     }
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> jsonBody(HttpResponse<String> response) {
-        return jsonMapper.readValue(response.body(), Map.class);
+        return http.jsonBody(response);
     }
 }

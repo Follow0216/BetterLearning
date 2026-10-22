@@ -16,11 +16,11 @@ import java.util.Map;
 import javax.sql.DataSource;
 
 import com.betterlearning.server.config.AppAuthProperties;
-import com.betterlearning.server.converter.UserConverter;
+import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.MybatisTestContext;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
 import com.betterlearning.server.exception.GlobalExceptionHandler;
-import com.betterlearning.server.manager.RedisRateLimitManager;
+import com.betterlearning.server.manager.RateLimitManager;
 import com.betterlearning.server.security.TraceIdFilter;
 import com.betterlearning.server.service.impl.UserServiceImpl;
 
@@ -50,7 +50,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
+
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -59,23 +59,15 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class UserRegistrationIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
-
     private static final String PASSWORD = " Passw0rd! ";
 
     private static final int REGISTRATION_IP_LIMIT = 3;
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS = IntegrationContainers.redis();
 
     private static JdbcTemplate jdbcTemplate;
 
@@ -120,8 +112,8 @@ class UserRegistrationIntegrationTests {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         UserServiceImpl userService = new UserServiceImpl(
-                mybatisContext.userDao(), passwordEncoder, new UserConverter(),
-                new RedisRateLimitManager(redisTemplate, authProperties));
+                mybatisContext.userDao(), passwordEncoder,
+                new RateLimitManager(redisTemplate, authProperties));
         mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService))
                 .setControllerAdvice(
                         new GlobalExceptionHandler(new ApiErrorResponseFactory()))

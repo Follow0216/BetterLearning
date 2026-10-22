@@ -12,8 +12,8 @@ import org.springframework.context.annotation.Configuration;
  * OpenAPI 文档元数据与认证方案配置。
  *
  * <p>声明接口标题、版本与错误码说明，并注册名为 {@link #BEARER_SCHEME} 的 HTTP Bearer
- * 认证方案，供 Swagger UI 的 Authorize 使用。文档本身是否暴露由 {@code app.docs.enabled}
- * 控制，默认关闭。</p>
+ * 认证方案，供 Swagger UI 的 Authorize 使用。文档本身是否暴露由环境变量
+ * {@code APP_DOCS_ENABLED} 直接映射的 springdoc 开关控制，默认关闭。</p>
  *
  * @author BetterLearning
  * @since 2026-10-22
@@ -39,7 +39,7 @@ public class OpenApiConfiguration {
                                 + "除注册和登录外，其余接口均要求在 Authorization 头中携带 Bearer JWT。"
                                 + "错误响应 code 为 5 位字符串（A 用户端、B 系统执行、C 第三方服务，"
                                 + "后四位为编号，与 HTTP 状态码无关）；完整列表见 "
-                                + "server/docs/error-codes.md。"))
+                                + "server/README.md 第 5.5 节。"))
                 .components(new Components().addSecuritySchemes(BEARER_SCHEME,
                         new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)

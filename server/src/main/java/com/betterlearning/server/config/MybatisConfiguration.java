@@ -13,7 +13,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * MyBatis-Plus 固定装配约定。
  *
- * <p>只扫描 {@code dao.mapper} 下的 Mapper；SqlSessionFactory、SqlSessionTemplate 与事务管理器
+ * <p>只扫描 {@code mapper} 包下的 Mapper；SqlSessionFactory、SqlSessionTemplate 与事务管理器
  * 由 starter 自动构建，不在此手工创建。缓存、执行器、映射与日志策略集中通过属性定制器固定。</p>
  *
  * @author BetterLearning
@@ -24,7 +24,7 @@ import org.springframework.context.annotation.Configuration;
 public class MybatisConfiguration {
 
     /** Mapper 接口所在包。 */
-    static final String MAPPER_PACKAGE = "com.betterlearning.server.dao.mapper";
+    static final String MAPPER_PACKAGE = "com.betterlearning.server.mapper";
 
     /** Mapper XML 固定位置。 */
     static final String MAPPER_LOCATIONS = "classpath*:/mapper/**/*.xml";

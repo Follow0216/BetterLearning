@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Configuration;
         AppJwtProperties.class,
         AppAuthProperties.class,
         AppCorsProperties.class,
-        AppDocsProperties.class,
         DataSourcePasswordProperties.class
 })
 public class AppPropertiesConfiguration {

@@ -25,7 +25,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
@@ -61,7 +60,7 @@ class UserServiceImplPasswordTests {
     void setUp() {
         userDao = mock(UserDao.class);
         passwordEncoder = mock(PasswordEncoder.class);
-        userService = new UserServiceImpl(userDao, passwordEncoder, new UserConverter(),
+        userService = new UserServiceImpl(userDao, passwordEncoder,
                 mock(RateLimitManager.class));
     }
 
