@@ -9,7 +9,7 @@ import com.betterlearning.server.model.vo.UserVO;
  * 账户业务服务：注册、资料查询、资料更新与密码修改。
  *
  * <p>调用方完成字段校验；本服务在业务处理前规范化相应输入。实现负责事务边界、唯一冲突翻译
- * 与业务异常转换。对外错误码见 {@code server/docs/error-codes.md}。</p>
+ * 与业务异常转换。对外错误码见 {@code server/README.md} 第 5.5 节。</p>
  *
  * @author BetterLearning
  * @since 2026-10-22

@@ -29,7 +29,6 @@ class AppPropertiesBindingTests {
             assertThat(jwt.getAccessTokenTtl()).isEqualTo(Duration.ofHours(2));
             assertThat(jwt.getIssuer()).isEqualTo("betterlearning-server");
             assertThat(jwt.getAudience()).isEqualTo("betterlearning-api");
-            assertThat(context.getBean(AppDocsProperties.class).isEnabled()).isFalse();
             assertThat(context.getBean(AppAuthProperties.class).getLogin().getIpLimit()).isEqualTo(30);
             assertThat(context.getBean(AppAuthProperties.class).getRegistration().getWindow())
                     .isEqualTo(Duration.ofHours(1));
@@ -87,8 +86,8 @@ class AppPropertiesBindingTests {
 
     @Test
     void docsSwitchMapsToSwaggerUiAndApiDocs() {
-        assertDocsSwitch("false", false);
-        assertDocsSwitch("true", true);
+        assertDocsSwitch("false");
+        assertDocsSwitch("true");
     }
 
     @Test
@@ -101,6 +100,9 @@ class AppPropertiesBindingTests {
                 "APP_JWT_AUDIENCE=betterlearning-api")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
+                    Environment environment = context.getEnvironment();
+                    assertThat(environment.getProperty("springdoc.api-docs.enabled")).isEqualTo("false");
+                    assertThat(environment.getProperty("springdoc.swagger-ui.enabled")).isEqualTo("false");
                     AppJwtProperties jwt = context.getBean(AppJwtProperties.class);
                     assertThat(jwt.getIssuer()).isEqualTo("betterlearning-server");
                     assertThat(jwt.getAudience()).isEqualTo("betterlearning-api");
@@ -200,7 +202,7 @@ class AppPropertiesBindingTests {
                 .withUserConfiguration(AppPropertiesConfiguration.class);
     }
 
-    private void assertDocsSwitch(String value, boolean expected) {
+    private void assertDocsSwitch(String value) {
         realConfigRunner()
                 .withPropertyValues(
                 "SPRING_DATASOURCE_PASSWORD=db-secret",
@@ -211,10 +213,8 @@ class AppPropertiesBindingTests {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     Environment environment = context.getEnvironment();
-                    assertThat(environment.getProperty("app.docs.enabled")).isEqualTo(value);
                     assertThat(environment.getProperty("springdoc.api-docs.enabled")).isEqualTo(value);
                     assertThat(environment.getProperty("springdoc.swagger-ui.enabled")).isEqualTo(value);
-                    assertThat(context.getBean(AppDocsProperties.class).isEnabled()).isEqualTo(expected);
                 });
     }
 

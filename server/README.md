@@ -84,9 +84,9 @@ BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 
 ### 3.1 持久化实现
 
-用户表通过 MyBatis-Plus 3.5.17 访问，starter 传递 MyBatis 3.5.19 与 mybatis-spring 4.0.0。`UserDao` 边界保持不变，`MybatisUserDao` 是唯一生产实现；`UserDO` 使用显式 `@TableName`／`@TableId`／`@TableField` 映射，`UserMapper.xml` 固定注册的 `RETURNING account_id`、联系方式动态 `UPDATE` 与密码 CAS 语句。
+用户表通过 MyBatis-Plus 3.5.17 访问，starter 传递 MyBatis 3.5.19 与 mybatis-spring 4.0.0。`UserDao` 是唯一生产数据访问类，构造注入 `UserMapper`，并在类内完成唯一约束与连接故障翻译；`UserMapper` 位于同级的 `mapper` 包，`UserDO` 使用显式 `@TableName`／`@TableId`／`@TableField` 映射，`UserMapper.xml` 固定注册的 `RETURNING account_id`、联系方式动态 `UPDATE` 与密码 CAS 语句。
 
-二级缓存关闭、`localCacheScope=STATEMENT`、`SIMPLE` 执行器、驼峰映射与 `NoLoggingImpl` 由 `config/MybatisConfiguration` 固定，不新增部署环境变量，也不启用含参数值的 SQL 日志。迁移实现与完整验收见 [docs/mybatis-migration-validation.md](docs/mybatis-migration-validation.md)。
+二级缓存关闭、`localCacheScope=STATEMENT`、`SIMPLE` 执行器、驼峰映射与 `NoLoggingImpl` 由 `config/MybatisConfiguration` 固定，不新增部署环境变量，也不启用含参数值的 SQL 日志。
 
 ## 4. 启动
 
@@ -177,7 +177,7 @@ java -jar target/server-0.0.1-SNAPSHOT.jar
 
 ### 5.5 错误码
 
-对外 `code` 为 5 位字符串：首位 A 表示用户端错误、B 表示系统执行错误、C 表示第三方服务错误，后四位为编号。编号与 HTTP 状态码相互独立。完整说明、触发场景与迁移指引见 [docs/error-codes.md](docs/error-codes.md)。
+对外 `code` 为 5 位字符串：首位 A 表示用户端错误、B 表示系统执行错误、C 表示第三方服务错误，后四位为编号。编号与 HTTP 状态码相互独立。完整说明与触发场景见本页第 5.5 节错误码表。
 
 | 状态 | `code` | Java 枚举 | 含义 |
 | --- | --- | --- | --- |
@@ -218,16 +218,7 @@ cd server
 ./mvnw checkstyle:check  # 仅执行 Checkstyle
 ```
 
-使用固定版本 `maven-checkstyle-plugin` 3.6.0（默认 Checkstyle 9.3），规则位于 `config/checkstyle/checkstyle.xml`，覆盖 `src/main/java` 与 `src/test/java`：
-
-- `FileTabCharacter`：禁止 Tab；
-- `NewlineAtEndOfFile`：文件必须以换行结尾；
-- `Indentation`：4 空格基本缩进、8 空格续行；
-- `RightCurly`：`} else {`、`} catch {`、`} finally {` 保持同一行。
-
-违规时构建失败。该配置只检查上述格式子集，不代表阿里巴巴 Java 开发手册全量合规，也未启用命名、Javadoc、复杂度等其他规则。
-
-2026-10-22 实际验证：`./mvnw validate` 与 `./mvnw checkstyle:check` 均为 0 违规，`./mvnw test-compile` BUILD SUCCESS。
+使用固定版本 `maven-checkstyle-plugin` 3.6.0（默认 Checkstyle 9.3），规则位于 `config/checkstyle/checkstyle.xml`，覆盖 `src/main/java` 与 `src/test/java`。该配置只检查格式子集，不代表阿里巴巴 Java 开发手册全量合规；违规时构建失败。
 
 ## 7. 测试
 
@@ -239,9 +230,7 @@ cd server
 ./mvnw package
 ```
 
-默认 `./mvnw test` 执行全部测试，不跳过任何测试类。18 个依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
-
-2026-10-22 MyBatis-Plus 迁移后，本轮 `./mvnw -o clean verify` 报告按测试标签统计：unit 23 个类共 216 项、integration 18 个类共 137 项，合计 41 个测试类、353 项；最终门禁未另跑这两个 profile。
+默认 `./mvnw test` 执行全部测试，不跳过任何测试类。依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
 
 现有测试类已覆盖的主要范围：
 
@@ -249,17 +238,15 @@ cd server
 | --- | --- |
 | 配置绑定与启动校验 | `config/AppPropertiesBindingTests`、`config/AppPropertiesValidationTests` |
 | 迁移与持久化 | `dao/UserPersistenceIntegrationTests`、`exception/UniqueConstraintMappingIntegrationTests` |
-| MyBatis 迁移与故障边界 | `config/MybatisConfigurationTests`、`dao/MybatisRuntimeIntegrationTests`、`dao/impl/MybatisUserDaoTests`、`dao/support/MybatisExceptionTranslatorTests`、`security/DatabaseOutageIntegrationTests`、`exception/GlobalExceptionHandlerLoggingTests` |
+| MyBatis 迁移与故障边界 | `config/MybatisConfigurationTests`、`dao/MybatisRuntimeIntegrationTests`、`dao/UserDaoTests`、`security/DatabaseOutageIntegrationTests`、`exception/GlobalExceptionHandlerLoggingTests` |
 | 注册、校验与 JSON 绑定 | `controller/UserRegistrationIntegrationTests`、`validation/UserRequestValidationTests`、`model/dto/UserRequestJacksonTests`、`converter/UserConverterTests`、`model/dataobject/UserDOTests` |
-| 登录与限流 | `controller/SessionLoginIntegrationTests`、`manager/RedisRateLimitManagerIntegrationTests`、`service/impl/SessionServiceImplTests` |
-| JWT 与会话 | `security/JwtTokenServiceTests`、`manager/RedisSessionManagerIntegrationTests`、`service/impl/SessionServiceImplLogoutTests` |
+| 登录与限流 | `controller/SessionLoginIntegrationTests`、`manager/RateLimitManagerIntegrationTests`、`service/impl/SessionServiceImplTests` |
+| JWT 与会话 | `security/JwtTokenServiceTests`、`manager/SessionManagerIntegrationTests`、`service/impl/SessionServiceImplLogoutTests` |
 | 安全链、CORS 与依赖故障 | `security/SecurityFilterChainIntegrationTests`、`security/SecurityDependencyFailureIntegrationTests`、`security/JwtRejectionIntegrationTests`、`security/RedisOutageIntegrationTests`、`security/TraceIdFilterTests`、`exception/GlobalExceptionHandlerTests` |
 | 资料、改密与并发 | `controller/UserProfileIntegrationTests`、`controller/ChangePasswordIntegrationTests`、`service/impl/UserServiceImplPasswordTests`、`controller/ConcurrentCredentialIntegrationTests` |
 | 退出 | `controller/SessionLogoutIntegrationTests` |
 | Swagger/OpenAPI | `controller/ApiDocumentationEnabledIntegrationTests`、`controller/ApiDocumentationDisabledIntegrationTests` |
 
-以上测试类覆盖六个接口的主要成功与失败路径。2026-10-22 MyBatis-Plus 迁移最终回归 `./mvnw -o clean verify` 实际执行：41 个测试类、353 个用例全部通过（按测试标签统计：unit 23 类 216 项、integration 18 类 137 项；0 失败、0 错误、0 跳过），最终门禁未另跑 `-Punit`／`-Pintegration`；Checkstyle 0 违规，可执行 jar 打包成功；同一 jar 的独立进程 HTTP 冒烟 44/44 项通过。详见 [docs/mybatis-migration-validation.md](docs/mybatis-migration-validation.md)。
-
-迁移前的 36 个测试类、323 个用例与 19/19 项独立进程冒烟属于历史证据，见 [docs/backend-conventions-validation.md](docs/backend-conventions-validation.md)；更早的 28 个测试类、272 个用例与 52 项独立进程验收见 [docs/design/auth-acceptance.md](../docs/design/auth-acceptance.md)。这些历史记录不代表本轮结果，且保持原样。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
+以上测试类覆盖六个接口的主要成功与失败路径。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
 
 本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。验收使用的临时容器与服务已清理，本仓库不保留任何测试服务或临时密钥。

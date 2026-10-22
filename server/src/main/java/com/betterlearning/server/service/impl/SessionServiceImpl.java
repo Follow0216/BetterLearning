@@ -46,8 +46,6 @@ public class SessionServiceImpl implements SessionService {
 
     private final RateLimitManager rateLimitManager;
 
-    private final UserConverter userConverter;
-
     private final String dummyPasswordHash;
 
     /**
@@ -60,17 +58,15 @@ public class SessionServiceImpl implements SessionService {
      * @param jwtTokenService 令牌签发服务
      * @param sessionManager 会话存储
      * @param rateLimitManager 登录限流
-     * @param userConverter 用户对象转换器
      */
     public SessionServiceImpl(UserDao userDao, PasswordEncoder passwordEncoder,
             JwtTokenService jwtTokenService, SessionManager sessionManager,
-            RateLimitManager rateLimitManager, UserConverter userConverter) {
+            RateLimitManager rateLimitManager) {
         this.userDao = userDao;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;
         this.sessionManager = sessionManager;
         this.rateLimitManager = rateLimitManager;
-        this.userConverter = userConverter;
         this.dummyPasswordHash = passwordEncoder.encode(DUMMY_PASSWORD);
     }
 
@@ -101,7 +97,7 @@ public class SessionServiceImpl implements SessionService {
         long expiresIn = Duration.between(issuedToken.getIssuedAt(),
                 issuedToken.getExpiresAt()).getSeconds();
         return new SessionVO(issuedToken.getToken(), expiresIn,
-                userConverter.toVO(user));
+                UserConverter.toVO(user));
     }
 
     /**

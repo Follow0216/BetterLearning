@@ -3,18 +3,21 @@ package com.betterlearning.server.converter;
 import com.betterlearning.server.model.dataobject.UserDO;
 import com.betterlearning.server.model.vo.UserVO;
 
-import org.springframework.stereotype.Component;
-
 /**
- * 用户持久化对象到响应对象的转换器。
+ * 用户持久化对象到响应对象的转换工具。
  *
  * <p>只做对象字段映射，不查询数据库、不修改入参。账号 ID 在响应中统一转为字符串。</p>
  *
  * @author BetterLearning
  * @since 2026-10-22
  */
-@Component
-public class UserConverter {
+public final class UserConverter {
+
+    /**
+     * 工具类，禁止实例化。
+     */
+    private UserConverter() {
+    }
 
     /**
      * 将用户记录转换为对外资料。
@@ -23,7 +26,7 @@ public class UserConverter {
      * @return 资料对象；入参为 {@code null} 时返回 {@code null}
      * @throws IllegalStateException 记录缺少账号 ID，无法生成稳定标识
      */
-    public UserVO toVO(UserDO user) {
+    public static UserVO toVO(UserDO user) {
         if (user == null) {
             return null;
         }

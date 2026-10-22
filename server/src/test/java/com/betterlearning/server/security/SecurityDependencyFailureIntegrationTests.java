@@ -5,12 +5,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 
@@ -18,7 +14,11 @@ import com.betterlearning.server.dao.UserDao;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.manager.SessionManager;
+import com.betterlearning.server.support.IntegrationContainers;
+import com.betterlearning.server.support.IntegrationProperties;
+import com.betterlearning.server.support.TestHttpClient;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +33,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -43,37 +42,22 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class SecurityDependencyFailureIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
-
     private static final String SECRET = Base64.getEncoder().encodeToString(
             "betterlearning-security-integration-secret".getBytes(StandardCharsets.UTF_8));
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS = IntegrationContainers.redis();
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-        registry.add("app.jwt.secret-base64", () -> SECRET);
-        registry.add("app.jwt.issuer", () -> "betterlearning-test");
-        registry.add("app.jwt.audience", () -> "betterlearning-client");
-        registry.add("app.auth.login.ip-limit", () -> "1000");
-        registry.add("app.auth.login.username-limit", () -> "1000");
-        registry.add("app.auth.registration.ip-limit", () -> "1000");
-        registry.add("app.cors.allowed-origins[0]", () -> "http://localhost:3000");
+        IntegrationProperties.registerInfrastructure(registry, POSTGRES, REDIS);
+        IntegrationProperties.registerJwt(registry, SECRET, "betterlearning-test",
+                "betterlearning-client");
+        IntegrationProperties.registerRateLimits(registry);
+        IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
     }
 
     @MockitoBean
@@ -91,9 +75,12 @@ class SecurityDependencyFailureIntegrationTests {
     @LocalServerPort
     private int port;
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
+    private TestHttpClient http;
+
+    @BeforeEach
+    void createClient() {
+        http = new TestHttpClient(port, jsonMapper);
+    }
 
     @Test
     void returns503WhenSessionStoreUnavailable() throws Exception {
@@ -130,13 +117,7 @@ class SecurityDependencyFailureIntegrationTests {
 
     private HttpResponse<String> getProtected() throws Exception {
         String token = jwtTokenService.issue(1L, 0).getToken();
-        HttpRequest request = HttpRequest.newBuilder(
-                URI.create("http://127.0.0.1:" + port + "/api/v1/test/protected"))
-                .header("Authorization", "Bearer " + token)
-                .GET()
-                .build();
-        HttpResponse<String> response = httpClient.send(request,
-                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> response = http.get("/api/v1/test/protected", token);
         assertThat(response.body()).doesNotContain(token).doesNotContain("Bearer ");
         return response;
     }
@@ -153,6 +134,6 @@ class SecurityDependencyFailureIntegrationTests {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> jsonBody(HttpResponse<String> response) {
-        return jsonMapper.readValue(response.body(), Map.class);
+        return http.jsonBody(response);
     }
 }

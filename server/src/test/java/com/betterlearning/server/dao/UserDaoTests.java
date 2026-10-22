@@ -1,7 +1,8 @@
-package com.betterlearning.server.dao.impl;
+package com.betterlearning.server.dao;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -13,7 +14,7 @@ import static org.mockito.Mockito.when;
 import java.sql.SQLException;
 import java.util.List;
 
-import com.betterlearning.server.dao.mapper.UserMapper;
+import com.betterlearning.server.mapper.UserMapper;
 import com.betterlearning.server.model.dataobject.UserDO;
 
 import org.apache.ibatis.exceptions.PersistenceException;
@@ -24,16 +25,24 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
-class MybatisUserDaoTests {
+/**
+ * 验证 {@link UserDao} 的查询、写入、连接故障与完整性异常边界。
+ *
+ * <p>全部用例通过 mock {@link UserMapper} 驱动 DAO 公开方法，不依赖数据库。</p>
+ *
+ * @author BetterLearning
+ * @since 2026-10-22
+ */
+class UserDaoTests {
 
     private UserMapper userMapper;
 
-    private MybatisUserDao userDao;
+    private UserDao userDao;
 
     @BeforeEach
     void setUp() {
         userMapper = mock(UserMapper.class);
-        userDao = new MybatisUserDao(userMapper);
+        userDao = new UserDao(userMapper);
     }
 
     @Test
@@ -129,6 +138,66 @@ class MybatisUserDaoTests {
         when(userMapper.insertReturningAccountId(anyString(), anyString())).thenThrow(failure);
 
         assertThatThrownBy(() -> userDao.insert("alice", "hash")).isSameAs(failure);
+    }
+
+    @Test
+    void translatesPersistenceExceptionWrappingConnectionFailure() {
+        CannotGetJdbcConnectionException connectionFailure = connectionCause();
+        PersistenceException mybatisFailure =
+                new PersistenceException("query failed", connectionFailure);
+        when(userMapper.selectList(any())).thenThrow(mybatisFailure);
+
+        Throwable translated = catchThrowable(() -> userDao.findByUsername("alice"));
+
+        assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(translated).hasCause(mybatisFailure);
+        assertThat(translated.getCause().getCause()).isSameAs(connectionFailure);
+    }
+
+    @Test
+    void translatesNestedConnectionFailure() {
+        CannotGetJdbcConnectionException connectionFailure = connectionCause();
+        PersistenceException mybatisFailure = new PersistenceException("query failed",
+                new IllegalStateException("wrapper", connectionFailure));
+        when(userMapper.selectList(any())).thenThrow(mybatisFailure);
+
+        Throwable translated = catchThrowable(() -> userDao.findByUsername("alice"));
+
+        assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(translated).hasCause(mybatisFailure);
+        assertThat(translated.getCause().getCause().getCause()).isSameAs(connectionFailure);
+    }
+
+    @Test
+    void translatesMybatisSystemExceptionWrappingConnectionFailure() {
+        CannotGetJdbcConnectionException connectionFailure = connectionCause();
+        MyBatisSystemException mybatisFailure =
+                new MyBatisSystemException("query failed", connectionFailure);
+        when(userMapper.selectById(anyLong())).thenThrow(mybatisFailure);
+
+        Throwable translated = catchThrowable(() -> userDao.findByAccountId(1L));
+
+        assertThat(translated).isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(translated).hasCause(mybatisFailure);
+    }
+
+    @Test
+    void keepsPersistenceExceptionWithoutConnectionFailure() {
+        PersistenceException mybatisFailure =
+                new PersistenceException("mapping failed", new IllegalArgumentException("bad mapper"));
+        when(userMapper.selectList(any())).thenThrow(mybatisFailure);
+
+        assertThatThrownBy(() -> userDao.findByUsername("alice")).isSameAs(mybatisFailure);
+    }
+
+    @Test
+    void keepsIntegrityViolationAsOriginal() {
+        DataIntegrityViolationException integrityFailure =
+                new DataIntegrityViolationException("duplicate key");
+        when(userMapper.insertReturningAccountId(anyString(), anyString()))
+                .thenThrow(integrityFailure);
+
+        assertThatThrownBy(() -> userDao.insert("alice", "hash")).isSameAs(integrityFailure);
     }
 
     private static PersistenceException connectionFailure() {

@@ -49,7 +49,7 @@ import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @Tag("integration")
-class RedisRateLimitManagerIntegrationTests {
+class RateLimitManagerIntegrationTests {
 
     @Container
     static final GenericContainer<?> REDIS =
@@ -60,7 +60,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     private static StringRedisTemplate redisTemplate;
 
-    private RedisRateLimitManager rateLimitManager;
+    private RateLimitManager rateLimitManager;
 
     @BeforeAll
     static void setUp() {
@@ -84,7 +84,7 @@ class RedisRateLimitManagerIntegrationTests {
             connection.serverCommands().flushDb();
             return null;
         });
-        rateLimitManager = new RedisRateLimitManager(redisTemplate,
+        rateLimitManager = new RateLimitManager(redisTemplate,
                 properties(3, Duration.ofHours(1), 2, 2, Duration.ofHours(1)));
     }
 
@@ -99,7 +99,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void recoversAfterWindowExpires() throws InterruptedException {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(2, Duration.ofMillis(500), 2, 2, Duration.ofHours(1)));
         manager.checkRegistration("203.0.113.11");
         manager.checkRegistration("203.0.113.11");
@@ -113,7 +113,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void doesNotExtendWindowOnRepeatedRequests() throws InterruptedException {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(10, Duration.ofSeconds(3), 2, 2, Duration.ofHours(1)));
         manager.checkRegistration("203.0.113.12");
         Set<String> keys = redisTemplate.keys("rate:registration:ip:*");
@@ -131,7 +131,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void differentRegistrationIpsAreIndependent() {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(1, Duration.ofHours(1), 2, 2, Duration.ofHours(1)));
 
         manager.checkRegistration("203.0.113.13");
@@ -141,7 +141,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void differentLoginUsernamesAreIndependent() {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(10, Duration.ofHours(1), 100, 1, Duration.ofHours(1)));
 
         manager.checkLogin("198.51.100.10", "alice");
@@ -151,7 +151,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void loginRejectsWhenEitherDimensionIsExceeded() {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(10, Duration.ofHours(1), 2, 1, Duration.ofHours(1)));
 
         manager.checkLogin("198.51.100.11", "alice");
@@ -162,7 +162,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void concurrentRequestsNeverExceedLimit() throws Exception {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(5, Duration.ofSeconds(10), 2, 2, Duration.ofHours(1)));
         ExecutorService executor = Executors.newFixedThreadPool(10);
         CountDownLatch start = new CountDownLatch(1);
@@ -206,7 +206,7 @@ class RedisRateLimitManagerIntegrationTests {
         try {
             StringRedisTemplate failingTemplate = new StringRedisTemplate(failingFactory);
             failingTemplate.afterPropertiesSet();
-            RedisRateLimitManager failingManager = new RedisRateLimitManager(
+            RateLimitManager failingManager = new RateLimitManager(
                     failingTemplate, properties(3, Duration.ofHours(1), 2, 2,
                     Duration.ofHours(1)));
 
@@ -221,7 +221,7 @@ class RedisRateLimitManagerIntegrationTests {
 
     @Test
     void storesDigestedKeysWithoutRawIpOrUsername() {
-        RedisRateLimitManager manager = new RedisRateLimitManager(redisTemplate,
+        RateLimitManager manager = new RateLimitManager(redisTemplate,
                 properties(10, Duration.ofHours(1), 100, 100, Duration.ofHours(1)));
 
         manager.checkLogin("192.0.2.10", "alice");
@@ -243,9 +243,9 @@ class RedisRateLimitManagerIntegrationTests {
                 new DataAccessResourceFailureException("PWD_MARKER_9f3a");
         when(failingTemplate.execute(any(RedisScript.class), anyList(), any(), any()))
                 .thenThrow(failure);
-        RedisRateLimitManager failingManager = new RedisRateLimitManager(failingTemplate,
+        RateLimitManager failingManager = new RateLimitManager(failingTemplate,
                 properties(3, Duration.ofHours(1), 2, 2, Duration.ofHours(1)));
-        Logger logger = (Logger) LoggerFactory.getLogger(RedisRateLimitManager.class);
+        Logger logger = (Logger) LoggerFactory.getLogger(RateLimitManager.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);

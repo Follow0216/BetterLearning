@@ -16,8 +16,6 @@ import org.junit.jupiter.api.Test;
 
 class UserConverterTests {
 
-    private final UserConverter userConverter = new UserConverter();
-
     @Test
     void mapsPublicFieldsAndFormatsAccountIdAsString() {
         UserDO user = new UserDO();
@@ -31,7 +29,7 @@ class UserConverterTests {
         user.setCreatedAt(OffsetDateTime.parse("2026-10-22T10:00:00Z"));
         user.setUpdatedAt(OffsetDateTime.parse("2026-10-22T11:00:00Z"));
 
-        UserVO result = userConverter.toVO(user);
+        UserVO result = UserConverter.toVO(user);
 
         assertThat(result.getAccountId()).isEqualTo("42");
         assertThat(result.getUsername()).isEqualTo("alice_01");
@@ -56,7 +54,7 @@ class UserConverterTests {
 
     @Test
     void returnsNullForNullUser() {
-        assertThat(userConverter.toVO(null)).isNull();
+        assertThat(UserConverter.toVO(null)).isNull();
     }
 
     @Test
@@ -64,7 +62,7 @@ class UserConverterTests {
         UserDO user = new UserDO();
         user.setUsername("alice_01");
 
-        assertThatThrownBy(() -> userConverter.toVO(user))
+        assertThatThrownBy(() -> UserConverter.toVO(user))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("account_id");
     }

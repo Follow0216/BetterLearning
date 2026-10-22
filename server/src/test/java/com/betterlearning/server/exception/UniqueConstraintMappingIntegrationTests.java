@@ -3,6 +3,9 @@ package com.betterlearning.server.exception;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -13,13 +16,12 @@ import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
-import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
 
-import com.betterlearning.server.dao.support.UserConstraintTranslator;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.enums.UserUniqueField;
 import com.betterlearning.server.manager.RateLimitManager;
+import com.betterlearning.server.mapper.UserMapper;
 import com.betterlearning.server.model.dto.RegisterUserDTO;
 import com.betterlearning.server.model.dto.UpdateProfileDTO;
 import com.betterlearning.server.model.vo.ApiErrorVO;
@@ -58,16 +60,7 @@ class UniqueConstraintMappingIntegrationTests {
 
     private static final String PASSWORD = "password1";
 
-    private static final RateLimitManager NO_LIMIT_MANAGER = new RateLimitManager() {
-
-        @Override
-        public void checkRegistration(String clientIp) {
-        }
-
-        @Override
-        public void checkLogin(String clientIp, String normalizedUsername) {
-        }
-    };
+    private static final RateLimitManager NO_LIMIT_MANAGER = mock(RateLimitManager.class);
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -99,7 +92,7 @@ class UniqueConstraintMappingIntegrationTests {
         mybatisContext = MybatisTestContext.create(dataSource);
         userDao = mybatisContext.userDao();
         userService = new UserServiceImpl(userDao, new BCryptPasswordEncoder(),
-                new UserConverter(), NO_LIMIT_MANAGER);
+                NO_LIMIT_MANAGER);
         handler = new GlobalExceptionHandler(new ApiErrorResponseFactory());
     }
 
@@ -228,10 +221,15 @@ class UniqueConstraintMappingIntegrationTests {
 
     @Test
     void leavesNonPostgresIntegrityViolationUntranslated() {
+        UserMapper userMapper = mock(UserMapper.class);
         DataIntegrityViolationException exception =
                 new DataIntegrityViolationException("null value in column username");
+        when(userMapper.insertReturningAccountId(anyString(), anyString())).thenThrow(exception);
 
-        assertThat(UserConstraintTranslator.translate(exception)).isEmpty();
+        UserDao mockBackedDao = new UserDao(userMapper);
+
+        assertThatThrownBy(() -> mockBackedDao.insert("user_a", "hash"))
+                .isSameAs(exception);
     }
 
     @Test

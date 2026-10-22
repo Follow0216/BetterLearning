@@ -2,12 +2,8 @@ package com.betterlearning.server.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -17,13 +13,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import com.betterlearning.server.support.IntegrationContainers;
+import com.betterlearning.server.support.IntegrationProperties;
+import com.betterlearning.server.support.TestData;
+import com.betterlearning.server.support.TestHttpClient;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,7 +33,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -41,9 +40,6 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
 class ChangePasswordIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String OLD_PASSWORD = " Passw0rd! ";
 
@@ -53,40 +49,24 @@ class ChangePasswordIntegrationTests {
             "betterlearning-password-integration-secret".getBytes(StandardCharsets.UTF_8));
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS = IntegrationContainers.redis();
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-        registry.add("app.jwt.secret-base64", () -> SECRET);
-        registry.add("app.jwt.issuer", () -> "betterlearning-test");
-        registry.add("app.jwt.audience", () -> "betterlearning-client");
-        registry.add("app.auth.login.ip-limit", () -> "1000");
-        registry.add("app.auth.login.username-limit", () -> "1000");
-        registry.add("app.auth.registration.ip-limit", () -> "1000");
-        registry.add("app.cors.allowed-origins[0]", () -> "http://localhost:3000");
+        IntegrationProperties.registerInfrastructure(registry, POSTGRES, REDIS);
+        IntegrationProperties.registerJwt(registry, SECRET, "betterlearning-test",
+                "betterlearning-client");
+        IntegrationProperties.registerRateLimits(registry);
+        IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
     }
-
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
 
     @LocalServerPort
     private int port;
 
-    private String baseUrl;
+    private TestHttpClient http;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -102,12 +82,8 @@ class ChangePasswordIntegrationTests {
 
     @BeforeEach
     void cleanState() {
-        baseUrl = "http://127.0.0.1:" + port;
-        jdbcTemplate.update("TRUNCATE TABLE app_user RESTART IDENTITY");
-        redisTemplate.execute((RedisCallback<Void>) connection -> {
-            connection.serverCommands().flushDb();
-            return null;
-        });
+        http = new TestHttpClient(port, jsonMapper);
+        TestData.clean(jdbcTemplate, redisTemplate);
     }
 
     @Test
@@ -303,44 +279,28 @@ class ChangePasswordIntegrationTests {
     }
 
     private long register(String username) throws Exception {
-        HttpResponse<String> response = send(HttpRequest.newBuilder(uri("/api/v1/users"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(
-                "{\"username\":\"" + username + "\",\"password\":\"" + OLD_PASSWORD
-                + "\",\"confirmPassword\":\"" + OLD_PASSWORD + "\"}",
-                StandardCharsets.UTF_8)));
+        HttpResponse<String> response = http.post("/api/v1/users",
+                TestData.registerJson(username, OLD_PASSWORD));
         assertThat(response.statusCode()).isEqualTo(201);
-        return Long.parseLong((String) jsonBody(response).get("accountId"));
+        return Long.parseLong((String) http.jsonBody(response).get("accountId"));
     }
 
     private String loginToken(String username, String password) throws Exception {
         HttpResponse<String> response = login(username, password);
         assertThat(response.statusCode()).isEqualTo(201);
-        return (String) jsonBody(response).get("accessToken");
+        return (String) http.jsonBody(response).get("accessToken");
     }
 
     private HttpResponse<String> login(String username, String password) throws Exception {
-        return send(HttpRequest.newBuilder(uri("/api/v1/sessions"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}",
-                        StandardCharsets.UTF_8)));
+        return http.post("/api/v1/sessions", TestData.loginJson(username, password));
     }
 
     private HttpResponse<String> changePassword(String token, String body) throws Exception {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
-                .header("Content-Type", "application/json")
-                .method("PATCH", HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
-        if (token != null) {
-            builder.header("Authorization", "Bearer " + token);
-        }
-        return send(builder);
+        return http.patch("/api/v1/users/me/password", body, token);
     }
 
     private HttpResponse<String> me(String token) throws Exception {
-        return send(HttpRequest.newBuilder(uri("/api/v1/users/me"))
-                .header("Authorization", "Bearer " + token)
-                .GET());
+        return http.get("/api/v1/users/me", token);
     }
 
     private String changeBody(String oldPassword, String newPassword, String confirmPassword) {
@@ -359,18 +319,9 @@ class ChangePasswordIntegrationTests {
         return version == null ? -1 : version;
     }
 
-    private URI uri(String path) {
-        return URI.create(baseUrl + path);
-    }
-
-    private HttpResponse<String> send(HttpRequest.Builder builder) throws Exception {
-        return httpClient.send(builder.build(),
-                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    }
-
     @SuppressWarnings("unchecked")
     private Map<String, Object> jsonBody(HttpResponse<String> response) {
-        return jsonMapper.readValue(response.body(), Map.class);
+        return http.jsonBody(response);
     }
 
     private record ChangeResult(int status, String code, String message) {

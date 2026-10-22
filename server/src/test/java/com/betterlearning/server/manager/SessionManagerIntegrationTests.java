@@ -47,7 +47,7 @@ import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @Tag("integration")
-class RedisSessionManagerIntegrationTests {
+class SessionManagerIntegrationTests {
 
     private static final String SESSION_KEY_PREFIX = "auth:session:";
 
@@ -65,7 +65,7 @@ class RedisSessionManagerIntegrationTests {
 
     private static Clock clock;
 
-    private static RedisSessionManager sessionManager;
+    private static SessionManager sessionManager;
 
     @BeforeAll
     static void setUp() {
@@ -75,7 +75,7 @@ class RedisSessionManagerIntegrationTests {
         redisTemplate = new StringRedisTemplate(connectionFactory);
         redisTemplate.afterPropertiesSet();
         clock = Clock.systemUTC();
-        sessionManager = new RedisSessionManager(redisTemplate, clock);
+        sessionManager = new SessionManager(redisTemplate, clock);
     }
 
     @AfterAll
@@ -136,7 +136,7 @@ class RedisSessionManagerIntegrationTests {
     void rejectsTokenExpiringExactlyNow() {
         String jwtId = UUID.randomUUID().toString();
         Clock fixedClock = Clock.fixed(Instant.now(clock), ZoneOffset.UTC);
-        RedisSessionManager fixedManager = new RedisSessionManager(redisTemplate, fixedClock);
+        SessionManager fixedManager = new SessionManager(redisTemplate, fixedClock);
         IssuedToken expiringNow = new IssuedToken("token", jwtId,
                 fixedClock.instant().minusSeconds(7200), fixedClock.instant());
 
@@ -188,7 +188,7 @@ class RedisSessionManagerIntegrationTests {
         try {
             StringRedisTemplate failingTemplate = new StringRedisTemplate(failingFactory);
             failingTemplate.afterPropertiesSet();
-            RedisSessionManager failingManager = new RedisSessionManager(
+            SessionManager failingManager = new SessionManager(
                     failingTemplate, clock);
             String jwtId = UUID.randomUUID().toString();
             IssuedToken issued = token(jwtId, Duration.ofMinutes(5));
@@ -210,8 +210,8 @@ class RedisSessionManagerIntegrationTests {
         DataAccessResourceFailureException failure =
                 new DataAccessResourceFailureException("PWD_MARKER_9f3a");
         when(operations.get(SESSION_KEY_PREFIX + "jwt-cause")).thenThrow(failure);
-        RedisSessionManager failingManager = new RedisSessionManager(failingTemplate, clock);
-        Logger logger = (Logger) LoggerFactory.getLogger(RedisSessionManager.class);
+        SessionManager failingManager = new SessionManager(failingTemplate, clock);
+        Logger logger = (Logger) LoggerFactory.getLogger(SessionManager.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);

@@ -38,8 +38,6 @@ public class UserServiceImpl implements UserService {
 
     private final PasswordEncoder passwordEncoder;
 
-    private final UserConverter userConverter;
-
     private final RateLimitManager rateLimitManager;
 
     /**
@@ -47,14 +45,12 @@ public class UserServiceImpl implements UserService {
      *
      * @param userDao 用户数据访问
      * @param passwordEncoder 密码编码器
-     * @param userConverter 用户对象转换器
      * @param rateLimitManager 注册限流
      */
     public UserServiceImpl(UserDao userDao, PasswordEncoder passwordEncoder,
-            UserConverter userConverter, RateLimitManager rateLimitManager) {
+            RateLimitManager rateLimitManager) {
         this.userDao = userDao;
         this.passwordEncoder = passwordEncoder;
-        this.userConverter = userConverter;
         this.rateLimitManager = rateLimitManager;
     }
 
@@ -79,7 +75,7 @@ public class UserServiceImpl implements UserService {
         UserDO created = userDao.findByAccountId(accountId)
                 .orElseThrow(() -> new IllegalStateException(
                 "创建用户后未能读取记录: " + accountId));
-        return userConverter.toVO(created);
+        return UserConverter.toVO(created);
     }
 
     /**
@@ -90,7 +86,7 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(readOnly = true)
     public UserVO getProfile(long accountId) {
-        return userConverter.toVO(requireUser(accountId));
+        return UserConverter.toVO(requireUser(accountId));
     }
 
     /**
@@ -105,7 +101,7 @@ public class UserServiceImpl implements UserService {
         boolean phoneProvided = request.isPhoneProvided();
         boolean emailProvided = request.isEmailProvided();
         if (!phoneProvided && !emailProvided) {
-            return userConverter.toVO(requireUser(accountId));
+            return UserConverter.toVO(requireUser(accountId));
         }
         String phone = phoneProvided
                 ? UserInputNormalizer.normalizePhone(request.getPhone())
@@ -123,7 +119,7 @@ public class UserServiceImpl implements UserService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }
-        return userConverter.toVO(requireUser(accountId));
+        return UserConverter.toVO(requireUser(accountId));
     }
 
     /**

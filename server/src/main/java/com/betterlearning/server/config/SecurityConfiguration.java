@@ -18,6 +18,8 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
@@ -45,6 +47,18 @@ public class SecurityConfiguration {
 
     private static final List<String> ALLOWED_HEADERS =
             List.of("Authorization", "Content-Type");
+
+    /**
+     * 创建 BCrypt 口令编码器，使用其默认强度。
+     *
+     * <p>BCrypt 只能处理不超过 72 字节的输入，该上限由输入校验层保证，本配置不做长度截断或预检查。</p>
+     *
+     * @return BCrypt 口令编码器
+     */
+    @Bean
+    PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
 
     /**
      * 构建无状态安全过滤链。

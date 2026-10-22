@@ -20,14 +20,12 @@ import javax.sql.DataSource;
 import com.betterlearning.server.config.AppAuthProperties;
 import com.betterlearning.server.config.AppJwtProperties;
 import com.betterlearning.server.config.JwtConfiguration;
-import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
+import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.MybatisTestContext;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
 import com.betterlearning.server.exception.GlobalExceptionHandler;
 import com.betterlearning.server.manager.RateLimitManager;
-import com.betterlearning.server.manager.RedisRateLimitManager;
-import com.betterlearning.server.manager.RedisSessionManager;
 import com.betterlearning.server.manager.SessionManager;
 import com.betterlearning.server.security.JwtTokenService;
 import com.betterlearning.server.security.TraceIdFilter;
@@ -66,7 +64,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
+
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
@@ -74,9 +72,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Testcontainers
 @Tag("integration")
 class SessionLoginIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = " Passw0rd! ";
 
@@ -86,15 +81,10 @@ class SessionLoginIntegrationTests {
     private static final int LOGIN_IP_LIMIT = 2;
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
-    static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+    static final GenericContainer<?> REDIS = IntegrationContainers.redis();
 
     private static JdbcTemplate jdbcTemplate;
 
@@ -149,14 +139,14 @@ class SessionLoginIntegrationTests {
         authProperties.getLogin().setWindow(Duration.ofHours(1));
         authProperties.getRegistration().setIpLimit(3);
         authProperties.getRegistration().setWindow(Duration.ofHours(1));
-        rateLimitManager = new RedisRateLimitManager(redisTemplate, authProperties);
+        rateLimitManager = new RateLimitManager(redisTemplate, authProperties);
         jsonMapper = JsonMapper.builder()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(DeserializationFeature.FAIL_ON_IGNORED_PROPERTIES)
                 .build();
         validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        mockMvc = buildMockMvc(new RedisSessionManager(redisTemplate, clock));
+        mockMvc = buildMockMvc(new SessionManager(redisTemplate, clock));
     }
 
     @AfterAll
@@ -298,7 +288,7 @@ class SessionLoginIntegrationTests {
             StringRedisTemplate failingTemplate = new StringRedisTemplate(failingFactory);
             failingTemplate.afterPropertiesSet();
             MockMvc failingMvc = buildMockMvc(
-                    new RedisSessionManager(failingTemplate, Clock.systemUTC()));
+                    new SessionManager(failingTemplate, Clock.systemUTC()));
 
             MvcResult result = failingMvc.perform(post("/api/v1/sessions")
                     .contentType(MediaType.APPLICATION_JSON)
@@ -317,7 +307,7 @@ class SessionLoginIntegrationTests {
 
     private static MockMvc buildMockMvc(SessionManager sessionManager) {
         SessionServiceImpl sessionService = new SessionServiceImpl(userDao, passwordEncoder,
-                jwtTokenService, sessionManager, rateLimitManager, new UserConverter());
+                jwtTokenService, sessionManager, rateLimitManager);
         return MockMvcBuilders.standaloneSetup(new SessionController(sessionService))
                 .setControllerAdvice(new GlobalExceptionHandler(new ApiErrorResponseFactory()))
                 .setMessageConverters(new JacksonJsonHttpMessageConverter(jsonMapper))

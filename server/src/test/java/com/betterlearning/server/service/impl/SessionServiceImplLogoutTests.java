@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
@@ -41,7 +40,7 @@ class SessionServiceImplLogoutTests {
         sessionManager = mock(SessionManager.class);
         rateLimitManager = mock(RateLimitManager.class);
         sessionService = new SessionServiceImpl(userDao, mock(PasswordEncoder.class),
-                jwtTokenService, sessionManager, rateLimitManager, new UserConverter());
+                jwtTokenService, sessionManager, rateLimitManager);
     }
 
     @Test

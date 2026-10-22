@@ -21,7 +21,6 @@ import java.util.Optional;
 
 import com.betterlearning.server.config.AppJwtProperties;
 import com.betterlearning.server.config.JwtConfiguration;
-import com.betterlearning.server.converter.UserConverter;
 import com.betterlearning.server.dao.UserDao;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
@@ -77,7 +76,7 @@ class SessionServiceImplTests {
         jwtDecoder = configuration.jwtDecoder(properties, clock);
         JwtTokenService jwtTokenService = new JwtTokenService(encoder, properties, clock);
         sessionService = new SessionServiceImpl(userDao, passwordEncoder, jwtTokenService,
-                sessionManager, rateLimitManager, new UserConverter());
+                sessionManager, rateLimitManager);
     }
 
     @Test

@@ -4,7 +4,7 @@ import javax.sql.DataSource;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusProperties;
-import com.betterlearning.server.dao.mapper.UserMapper;
+import com.betterlearning.server.mapper.UserMapper;
 
 import org.apache.ibatis.logging.nologging.NoLoggingImpl;
 import org.apache.ibatis.mapping.SqlCommandType;
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MybatisConfigurationTests {
 
     private static final String USER_MAPPER =
-            "com.betterlearning.server.dao.mapper.UserMapper.";
+            "com.betterlearning.server.mapper.UserMapper.";
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(MybatisPlusAutoConfiguration.class))
@@ -101,11 +101,11 @@ class MybatisConfigurationTests {
     }
 
     @Test
-    void shouldScanOnlyDaoMapperPackage() {
+    void shouldScanOnlyMapperPackage() {
         MapperScan mapperScan = MybatisConfiguration.class.getAnnotation(MapperScan.class);
 
         assertThat(mapperScan).isNotNull();
         assertThat(mapperScan.value())
-                .containsExactly("com.betterlearning.server.dao.mapper");
+                .containsExactly("com.betterlearning.server.mapper");
     }
 }
