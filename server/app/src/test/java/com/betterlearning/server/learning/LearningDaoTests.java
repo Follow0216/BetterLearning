@@ -1,6 +1,7 @@
 package com.betterlearning.server.learning;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -37,7 +38,7 @@ class LearningDaoTests {
                 .isInstanceOf(CollectionNameConflictException.class);
         DataIntegrityViolationException foreign = new DataIntegrityViolationException(
                 "hidden foreign key", new SQLException("hidden", "23503"));
-        when(collections.rename(7L, 1L, "name")).thenThrow(foreign);
+        doThrow(foreign).when(collections).rename(7L, 1L, "name");
         assertThatThrownBy(() -> dao.renameCollection(7L, 1L, "name")).isSameAs(foreign);
     }
 
