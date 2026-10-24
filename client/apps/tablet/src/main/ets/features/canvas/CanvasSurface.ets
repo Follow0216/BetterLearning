@@ -38,6 +38,9 @@ export struct CanvasSurface {
   private backgroundMap: image.PixelMap | null = null;
   private paintGeneration: number = 0;
   private pointers: Map<number, CanvasPoint> = new Map<number, CanvasPoint>();
+  private pointerSources: Map<number, SourceTool> = new Map<number, SourceTool>();
+  private editPointerId: number | null = null;
+  private navigationKey: string = '';
   private last: CanvasPoint | null = null;
   private pinchView: CanvasView | null = null;
   private pinchMid: CanvasPoint | null = null;
@@ -163,9 +166,16 @@ export struct CanvasSurface {
     const strokes: CanvasStroke[] = this.undoHistory.pop() as CanvasStroke[];
     this.update_undo(); this.onDocumentChange({ schemaVersion: 1, questionLayout: this.document.questionLayout, strokes: strokes });
   }
+  private discard_edit(): void {
+    this.liveStroke = null; this.eraseBefore = null; this.erased = null;
+  }
   private cancel_gesture(): void {
-    this.liveStroke = null; this.eraseBefore = null; this.erased = null; this.last = null;
-    this.pointers.clear(); this.pinchView = null; this.pinchMid = null; this.suppress = false;
+    this.discard_edit(); this.last = null;
+    this.pointers.clear(); this.pointerSources.clear(); this.editPointerId = null;
+    this.pinchView = null; this.pinchMid = null; this.navigationKey = ''; this.suppress = false;
+  }
+  private control_touch(event: TouchEvent): void {
+    event.stopPropagation(); this.cancel_gesture(); this.paint();
   }
   private point(point: CanvasPoint): CanvasPoint | null {
     const world: CanvasPoint = world_point(this.view,point.x,point.y);
@@ -197,59 +207,109 @@ export struct CanvasSurface {
   private touch(event: TouchEvent): void {
     event.stopPropagation();
     if (event.type === TouchType.Cancel) { this.cancel_gesture(); this.paint(); return; }
+    if (event.changedTouches.length === 0) { this.cancel_gesture(); this.paint(); return; }
+    // 只有触屏设备内明确的 Pen 才可写；鼠标、未知或冲突标记均仅导航。
+    const sourceTool: SourceTool = event.source === SourceType.TouchScreen ? event.sourceTool : SourceTool.Unknown;
+    const single: boolean = event.changedTouches.length === 1;
+    const wasEmpty: boolean = this.pointers.size === 0;
     for (let i: number = 0; i < event.changedTouches.length; i++) {
       const touch: TouchObject = event.changedTouches[i];
+      if (!Number.isFinite(touch.x) || !Number.isFinite(touch.y)) {
+        this.cancel_gesture(); this.paint(); return;
+      }
+      if (event.type === TouchType.Down && !this.pointers.has(touch.id)) {
+        // sourceTool 属于整个事件；多 changedTouches 无逐点来源保证，只能用于导航。
+        this.pointerSources.set(touch.id, single ? sourceTool : SourceTool.Unknown);
+      } else if (event.type === TouchType.Down || !this.pointers.has(touch.id) || !single ||
+        this.pointerSources.get(touch.id) !== sourceTool) {
+        // 丢失 Down、来源变化或批量变化都不能取得/延续书写权限。
+        this.pointerSources.set(touch.id, SourceTool.Unknown); this.suppress = true;
+      }
       this.pointers.set(touch.id,{ x: touch.x, y: touch.y });
     }
-    const points: CanvasPoint[] = Array.from(this.pointers.values());
-    if (points.length >= 2) {
-      this.liveStroke = null; this.eraseBefore = null; this.erased = null; this.suppress = true;
-      const mid: CanvasPoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
-      const distance: number = Math.max(1,Math.hypot(points[0].x - points[1].x,points[0].y - points[1].y));
-      if (this.pinchView === null) {
-        this.pinchView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
-        this.pinchMid = mid; this.pinchDistance = distance;
-      } else if (this.pinchMid !== null) {
-        const next: CanvasView = zoom_canvas(this.pinchView,distance / this.pinchDistance,this.pinchMid.x,this.pinchMid.y);
-        next.x -= (mid.x - this.pinchMid.x) / next.scale; next.y -= (mid.y - this.pinchMid.y) / next.scale;
-        this.change_view(next,false);
+    // touches 与 changedTouches 采样不同；只补登记未观察到的接触，不覆盖已采样坐标或推断来源。
+    for (let i: number = 0; i < event.touches.length; i++) {
+      const touch: TouchObject = event.touches[i];
+      if (!this.pointers.has(touch.id)) {
+        this.pointers.set(touch.id,{ x: touch.x, y: touch.y });
+        this.pointerSources.set(touch.id, SourceTool.Unknown); this.suppress = true;
       }
-    } else if (!this.suppress && points.length === 1) {
-      const point: CanvasPoint = points[0];
+    }
+    if (!single || this.pointers.size !== 1) { this.suppress = true; }
+    if (this.suppress || sourceTool !== SourceTool.Pen) { this.editPointerId = null; }
+    if (event.type === TouchType.Down && single && wasEmpty && !this.suppress &&
+      sourceTool === SourceTool.Pen) {
+      this.editPointerId = event.changedTouches[0].id;
+    }
+    const changed: TouchObject = event.changedTouches[0];
+    const editing: boolean = this.editPointerId === changed.id && single && !this.suppress &&
+      sourceTool === SourceTool.Pen && !this.readOnly && this.tool !== CanvasTool.MOVE;
+    const point: CanvasPoint = { x: changed.x, y: changed.y };
+    if (editing) {
+      this.navigationKey = ''; this.pinchView = null; this.pinchMid = null;
       if (event.type === TouchType.Down) {
         this.last = point;
-        if (!this.readOnly && this.tool === CanvasTool.PEN && this.document !== null) {
+        if (this.tool === CanvasTool.PEN && this.document !== null) {
           const world: CanvasPoint | null = this.point(point);
           let count: number = 0; this.document.strokes.forEach((stroke: CanvasStroke) => { count += stroke.points.length; });
           this.pointBudget = 200000 - count;
           if (world !== null && this.document.strokes.length < 20000 && this.pointBudget > 0) {
             this.liveStroke = { strokeId: util.generateRandomUUID(true).toLowerCase(), color: '#152744', width: 2.5, points: [world] };
           } else { this.onFailure('笔迹已达到范围或数量上限，请减少后再写'); }
-        } else if (!this.readOnly && this.tool === CanvasTool.ERASER && this.document !== null) {
+        } else if (this.tool === CanvasTool.ERASER && this.document !== null) {
           this.eraseBefore = this.document.strokes; this.erased = this.document.strokes.slice(); this.erase(point);
         }
       } else if (event.type === TouchType.Move) {
-        if ((this.readOnly || this.tool === CanvasTool.MOVE) && this.last !== null) {
-          this.change_view({ x: this.view.x - (point.x - this.last.x) / this.view.scale,
-            y: this.view.y - (point.y - this.last.y) / this.view.scale, scale: this.view.scale },false);
-        } else if (this.liveStroke !== null) { this.append_point(point); }
+        if (this.liveStroke !== null) { this.append_point(point); }
         else { this.erase_path(point); }
         this.last = point;
       } else if (event.type === TouchType.Up && this.document !== null) {
-        if ((this.readOnly || this.tool === CanvasTool.MOVE) && this.last !== null) {
-          this.change_view({ x: this.view.x - (point.x - this.last.x) / this.view.scale,
-            y: this.view.y - (point.y - this.last.y) / this.view.scale, scale: this.view.scale },false);
-        }
         this.append_point(point); this.erase_path(point);
         if (this.liveStroke !== null) { this.commit(this.document.strokes.concat([this.liveStroke]),this.document.strokes); }
         if (this.erased !== null && this.eraseBefore !== null && this.erased.length !== this.eraseBefore.length) {
           this.commit(this.erased,this.eraseBefore);
         }
-        this.liveStroke = null; this.erased = null; this.eraseBefore = null; this.last = null;
+        this.discard_edit(); this.last = null;
+      }
+    } else {
+      this.discard_edit();
+      const ids: number[] = [];
+      const points: CanvasPoint[] = [];
+      this.pointers.forEach((position: CanvasPoint, id: number) => {
+        // 手指、未知、鼠标只导航；移动工具或只读状态也允许笔导航。
+        if (this.pointerSources.get(id) !== SourceTool.Pen || this.readOnly || this.tool === CanvasTool.MOVE) {
+          ids.push(id); points.push(position);
+        }
+      });
+      const key: string = ids.join(':');
+      if (key !== this.navigationKey) {
+        this.last = null; this.pinchView = null; this.pinchMid = null; this.navigationKey = key;
+      }
+      if (points.length >= 2) {
+        this.last = null;
+        const mid: CanvasPoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+        const distance: number = Math.max(1,Math.hypot(points[0].x - points[1].x,points[0].y - points[1].y));
+        if (this.pinchView === null) {
+          this.pinchView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
+          this.pinchMid = mid; this.pinchDistance = distance;
+        } else if (this.pinchMid !== null) {
+          const next: CanvasView = zoom_canvas(this.pinchView,distance / this.pinchDistance,this.pinchMid.x,this.pinchMid.y);
+          next.x -= (mid.x - this.pinchMid.x) / next.scale; next.y -= (mid.y - this.pinchMid.y) / next.scale;
+          this.change_view(next,false);
+        }
+      } else if (points.length === 1) {
+        if (this.last !== null) {
+          this.change_view({ x: this.view.x - (points[0].x - this.last.x) / this.view.scale,
+            y: this.view.y - (points[0].y - this.last.y) / this.view.scale, scale: this.view.scale },false);
+        }
+        this.last = points[0];
       }
     }
     if (event.type === TouchType.Up) {
-      event.changedTouches.forEach((touch: TouchObject) => { this.pointers.delete(touch.id); });
+      event.changedTouches.forEach((touch: TouchObject) => {
+        this.pointers.delete(touch.id); this.pointerSources.delete(touch.id);
+      });
+      this.last = null; this.pinchView = null; this.pinchMid = null; this.navigationKey = '';
       if (this.pointers.size === 0) { this.cancel_gesture(); this.onViewChange(this.view); }
     }
     this.paint();
@@ -298,6 +358,8 @@ export struct CanvasSurface {
       }.height(TABLET_CONTROL_SIZE)
     }
     .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
+    .hitTestBehavior(HitTestMode.Default)
+    .onTouch((event: TouchEvent) => { this.control_touch(event); })
     .width(Math.max(TABLET_CONTROL_SIZE,Math.min(256,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(16)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
@@ -328,6 +390,8 @@ export struct CanvasSurface {
       }.height(TABLET_CONTROL_SIZE)
     }
     .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
+    .hitTestBehavior(HitTestMode.Default)
+    .onTouch((event: TouchEvent) => { this.control_touch(event); })
     .width(Math.max(TABLET_CONTROL_SIZE,Math.min(208,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(14)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
