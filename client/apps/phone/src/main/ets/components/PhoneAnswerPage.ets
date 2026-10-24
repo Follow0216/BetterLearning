@@ -8,11 +8,15 @@ import {
   CanvasImageBlock,
   SolutionApi,
   SolutionDetail,
+  TutorApi,
+  TutorTurn,
+  TutorTurnStatus,
   UserProfile
 } from 'common';
 import {
   describe_answer_state,
   describe_learning_error,
+  describe_tutor_status,
   format_question_time
 } from '../model/QuestionFormat';
 import {
@@ -35,17 +39,18 @@ import {
 import { AnswerTileViewer } from './AnswerTileViewer';
 
 /**
- * 当前云端作答的只读查看页：读取当前 manifest，按完整合成块鉴权下载，
- * 全部成功后一次性交给 C4 查看器。
+ * 云端作答的只读查看页：turnId 为空时读取当前完整作答；turnId 非空时只读取
+ * 该辅导轮次的冻结文件，绝不回退到当前作答引用。
  *
- * <p>网络、缓存、摘要校验和 file:// 路径全部复用 common SolutionApi，不在本页
- * 复制实现。任一图块失败都不展示半份文档；旧引用 404 或图片失败时，用户手动重试
- * 会重新读取当前 manifest 后整份下载。每次 await 后复查题号、请求序号、令牌与
- * 账号，页面销毁或登录变化后的迟到结果直接丢弃。</p>
+ * <p>网络、缓存、摘要校验和 file:// 路径全部复用 common 的 SolutionApi 或
+ * TutorApi，不在本页复制实现。任一图块失败都不展示半份文档；旧引用 404 或图片
+ * 失败时，用户手动重试会重新读取该来源的 manifest 后整份下载。每次 await 后
+ * 复查题号、轮次、请求序号、令牌与账号，页面销毁或登录变化后的迟到结果直接丢弃。</p>
  */
 @Component
 export struct PhoneAnswerPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
+  @Prop @Watch('on_question_changed') turnId: string = '';
   onBack: () => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
@@ -58,10 +63,12 @@ export struct PhoneAnswerPage {
   @State bounds: AnswerTileBounds = { x: 0, y: 0, width: 1, height: 1 };
   @State tiles: AnswerTileImage[] = [];
   @State savedAt: string = '';
+  @State turnStatusText: string = '';
   @State progressLoaded: number = 0;
   @State progressTotal: number = 0;
 
   private api: SolutionApi = SolutionApi.create_default();
+  private tutorApi: TutorApi = TutorApi.create_default();
   private requestSeq: number = 0;
 
   aboutToAppear(): void {
@@ -127,12 +134,12 @@ export struct PhoneAnswerPage {
           this.onBack();
         })
       Column() {
-        Text('完整作答')
+        Text(this.turnId.length > 0 ? '本轮作答' : '完整作答')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor(PHONE_COLOR_TITLE)
         if (this.savedAt.length > 0) {
-          Text('保存于 ' + format_question_time(this.savedAt))
+          Text((this.turnId.length > 0 ? '更新于 ' : '保存于 ') + format_question_time(this.savedAt))
             .fontSize(11)
             .fontColor(PHONE_COLOR_MUTED)
             .margin({ top: 2 })
@@ -143,14 +150,23 @@ export struct PhoneAnswerPage {
       .margin({ left: 4 })
       if (!this.loading && this.errorText.length === 0 &&
         this.answerState !== AnswerState.NOT_STARTED) {
-        Text(describe_answer_state(this.answerState))
-          .fontSize(11)
-          .fontColor(this.answerState === AnswerState.COMPLETED ?
-            PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP)
-          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-          .backgroundColor(this.answerState === AnswerState.COMPLETED ?
-            PHONE_COLOR_PRIMARY : PHONE_COLOR_SOFT)
-          .borderRadius(10)
+        if (this.turnStatusText.length > 0) {
+          Text(this.turnStatusText)
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_PRIMARY_DEEP)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor(PHONE_COLOR_SOFT)
+            .borderRadius(10)
+        } else {
+          Text(describe_answer_state(this.answerState))
+            .fontSize(11)
+            .fontColor(this.answerState === AnswerState.COMPLETED ?
+              PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor(this.answerState === AnswerState.COMPLETED ?
+              PHONE_COLOR_PRIMARY : PHONE_COLOR_SOFT)
+            .borderRadius(10)
+        }
       }
     }
     .width('100%')
@@ -231,7 +247,7 @@ export struct PhoneAnswerPage {
           .onClick(() => {
             this.load_answer();
           })
-        Button('返回详情')
+        Button(this.turnId.length > 0 ? '返回辅导' : '返回详情')
           .height(38)
           .fontSize(13)
           .fontColor(PHONE_COLOR_PRIMARY_DEEP)
@@ -284,7 +300,74 @@ export struct PhoneAnswerPage {
     this.progressLoaded = 0;
     this.progressTotal = 0;
     try {
-      const result: AuthResult<SolutionDetail> = await this.api.getAnswer(token, this.questionId);
+      if (this.turnId.length > 0) {
+        await this.load_turn_answer(token, accountId, seq);
+      } else {
+        await this.load_current_answer(token, accountId, seq);
+      }
+    } catch (error) {
+      if (this.stale(seq, token, accountId)) {
+        return;
+      }
+      this.fail(this.turnId.length > 0 ? '本轮作答加载异常，请稍后重试' : '作答加载异常，请稍后重试');
+    } finally {
+      if (seq === this.requestSeq) {
+        this.loading = false;
+      }
+    }
+  }
+
+  private async load_current_answer(token: string, accountId: string, seq: number): Promise<void> {
+    const result: AuthResult<SolutionDetail> = await this.api.getAnswer(token, this.questionId);
+    if (this.stale(seq, token, accountId)) {
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      this.handle_unauthorized(token);
+      return;
+    }
+    if (!result.isSuccess || result.data === null) {
+      if (result.error !== null && result.error.is_unauthorized()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      this.fail('作答加载失败：' + describe_learning_error(result.error));
+      return;
+    }
+    const answer: SolutionDetail = result.data;
+    if (answer.questionId !== this.questionId) {
+      this.fail('作答与当前题目不一致，请重新加载');
+      return;
+    }
+    if (answer.state === AnswerState.NOT_STARTED) {
+      this.answerState = AnswerState.NOT_STARTED;
+      this.loading = false;
+      return;
+    }
+    const fileRef: string | null = answer.fileRef;
+    const manifest: AnswerManifest | null = answer.manifest;
+    if (fileRef === null || fileRef.length === 0 || manifest === null) {
+      this.fail('完整作答缺少文档，请重新加载');
+      return;
+    }
+    const width: number = manifest.canvas.width;
+    const height: number = manifest.canvas.height;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 ||
+      manifest.blocks.length === 0) {
+      this.fail('完整作答范围无效，请重新加载');
+      return;
+    }
+    const filesDir: string = this.files_dir();
+    if (filesDir.length === 0) {
+      this.fail('无法获取应用文件目录，请重新加载');
+      return;
+    }
+    this.progressTotal = manifest.blocks.length;
+    const downloaded: AnswerTileImage[] = [];
+    for (let index: number = 0; index < manifest.blocks.length; index++) {
+      const block: CanvasImageBlock = manifest.blocks[index];
+      const tile: AuthResult<string> = await this.api.downloadBlock(token, accountId,
+        this.questionId, fileRef, block, filesDir, false);
       if (this.stale(seq, token, accountId)) {
         return;
       }
@@ -292,92 +375,134 @@ export struct PhoneAnswerPage {
         this.handle_unauthorized(token);
         return;
       }
-      if (!result.isSuccess || result.data === null) {
-        if (result.error !== null && result.error.is_unauthorized()) {
+      if (!tile.isSuccess || tile.data === null) {
+        if (tile.error !== null && tile.error.is_unauthorized()) {
           this.handle_unauthorized(token);
           return;
         }
-        this.fail('作答加载失败：' + describe_learning_error(result.error));
+        this.fail(this.download_error(tile.error, block.index));
         return;
       }
-      const answer: SolutionDetail = result.data;
-      if (answer.questionId !== this.questionId) {
-        this.fail('作答与当前题目不一致，请重新加载');
-        return;
-      }
-      if (answer.state === AnswerState.NOT_STARTED) {
-        this.answerState = AnswerState.NOT_STARTED;
-        this.loading = false;
-        return;
-      }
-      const fileRef: string | null = answer.fileRef;
-      const manifest: AnswerManifest | null = answer.manifest;
-      if (fileRef === null || fileRef.length === 0 || manifest === null) {
-        this.fail('完整作答缺少文档，请重新加载');
-        return;
-      }
-      const width: number = manifest.canvas.width;
-      const height: number = manifest.canvas.height;
-      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 ||
-        manifest.blocks.length === 0) {
-        this.fail('完整作答范围无效，请重新加载');
-        return;
-      }
-      const filesDir: string = this.files_dir();
-      if (filesDir.length === 0) {
-        this.fail('无法获取应用文件目录，请重新加载');
-        return;
-      }
-      this.progressTotal = manifest.blocks.length;
-      const downloaded: AnswerTileImage[] = [];
-      for (let index: number = 0; index < manifest.blocks.length; index++) {
-        const block: CanvasImageBlock = manifest.blocks[index];
-        const tile: AuthResult<string> = await this.api.downloadBlock(token, accountId,
-          this.questionId, fileRef, block, filesDir, false);
-        if (this.stale(seq, token, accountId)) {
-          return;
-        }
-        if (!authSession.has_valid_session()) {
-          this.handle_unauthorized(token);
-          return;
-        }
-        if (!tile.isSuccess || tile.data === null) {
-          if (tile.error !== null && tile.error.is_unauthorized()) {
-            this.handle_unauthorized(token);
-            return;
-          }
-          this.fail(this.download_error(tile.error, block.index));
-          return;
-        }
-        downloaded.push({
-          index: block.index,
-          x: block.x,
-          y: block.y,
-          width: block.width,
-          height: block.height,
-          source: tile.data
-        });
-        this.progressLoaded = this.progressLoaded + 1;
-      }
-      if (this.stale(seq, token, accountId)) {
-        return;
-      }
-      this.bounds = { x: 0, y: 0, width: width, height: height };
-      this.fileRef = fileRef;
-      this.answerState = answer.state;
-      this.savedAt = answer.savedAt === null ? '' : answer.savedAt;
-      this.tiles = downloaded;
-      this.loading = false;
-    } catch (error) {
-      if (this.stale(seq, token, accountId)) {
-        return;
-      }
-      this.fail('作答加载异常，请稍后重试');
-    } finally {
-      if (seq === this.requestSeq) {
-        this.loading = false;
-      }
+      downloaded.push({
+        index: block.index,
+        x: block.x,
+        y: block.y,
+        width: block.width,
+        height: block.height,
+        source: tile.data
+      });
+      this.progressLoaded = this.progressLoaded + 1;
     }
+    if (this.stale(seq, token, accountId)) {
+      return;
+    }
+    this.bounds = { x: 0, y: 0, width: width, height: height };
+    this.fileRef = fileRef;
+    this.answerState = answer.state;
+    this.savedAt = answer.savedAt === null ? '' : answer.savedAt;
+    this.tiles = downloaded;
+    this.loading = false;
+  }
+
+  private async load_turn_answer(token: string, accountId: string, seq: number): Promise<void> {
+    const turnResult: AuthResult<TutorTurn> = await this.tutorApi.getTurn(token, this.questionId, this.turnId);
+    if (this.stale(seq, token, accountId)) {
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      this.handle_unauthorized(token);
+      return;
+    }
+    if (!turnResult.isSuccess || turnResult.data === null) {
+      if (turnResult.error !== null && turnResult.error.is_unauthorized()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      this.fail('本轮状态加载失败：' + describe_learning_error(turnResult.error));
+      return;
+    }
+    const turn: TutorTurn = turnResult.data;
+    if (turn.turnId !== this.turnId || turn.questionId !== this.questionId) {
+      this.fail('本轮信息与当前题目不一致，请重新加载');
+      return;
+    }
+    const fileRef: string | null = turn.fileRef;
+    if (fileRef === null || fileRef.length === 0) {
+      this.fail('本轮尚未冻结完整作答');
+      return;
+    }
+    const manifestResult: AuthResult<AnswerManifest> =
+      await this.tutorApi.getFrozenAnswer(token, this.questionId, this.turnId);
+    if (this.stale(seq, token, accountId)) {
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      this.handle_unauthorized(token);
+      return;
+    }
+    if (!manifestResult.isSuccess || manifestResult.data === null) {
+      if (manifestResult.error !== null && manifestResult.error.is_unauthorized()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      this.fail('本轮冻结作答加载失败：' + describe_learning_error(manifestResult.error));
+      return;
+    }
+    const manifest: AnswerManifest = manifestResult.data;
+    const width: number = manifest.canvas.width;
+    const height: number = manifest.canvas.height;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 ||
+      manifest.blocks.length === 0) {
+      this.fail('本轮冻结作答范围无效，请重新加载');
+      return;
+    }
+    const filesDir: string = this.files_dir();
+    if (filesDir.length === 0) {
+      this.fail('无法获取应用文件目录，请重新加载');
+      return;
+    }
+    this.progressTotal = manifest.blocks.length;
+    const downloaded: AnswerTileImage[] = [];
+    for (let index: number = 0; index < manifest.blocks.length; index++) {
+      const block: CanvasImageBlock = manifest.blocks[index];
+      const tile: AuthResult<string> = await this.tutorApi.downloadFrozenBlock(token, accountId,
+        this.questionId, this.turnId, fileRef, block, filesDir, false);
+      if (this.stale(seq, token, accountId)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      if (!tile.isSuccess || tile.data === null) {
+        if (tile.error !== null && tile.error.is_unauthorized()) {
+          this.handle_unauthorized(token);
+          return;
+        }
+        this.fail(this.download_error(tile.error, block.index));
+        return;
+      }
+      downloaded.push({
+        index: block.index,
+        x: block.x,
+        y: block.y,
+        width: block.width,
+        height: block.height,
+        source: tile.data
+      });
+      this.progressLoaded = this.progressLoaded + 1;
+    }
+    if (this.stale(seq, token, accountId)) {
+      return;
+    }
+    this.bounds = { x: 0, y: 0, width: width, height: height };
+    this.fileRef = fileRef;
+    this.answerState = turn.status === TutorTurnStatus.SUCCEEDED ?
+      AnswerState.COMPLETED : AnswerState.IN_PROGRESS;
+    this.turnStatusText = describe_tutor_status(turn.status);
+    this.savedAt = turn.updatedAt;
+    this.tiles = downloaded;
+    this.loading = false;
   }
 
   private stale(seq: number, token: string, accountId: string): boolean {
@@ -408,7 +533,8 @@ export struct PhoneAnswerPage {
 
   private download_error(error: AuthError | null, blockIndex: number): string {
     if (error !== null && error.httpStatus === 404) {
-      return '当前作答已更新，请重新加载完整作答';
+      return this.turnId.length > 0 ? '本轮冻结文件不可用，请返回后重新打开' :
+        '当前作答已更新，请重新加载完整作答';
     }
     return '解答图块 ' + (blockIndex + 1).toString() + ' 加载失败：' +
       describe_learning_error(error);
@@ -419,7 +545,7 @@ export struct PhoneAnswerPage {
       return '正在下载解答图块 ' + this.progressLoaded.toString() + '/' +
         this.progressTotal.toString();
     }
-    return '正在加载完整作答…';
+    return this.turnId.length > 0 ? '正在加载本轮冻结作答…' : '正在加载完整作答…';
   }
 
   private fail(message: string): void {
@@ -434,6 +560,7 @@ export struct PhoneAnswerPage {
     this.bounds = { x: 0, y: 0, width: 1, height: 1 };
     this.tiles = [];
     this.savedAt = '';
+    this.turnStatusText = '';
   }
 
   private handle_unauthorized(token: string): void {

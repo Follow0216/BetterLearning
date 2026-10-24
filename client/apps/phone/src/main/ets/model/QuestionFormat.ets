@@ -1,4 +1,10 @@
-import { AnswerState, AuthError, AuthFailureKind } from 'common';
+import {
+  AnswerState,
+  AuthError,
+  AuthFailureKind,
+  TutorTurn,
+  TutorTurnStatus
+} from 'common';
 
 /**
  * 把服务端作答状态转换为中文标签。
@@ -114,4 +120,57 @@ export function describe_confirm_error(error: AuthError | null): string {
     return '该确认请求已用于其他内容，请重新编辑后提交';
   }
   return describe_learning_error(error);
+}
+export function describe_tutor_status(status: TutorTurnStatus): string {
+  if (status === TutorTurnStatus.WAITING_ANSWER) {
+    return '等待平板作答';
+  }
+  if (status === TutorTurnStatus.GENERATING) {
+    return '正在生成解答';
+  }
+  if (status === TutorTurnStatus.SUCCEEDED) {
+    return '已完成';
+  }
+  return '生成失败';
+}
+
+export function describe_tutor_failure(turn: TutorTurn): string {
+  if (turn.failureCode === 'TABLET_CANCELLED') {
+    return '已取消等待平板作答';
+  }
+  if (turn.failureMessage !== null && turn.failureMessage.length > 0) {
+    return turn.failureMessage;
+  }
+  return '本轮未能生成解答，可重试本轮';
+}
+
+export function describe_tutor_error(error: AuthError | null): string {
+  if (error === null) {
+    return '辅导服务响应异常，请稍后重试';
+  }
+  if (error.is_network()) {
+    return '网络连接失败，请检查网络后重试';
+  }
+  if (error.is_service_unavailable()) {
+    return '辅导模型暂时不可用，请稍后重试';
+  }
+  if (error.is_rate_limited()) {
+    return '操作过于频繁，请稍后重试';
+  }
+  if (error.httpStatus === 409) {
+    return '当前账号已有进行中的辅导轮次，请等待其结束';
+  }
+  if (error.httpStatus === 404) {
+    return '辅导轮次不存在或不属于当前账号';
+  }
+  if (error.httpStatus === 400) {
+    return '提问无效，请修改后重试';
+  }
+  if (error.kind === AuthFailureKind.PROTOCOL) {
+    return '辅导服务响应异常，请稍后重试';
+  }
+  if (error.message.length > 0) {
+    return error.message;
+  }
+  return '辅导请求失败，请稍后重试';
 }
