@@ -76,6 +76,34 @@ export function describe_learning_error(error: AuthError | null): string {
 }
 
 /**
+ * 把题集接口失败转换为可展示文案；401 由调用方单独处理。
+ *
+ * @param error 接口错误，可能为 null
+ * @return 中文错误文案
+ */
+export function describe_collection_error(error: AuthError | null): string {
+  if (error === null) {
+    return '题集服务响应异常，请稍后重试';
+  }
+  if (error.is_network()) {
+    return '网络连接失败，请检查网络后重试';
+  }
+  if (error.is_service_unavailable()) {
+    return '题集服务暂时不可用，请稍后重试';
+  }
+  if (error.is_rate_limited()) {
+    return '操作过于频繁，请稍后重试';
+  }
+  if (error.kind === AuthFailureKind.PROTOCOL) {
+    return '题集服务响应异常，请稍后重试';
+  }
+  if (error.message.length > 0) {
+    return error.message;
+  }
+  return '题集加载失败，请稍后重试';
+}
+
+/**
  * 把手工确认失败转换为可展示文案；401 由调用方单独处理。
  *
  * @param error 接口错误，可能为 null

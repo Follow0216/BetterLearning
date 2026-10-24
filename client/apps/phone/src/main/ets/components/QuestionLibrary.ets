@@ -12,6 +12,7 @@ import {
 } from 'common';
 import {
   describe_answer_state,
+  describe_collection_error,
   describe_learning_error,
   format_question_time
 } from '../model/QuestionFormat';
@@ -64,7 +65,7 @@ class CollectionRow {
 @Component
 export struct QuestionLibrary {
   @Prop @Watch('on_refresh_token_changed') refreshToken: number = 0;
-  onOpenQuestion: (questionId: string, collectionName: string) => void = () => {
+  onOpenQuestion: (questionId: string) => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
   };
@@ -79,9 +80,13 @@ export struct QuestionLibrary {
   @State errorText: string = '';
   @State failedPage: number = 0;
   @State collectionRows: CollectionRow[] = [];
+  @State collectionsLoading: boolean = false;
+  @State collectionsError: string = '';
+  @State hasLoadedCollections: boolean = false;
 
   private api: LearningApi = LearningApi.create_default();
   private requestSeq: number = 0;
+  private collectionsSeq: number = 0;
   private collections: QuestionCollection[] = [];
   private sessionToken: string = '';
 
@@ -106,6 +111,7 @@ export struct QuestionLibrary {
     Column() {
       this.header()
       this.scope_row()
+      this.collection_status()
 
       if (this.loading && !this.hasLoaded) {
         this.loading_view()
@@ -222,11 +228,72 @@ export struct QuestionLibrary {
     .backgroundColor(this.scope === value ? PHONE_COLOR_PRIMARY : PHONE_COLOR_CARD)
     .borderRadius(16)
     .margin({ right: 8 })
-    .opacity(this.loading ? 0.55 : 1)
+    .opacity(this.scope_chip_opacity(value))
     .accessibilityText('查看' + label)
     .onClick(() => {
       this.switch_scope(value);
     })
+  }
+
+  /**
+   * 题集加载状态：进行中显示进度，失败显示原因与重试；成功时不占位。
+   * 题集失败不阻断“全部/待整理”，也不清空已成功的题目列表。
+   */
+  @Builder
+  collection_status() {
+    if (this.collectionsLoading) {
+      Row() {
+        LoadingProgress()
+          .width(14)
+          .height(14)
+          .color(PHONE_COLOR_PRIMARY)
+        Text(this.hasLoadedCollections ? '正在刷新题集…' : '正在加载题集…')
+          .fontSize(12)
+          .fontColor(PHONE_COLOR_MUTED)
+          .margin({ left: 6 })
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, bottom: 6 })
+      .alignItems(VerticalAlign.Center)
+    } else if (this.collectionsError.length > 0) {
+      Column() {
+        Row() {
+          Image($r('app.media.bl_warning'))
+            .width(16)
+            .height(16)
+          Column() {
+            Text(this.hasLoadedCollections ? '题集未刷新' : '题集加载失败')
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(PHONE_COLOR_DANGER)
+            Text(this.collectionsError)
+              .fontSize(11)
+              .fontColor(PHONE_COLOR_DANGER)
+              .margin({ top: 2 })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          .margin({ left: 6 })
+          Button('重试')
+            .height(28)
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_WHITE)
+            .backgroundColor(PHONE_COLOR_DANGER)
+            .borderRadius(9)
+            .margin({ left: 8 })
+            .onClick(() => {
+              this.retry_collections();
+            })
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+        .backgroundColor(PHONE_COLOR_DANGER_SOFT)
+        .borderRadius(PHONE_RADIUS_CONTROL)
+        .alignItems(VerticalAlign.Center)
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, bottom: 6 })
+    }
   }
 
   @Builder
@@ -401,7 +468,7 @@ export struct QuestionLibrary {
     .margin({ top: 10 })
     .accessibilityText('打开题目 ' + item.summary)
     .onClick(() => {
-      this.onOpenQuestion(item.questionId, this.collection_label(item.collectionId));
+      this.onOpenQuestion(item.questionId);
     })
   }
 
@@ -500,7 +567,7 @@ export struct QuestionLibrary {
       this.failedPage = 0;
       this.hasLoaded = true;
       this.errorText = '';
-      await this.load_collections(token, seq);
+      await this.load_collections(token);
     } catch (error) {
       if (!this.is_current_request(seq, token)) {
         return;
@@ -522,13 +589,18 @@ export struct QuestionLibrary {
   /**
    * 读取题集树并补充待整理题数；失败不影响已成功加载的题目列表。
    *
+   * <p>题集请求使用独立序号，保留旧树时明确标记未刷新；不把失败当成
+   * 空题集，也不静默丢弃真实题集入口。</p>
+   *
    * @param token 访问令牌
-   * @param seq 请求序号
    */
-  private async load_collections(token: string, seq: number): Promise<void> {
+  private async load_collections(token: string): Promise<void> {
+    const seq: number = ++this.collectionsSeq;
+    this.collectionsLoading = true;
+    this.collectionsError = '';
     try {
       const result: AuthResult<QuestionCollection[]> = await this.api.listCollections(token);
-      if (!this.is_current_request(seq, token)) {
+      if (!this.is_current_collections_request(seq, token)) {
         return;
       }
       if (!authSession.has_valid_session()) {
@@ -538,17 +610,25 @@ export struct QuestionLibrary {
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.is_unauthorized()) {
           this.handle_unauthorized(token);
+          return;
         }
+        this.collectionsError = describe_collection_error(result.error);
         return;
       }
       this.apply_collections(result.data);
+      this.hasLoadedCollections = true;
     } catch (error) {
-      if (!this.is_current_request(seq, token)) {
+      if (!this.is_current_collections_request(seq, token)) {
         return;
       }
       if (!authSession.has_valid_session()) {
         this.handle_unauthorized(token);
         return;
+      }
+      this.collectionsError = '题集加载异常，请稍后重试';
+    } finally {
+      if (seq === this.collectionsSeq) {
+        this.collectionsLoading = false;
       }
     }
   }
@@ -566,9 +646,13 @@ export struct QuestionLibrary {
   }
 
   private clear_collections(): void {
+    this.collectionsSeq = this.collectionsSeq + 1;
     this.collections = [];
     this.collectionRows = [];
     this.inboxCount = -1;
+    this.collectionsLoading = false;
+    this.collectionsError = '';
+    this.hasLoadedCollections = false;
   }
 
   /**
@@ -680,6 +764,36 @@ export struct QuestionLibrary {
     return PHONE_COLOR_SOFT;
   }
 
+  /**
+   * 题集导航透明度：加载中整体变淡；题集未刷新时真实题集项进一步变淡，
+   * 提示计数与名称可能过期，但按 ID 查询仍可用。
+   */
+  private scope_chip_opacity(value: string): number {
+    if (this.loading || this.collectionsLoading) {
+      return 0.55;
+    }
+    if (this.collectionsError.length > 0 && this.hasLoadedCollections &&
+      value !== SCOPE_ALL && value !== SCOPE_INBOX) {
+      return 0.65;
+    }
+    return 1;
+  }
+
+  /**
+   * 仅重新加载题集树，不重置当前题目列表或页码。
+   */
+  private retry_collections(): void {
+    if (this.collectionsLoading) {
+      return;
+    }
+    const token: string | null = authSession.read_access_token();
+    if (token === null) {
+      this.onUnauthorized('');
+      return;
+    }
+    this.load_collections(token);
+  }
+
   private switch_scope(nextScope: string): void {
     if (this.loading || this.scope === nextScope) {
       return;
@@ -724,6 +838,10 @@ export struct QuestionLibrary {
 
   private is_current_request(seq: number, token: string): boolean {
     return seq === this.requestSeq && authSession.matches_access_token(token);
+  }
+
+  private is_current_collections_request(seq: number, token: string): boolean {
+    return seq === this.collectionsSeq && authSession.matches_access_token(token);
   }
 
   private handle_unauthorized(token: string): void {
