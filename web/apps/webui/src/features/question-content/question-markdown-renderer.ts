@@ -25,8 +25,7 @@ const KATEX_BASE_OPTIONS: KatexOptions = {
 type RenderEnvironment = Env;
 
 export type QuestionRenderResult =
-  | { ok: true; html: string; formulaErrors: number }
-  | { ok: false };
+  { ok: true; html: string; formulaErrors: number } | { ok: false };
 
 let parser: MarkdownItInstance | null = null;
 

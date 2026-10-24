@@ -3,13 +3,7 @@ declare module "markdown-it-texmath" {
   import type { MarkdownIt } from "markdown-it";
 
   export type TexmathDelimiter =
-    | "dollars"
-    | "brackets"
-    | "doxygen"
-    | "gitlab"
-    | "julia"
-    | "kramdown"
-    | "beg_end";
+    "dollars" | "brackets" | "doxygen" | "gitlab" | "julia" | "kramdown" | "beg_end";
 
   export interface TexmathOptions {
     engine?: {

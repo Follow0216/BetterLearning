@@ -14,7 +14,25 @@ catalog:
   "@types/react": ^19
   "@types/react-dom": ^19
   server-only: ^0.0.1
+  markdown-it: 15.0.3
+  markdown-it-texmath: 1.0.0
+  katex: 0.19.1
 
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+minimumReleaseAgeExclude:
+  - katex@0.19.1
+  - argparse@3.0.4
+
+# 仅固定已批准 renderer 的传递边，保留其他工具链版本。
+overrides:
+  "markdown-it@15.0.3>argparse": 3.0.4
+  "markdown-it@15.0.3>entities": 8.1.0
+  "markdown-it@15.0.3>linkify-it": 6.1.0
+  "markdown-it@15.0.3>mdurl": 2.1.0
+  "markdown-it@15.0.3>punycode.js": 2.3.1
+  "markdown-it@15.0.3>uc.micro": 3.0.0
+  "katex@0.19.1>commander": 15.0.0
+  "linkify-it@6.1.0>uc.micro": 3.0.0
