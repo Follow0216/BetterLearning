@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { AdminLogoutButton } from "@/features/admin-auth/AdminLogoutButton";
@@ -115,6 +116,7 @@ function IdentityCard({ user }: { user: AdminUser }) {
 }
 
 async function AccountContent() {
+  await connection();
   const store = await cookies();
   const token = store.get(ADMIN_SESSION_COOKIE_NAME)?.value;
   if (token === undefined || token.length === 0) {
