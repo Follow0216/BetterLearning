@@ -6,6 +6,7 @@ import texmath from "markdown-it-texmath";
 
 import type { KatexOptions } from "katex";
 import type { Env, MarkdownIt as MarkdownItInstance, Token } from "markdown-it";
+import type { TexmathBlockRule, TexmathRule } from "markdown-it-texmath";
 
 /**
  * 题面渲染与 C2 原生端保持同一配置：
@@ -78,6 +79,38 @@ function renderMath(
   return `<section class="math-block${number.length > 0 ? " has-number" : ""}">${html}${number}</section>`;
 }
 
+/**
+ * texmath 安装块规则时未声明 `alt: ["paragraph"]`，紧跟正文且无空行的
+ * `\[...\]` 会被段落规则吞掉并当作普通方括号输出。这里重新注册括号块规则，
+ * 补齐段落链并校验代码缩进与容器边界，内联括号与美元公式行为保持不变。
+ */
+function bracketBlockRule(rule: TexmathRule): TexmathBlockRule {
+  const parse = texmath.block(rule);
+  return (state, startLine, endLine, silent) => {
+    if (state.sCount[startLine] - state.blkIndent >= 4) {
+      return false;
+    }
+    const pos = state.bMarks[startLine] + state.tShift[startLine];
+    if (!state.src.startsWith(rule.tag, pos)) {
+      return false;
+    }
+    rule.rex.lastIndex = pos;
+    if (!rule.rex.exec(state.src)) {
+      return false;
+    }
+    const last = rule.rex.lastIndex - 1;
+    for (let line = startLine; line < endLine; line += 1) {
+      if (!state.isEmpty(line) && state.sCount[line] < state.blkIndent) {
+        return false;
+      }
+      if (last <= state.eMarks[line]) {
+        return parse(state, startLine, endLine, silent);
+      }
+    }
+    return false;
+  };
+}
+
 function createParser(): MarkdownItInstance {
   const md = new MarkdownIt({
     html: false,
@@ -86,7 +119,16 @@ function createParser(): MarkdownItInstance {
     breaks: true,
   });
 
-  md.use(texmath, { engine: katex, delimiters: ["dollars", "brackets"] });
+  md.use(texmath, { engine: katex, delimiters: ["dollars"] });
+
+  for (const rule of texmath.rules.brackets.inline) {
+    md.inline.ruler.before("escape", `brackets_${rule.name}`, texmath.inline(rule));
+  }
+  for (const rule of texmath.rules.brackets.block) {
+    md.block.ruler.before("fence", `brackets_${rule.name}`, bracketBlockRule(rule), {
+      alt: ["paragraph"],
+    });
+  }
 
   md.renderer.rules.math_inline = (tokens, index, _options, env) =>
     renderMath(tokens, index, false, true, false, env ?? {});
