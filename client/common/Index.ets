@@ -83,3 +83,7 @@ export { canvas_utf8, canvas_text, canvas_exists, canvas_mkdir, canvas_read, can
 
 export { canvas_png, canvas_image, canvas_image_bytes } from './src/main/ets/features/canvas/CanvasImages';
 export { QuestionRasterHost, QuestionRasterResult } from './src/main/ets/features/canvas/QuestionRasterHost';
+
+export { TutorTurnStatus, TutorTurn, TutorPending, FrozenTutorAnswer, OcrResult } from './src/main/ets/features/tutor/TutorModels';
+export { TutorApi } from './src/main/ets/features/tutor/TutorApi';
+export { OcrApi } from './src/main/ets/features/tutor/OcrApi';
