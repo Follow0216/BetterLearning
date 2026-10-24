@@ -7,6 +7,8 @@ import { canvas_exists, canvas_read, canvas_sha256, canvas_utf8, canvas_write } 
 import { validate_answer_manifest } from '../canvas/CanvasGeometry';
 import { AnswerManifest, AnswerState, FrozenAnswerUpload, SolutionDetail } from './SolutionModels';
 
+interface AnswerStatePayload { state: AnswerState; fileRef: string; }
+
 function id_valid(id: string): boolean { return /^[1-9][0-9]{0,18}$/.test(id); }
 function ref_valid(ref: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(ref); }
 function answer_path(id: string): string { return '/api/v1/learning/questions/' + id + '/answer'; }
@@ -94,7 +96,7 @@ export class SolutionApi {
     if (!id_valid(questionId) || !ref_valid(fileRef) || state === AnswerState.NOT_STARTED) {
       return AuthResult.failure<SolutionDetail>(AuthError.local_validation('作答状态参数无效', {}));
     }
-    const payload: Record<string, string> = { state: state, fileRef: fileRef };
+    const payload: AnswerStatePayload = { state: state, fileRef: fileRef };
     const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.PATCH,
       '/api/v1/learning/questions/' + questionId + '/answer-state', token, JSON.stringify(payload));
     if (!result.isSuccess || result.data === null) { return AuthResult.failure<SolutionDetail>(request_error(result)); }

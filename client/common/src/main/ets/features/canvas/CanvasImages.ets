@@ -20,7 +20,7 @@ async function decode_canvas_image(source: image.ImageSource): Promise<image.Pix
       const actual: image.ImageInfo = await map.getImageInfo();
       if (actual.size.width !== info.size.width || actual.size.height !== info.size.height) { throw new Error('图块解码尺寸变化'); }
       return map;
-    } catch (error) { await map.release(); throw error; }
+    } catch (error) { await map.release(); throw new Error('图块解码或实际尺寸校验失败'); }
   } finally { await source.release(); }
 }
 export async function canvas_image(path: string): Promise<image.PixelMap> {

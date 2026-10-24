@@ -25,11 +25,11 @@ export struct CanvasSurface {
   private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private ready: boolean = false;
   private alive: boolean = true;
-  private width: number = 0;
-  private height: number = 0;
+  private canvasWidthVp: number = 0;
+  private canvasHeightVp: number = 0;
   private view: CanvasView = { x: -24, y: -24, scale: 1 };
   private viewSet: boolean = false;
-  private background: image.PixelMap | null = null;
+  private backgroundMap: image.PixelMap | null = null;
   private paintGeneration: number = 0;
   private pointers: Map<number, CanvasPoint> = new Map<number, CanvasPoint>();
   private last: CanvasPoint | null = null;
@@ -46,12 +46,12 @@ export struct CanvasSurface {
   aboutToAppear(): void { this.alive = true; }
   aboutToDisappear(): void {
     this.alive = false; this.paintGeneration++; this.cancel_gesture();
-    if (this.background !== null) { this.background.release(); this.background = null; }
+    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
   }
   private reset(): void {
     this.cancel_gesture(); this.undoHistory = []; this.update_undo(); this.viewSet = false;
     this.paintGeneration++;
-    if (this.background !== null) { this.background.release(); this.background = null; }
+    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
     this.configure_view();
   }
   private document_changed(): void { this.paint(); }
@@ -70,9 +70,9 @@ export struct CanvasSurface {
     return { x: x, y: y, width: right - x, height: bottom - y };
   }
   private configure_view(): void {
-    if (!this.ready || !Number.isFinite(this.width) || !Number.isFinite(this.height) || this.width < 1 || this.height < 1) { return; }
+    if (!this.ready || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
     if (!this.viewSet) {
-      this.view = this.initialView === null ? fit_canvas(this.bounds(),this.width,this.height) :
+      this.view = this.initialView === null ? fit_canvas(this.bounds(),this.canvasWidthVp,this.canvasHeightVp) :
         { x: this.initialView.x, y: this.initialView.y, scale: this.initialView.scale };
       this.viewSet = true;
     }
@@ -80,12 +80,12 @@ export struct CanvasSurface {
     this.rebuild_background();
   }
   private async rebuild_background(): Promise<void> {
-    if (!this.ready || this.document === null || !Number.isFinite(this.width) || !Number.isFinite(this.height) || this.width < 1 || this.height < 1) { return; }
+    if (!this.ready || this.document === null || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
     const generation: number = ++this.paintGeneration;
     const doc: CanvasEditableDocument = this.document;
     const view: CanvasView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
     const files: CanvasLocalFile[] = this.rasterFiles.slice();
-    const width: number = Math.ceil(this.width); const height: number = Math.ceil(this.height);
+    const width: number = Math.ceil(this.canvasWidthVp); const height: number = Math.ceil(this.canvasHeightVp);
     try {
       const canvas: OffscreenCanvas = new OffscreenCanvas(width,height,LengthMetricsUnit.PX);
       const context: OffscreenCanvasRenderingContext2D = canvas.getContext('2d');
@@ -105,8 +105,8 @@ export struct CanvasSurface {
       }
       if (!this.alive || generation !== this.paintGeneration) { return; }
       const next: image.PixelMap = context.getPixelMap(0,0,width,height);
-      const previous: image.PixelMap | null = this.background;
-      this.background = next; this.paint();
+      const previous: image.PixelMap | null = this.backgroundMap;
+      this.backgroundMap = next; this.paint();
       if (previous !== null) { await previous.release(); }
     } catch (error) {
       if (this.alive && generation === this.paintGeneration) { this.onFailure('画布底图读取失败，请重新打开'); }
@@ -115,11 +115,11 @@ export struct CanvasSurface {
   private paint(): void {
     if (!this.ready) { return; }
     const context: CanvasRenderingContext2D = this.context;
-    context.resetTransform(); context.fillStyle = '#FFFFFF'; context.fillRect(0,0,this.width,this.height);
-    if (this.background !== null) { context.drawImage(this.background,0,0,this.width,this.height); }
+    context.resetTransform(); context.fillStyle = '#FFFFFF'; context.fillRect(0,0,this.canvasWidthVp,this.canvasHeightVp);
+    if (this.backgroundMap !== null) { context.drawImage(this.backgroundMap,0,0,this.canvasWidthVp,this.canvasHeightVp); }
     context.save(); context.scale(this.view.scale,this.view.scale); context.translate(-this.view.x,-this.view.y);
     const strokes: CanvasStroke[] = this.erased ?? this.document?.strokes ?? [];
-    const visible: CanvasRect = { x: this.view.x, y: this.view.y, width: this.width / this.view.scale, height: this.height / this.view.scale };
+    const visible: CanvasRect = { x: this.view.x, y: this.view.y, width: this.canvasWidthVp / this.view.scale, height: this.canvasHeightVp / this.view.scale };
     for (let i: number = 0; i < strokes.length; i++) {
       if (canvas_intersects(visible,stroke_bounds(strokes[i]))) { draw_canvas_stroke(context,strokes[i]); }
     }
@@ -166,7 +166,7 @@ export struct CanvasSurface {
     if (!valid_world_number(view.x) || !valid_world_number(view.y)) { return; }
     this.view = view; this.zoomText = Math.round(view.scale * 100).toString() + '%';
     // 旧视口题面不与新坐标混画；新底图只影响显示，笔迹继续使用世界坐标。
-    if (this.background !== null) { this.background.release(); this.background = null; }
+    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
     this.paint(); this.rebuild_background(); if (persist) { this.onViewChange(view); }
   }
   private touch(event: TouchEvent): void {
@@ -240,10 +240,10 @@ export struct CanvasSurface {
           .backgroundColor(this.tool === CanvasTool.MOVE ? '#246BFD' : '#64748B')
         Button('撤销').onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
         Blank()
-        Button('−').onClick(() => { this.change_view(zoom_canvas(this.view,0.8,this.width / 2,this.height / 2),true); })
+        Button('−').onClick(() => { this.change_view(zoom_canvas(this.view,0.8,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
         Text(this.zoomText).fontSize(12).width(44).textAlign(TextAlign.Center)
-        Button('＋').onClick(() => { this.change_view(zoom_canvas(this.view,1.25,this.width / 2,this.height / 2),true); })
-        Button('全览').onClick(() => { this.change_view(fit_canvas(this.bounds(),this.width,this.height),true); })
+        Button('＋').onClick(() => { this.change_view(zoom_canvas(this.view,1.25,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
+        Button('全览').onClick(() => { this.change_view(fit_canvas(this.bounds(),this.canvasWidthVp,this.canvasHeightVp),true); })
       }.width('100%').padding(8)
       Canvas(this.context).width('100%').layoutWeight(1)
         .onReady(() => { this.ready = true; this.configure_view(); })
@@ -251,7 +251,7 @@ export struct CanvasSurface {
           const width: number = typeof area.width === 'number' ? area.width : parseFloat(area.width.toString());
           const height: number = typeof area.height === 'number' ? area.height : parseFloat(area.height.toString());
           if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-            this.width = width; this.height = height; this.configure_view();
+            this.canvasWidthVp = width; this.canvasHeightVp = height; this.configure_view();
           }
         })
         .onTouch((event: TouchEvent) => { this.touch(event); })
