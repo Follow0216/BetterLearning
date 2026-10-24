@@ -117,6 +117,10 @@
   overflow-y: hidden;
 }
 
+.content :global(eq) > :global(.katex-display) {
+  margin: 0;
+}
+
 .content :global(section.math-block) {
   display: block;
   max-width: 100%;

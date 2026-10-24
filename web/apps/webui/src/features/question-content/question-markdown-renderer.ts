@@ -51,6 +51,7 @@ function renderMath(
   tokens: Token[],
   index: number,
   displayMode: boolean,
+  inline: boolean,
   numbered: boolean,
   env: RenderEnvironment,
 ): string {
@@ -67,7 +68,7 @@ function renderMath(
     return formulaError(token.content);
   }
 
-  if (!displayMode) {
+  if (inline) {
     return `<eq>${html}</eq>`;
   }
 
@@ -89,13 +90,13 @@ function createParser(): MarkdownItInstance {
   md.use(texmath, { engine: katex, delimiters: ["dollars", "brackets"] });
 
   md.renderer.rules.math_inline = (tokens, index, _options, env) =>
-    renderMath(tokens, index, false, false, env ?? {});
+    renderMath(tokens, index, false, true, false, env ?? {});
   md.renderer.rules.math_inline_double = (tokens, index, _options, env) =>
-    renderMath(tokens, index, true, false, env ?? {});
+    renderMath(tokens, index, true, true, false, env ?? {});
   md.renderer.rules.math_block = (tokens, index, _options, env) =>
-    renderMath(tokens, index, true, false, env ?? {});
+    renderMath(tokens, index, true, false, false, env ?? {});
   md.renderer.rules.math_block_eqno = (tokens, index, _options, env) =>
-    renderMath(tokens, index, true, true, env ?? {});
+    renderMath(tokens, index, true, false, true, env ?? {});
 
   md.renderer.rules.link_open = () => '<span class="markdown-link">';
   md.renderer.rules.link_close = () => "</span>";
