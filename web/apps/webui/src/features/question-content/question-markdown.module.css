@@ -1,0 +1,199 @@
+.content {
+  color: var(--auth-text);
+  font-size: 15px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.content > :global(*:first-child) {
+  margin-top: 0;
+}
+
+.content > :global(*:last-child) {
+  margin-bottom: 0;
+}
+
+.content :global(p) {
+  margin: 0.6em 0;
+}
+
+.content :global(h1),
+.content :global(h2),
+.content :global(h3),
+.content :global(h4),
+.content :global(h5),
+.content :global(h6) {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.content :global(h1) {
+  font-size: 1.35em;
+}
+
+.content :global(h2) {
+  font-size: 1.2em;
+}
+
+.content :global(h3) {
+  font-size: 1.08em;
+}
+
+.content :global(ul),
+.content :global(ol) {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+
+.content :global(li) {
+  margin: 0.2em 0;
+}
+
+.content :global(li) > :global(p) {
+  margin: 0.2em 0;
+}
+
+.content :global(blockquote) {
+  margin: 0.8em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--auth-border);
+  color: var(--auth-muted);
+}
+
+.content :global(code) {
+  padding: 0.12em 0.32em;
+  border: 1px solid var(--auth-border);
+  border-radius: 4px;
+  background: var(--auth-bg);
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
+}
+
+.content :global(pre) {
+  margin: 0.8em 0;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+  background: var(--auth-bg);
+}
+
+.content :global(pre) :global(code) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.content :global(table) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.content :global(th),
+.content :global(td) {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--auth-border);
+  text-align: left;
+}
+
+.content :global(hr) {
+  margin: 1.1em 0;
+  border: 0;
+  border-top: 1px solid var(--auth-border);
+}
+
+.content :global(eq) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.content :global(section.math-block) {
+  display: block;
+  max-width: 100%;
+  margin: 0.9em 0;
+  padding: 0.6em 0.85em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--auth-border);
+  border-radius: 8px;
+  background: var(--auth-bg);
+}
+
+.content :global(section.math-block) > :global(.katex-display) {
+  margin: 0;
+}
+
+.content :global(section.math-block.has-number) {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+}
+
+.content :global(section.math-block.has-number) > :global(.katex-display) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.content :global(.equation-number) {
+  flex: none;
+  color: var(--auth-muted);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.content :global(.formula-error) {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.15em 0.4em;
+  border: 1px dashed var(--auth-danger);
+  border-radius: 6px;
+  color: var(--auth-danger);
+  font-size: 0.95em;
+}
+
+.content :global(.formula-error) :global(code) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+}
+
+.content :global(.markdown-link) {
+  color: var(--auth-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+.content :global(.image-description) {
+  display: inline-block;
+  padding: 0.05em 0.35em;
+  border: 1px dashed var(--auth-border);
+  border-radius: 4px;
+  color: var(--auth-muted);
+  font-size: 0.92em;
+}
+
+.failure {
+  margin: 0;
+  padding: 0.75em 0.9em;
+  border: 1px dashed var(--auth-border);
+  border-radius: 8px;
+  background: var(--auth-bg);
+  color: var(--auth-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
