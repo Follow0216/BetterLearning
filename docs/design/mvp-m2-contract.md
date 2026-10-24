@@ -1,8 +1,8 @@
 # M2 HTTP／文件契约草案
 
-状态：待根会话与 C2 对齐后固定；本提交只包含契约与代码映射，未实现、构建或测试。基线 develop：`063a35493be9636a976928fe63ca6b4231d75898`。
+状态：题集字段已固定并独立交付；作答 envelope／坐标／题面底图按根会话与 C2 方案固定为下述 v1。开发树未构建或测试。基线 develop：`063a35493be9636a976928fe63ca6b4231d75898`。
 
-M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复的最新笔迹与完整导出、云端当前作答保存、完成／继续状态、Phone/Web 只读完整解答。无题集删除／移动、正文编辑、历史版本、归档、搜索筛选、OCR 或 AI。沿用 M1 的 Bearer 登录、真实 principal.accountId、字符串数据库 ID、`inbox`、科目枚举与错误对象。M2 请求使用独立 DTO，继续拒绝未知字段，不扩展 M1 confirm 请求。题集部分已获根会话放行实施，作答部分待 C2 细节对齐。
+M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复的最新笔迹与完整导出、云端当前作答保存、完成／继续状态、Phone/Web 只读完整解答。无题集删除／移动、正文编辑、历史版本、归档、搜索筛选、OCR 或 AI。沿用 M1 的 Bearer 登录、真实 principal.accountId、字符串数据库 ID、`inbox`、科目枚举与错误对象。M2 请求使用独立 DTO，继续拒绝未知字段，不扩展 M1 confirm 请求。题集部分已获根会话放行实施，作答部分按本版字段继续实施。
 
 ## 1. 题集与题目归属
 
@@ -34,6 +34,7 @@ M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复�
 | 读取当前作答 | GET `/api/v1/learning/questions/{questionId}/answer` | 200；含完整 JSON、题干快照及全部 PNG 块描述 |
 | 保存完整作答 | POST `/api/v1/learning/questions/{questionId}/answer` | multipart；只有全部文件保存且数据库提交成功才返回 200/fileRef |
 | 标记完成／继续 | PATCH `/api/v1/learning/questions/{questionId}/answer-state` | 200；针对当前 fileRef 原子切换状态 |
+| 读取题面底图 | GET `/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}` | 与合成块相同鉴权，200 image/png，仅用于恢复可编辑画布 |
 | 读取单块 | GET `/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}` | Bearer + 账号／题号／当前 fileRef 校验，200 image/png |
 
 状态为 `NOT_STARTED`、`IN_PROGRESS`、`COMPLETED`。未保存过时 GET 返回：
@@ -65,24 +66,26 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
   "schemaVersion":1,
   "saveRequestId":"b82c1d44-d75a-4ec6-b653-023f1ed921b2",
   "baseFileRef":null,
-  "canvas":{"bounds":{"x":-200,"y":-100,"width":1200,"height":2400},"coordinateUnit":"logical"},
-  "document":{"schemaVersion":1,"questionLayout":{},"strokes":[]},
+  "canvas":{"width":1200,"height":2400,"originX":-200,"originY":-100,"coordinateUnit":"logical"},
+  "document":{"schemaVersion":1,"questionLayout":{"questionBodySha256":"<64位小写hex>","contentWidth":1200,"fontSize":16,"rendererId":"local-markdown-v1","bounds":{"x":0,"y":0,"width":1200,"height":1200},"blocks":[{"blockId":"body-0","x":0,"y":0,"width":1200,"height":1200}],"rasterBlocks":[{"index":0,"partName":"question_0000","x":0,"y":0,"width":1024,"height":1024,"pixelWidth":1024,"pixelHeight":1024,"sha256":"<64位小写hex>"}]},"strokes":[{"strokeId":"stroke-1","color":"#152744","width":2,"points":[{"x":-20,"y":40},{"x":60,"y":80}]}]},
   "blocks":[
-    {"index":0,"partName":"chunk_0000","x":-200,"y":-100,"width":1200,"height":1200,"pixelWidth":1200,"pixelHeight":1200,"sha256":"<64位小写hex>"},
-    {"index":1,"partName":"chunk_0001","x":-200,"y":1100,"width":1200,"height":1200,"pixelWidth":1200,"pixelHeight":1200,"sha256":"<64位小写hex>"}
+    {"index":0,"partName":"chunk_0000","x":0,"y":0,"width":1024,"height":1024,"pixelWidth":1024,"pixelHeight":1024,"sha256":"<64位小写hex>"},
+    {"index":1,"partName":"chunk_0001","x":1024,"y":0,"width":176,"height":1024,"pixelWidth":176,"pixelHeight":1024,"sha256":"<64位小写hex>"}
   ]
 }
 ```
 
-`document` 示例中的 questionLayout 仅占位，**不是最终 C2 schema**。C2 唯一维护可编辑笔迹、渲染块和坐标细节；对齐后需用一个真实最小文档替换此占位，并固定 schemaVersion、恢复所需字段、数值界限及严格校验规则。C1 负责传输 envelope、完整保存与服务端检查，不另造另一套 stroke 类型。
+示例仅列出部分块与占位 hash，实际上传必须按下述整格规则给齐两组 PNG。`document.schemaVersion=1` 固定：questionLayout 与 strokes 为必填；questionLayout 精确使用示例字段，bounds 是有符号世界矩形，blocks 是题面逻辑块（blockId 唯一），rasterBlocks 是恢复擦写所需的干净题面底图。strokes 每笔仅含 strokeId/color/width/points；points 为 `{x,y}`，strokeId 唯一，color 为 #RRGGBB 或 #AARRGGBB，笔宽 0.5–64，最多 20,000 笔／合计 200,000 点，坐标绝对值≤1e6。rendererId 为非空≤64字符的本地渲染器标识，contentWidth/fontSize 为有限正数。
 
-- canvas.bounds 与块 x/y/width/height 使用同一世界逻辑坐标，x/y 允许负值；pixelWidth/pixelHeight 是实际 PNG 像素尺寸；渲染器按描述放置，不能把逻辑尺寸当像素尺寸或裁切为当前屏幕宽度。
-- index 从 0 连续，展示顺序以 index 为准。块覆盖整个导出范围 `[bounds.x,bounds.x+width]×[bounds.y,bounds.y+height]`，不漏首尾、最右端或中间区间。C2 决定分块布局／边界；该布局须可用有界算法验证完整覆盖，并明确接缝与是否允许重叠，不能仅上传当前 viewport。
-- PNG 是**题干与笔迹合成后的完整解答块**，不是只有透明笔迹。服务端从当前账号数据库复制 questionId、subject、bodyMarkdown 到最终 manifest 的 `questionSnapshot`，与 C2 的题干布局引用核对；不把客户端传来的其他题干当本题保存。这样云端同时保留可读原题干、可编辑笔迹 JSON 与完整合成结果。
-- GET 当前作答在同一 envelope 上附加 `questionSnapshot`，每块附加相对 API `url`，返回 `manifest`；不返回文件系统路径。Phone/Web 按 index、逻辑尺寸展示所有合成 PNG，忽略编辑数据；Tablet 可读取同一 document 恢复继续作答。Web 经既有 HttpOnly 会话 BFF 添加 Bearer 并使用 no-store 转发 manifest/PNG，不用匿名 img URL 直连受保护目录。
+- canvas.originX/originY 是完整导出范围的有符号世界原点；合成 blocks 的 x/y 相对此原点非负。document 的笔迹／逻辑题面／rasterBlocks 继续使用有符号世界坐标，不丢负坐标内容；pixelWidth/pixelHeight 是实际 PNG 像素尺寸；渲染器按描述放置，不能把逻辑尺寸当像素尺寸或裁切为当前屏幕宽度。
+- index 从 0 连续，展示顺序以 index 为准。合成块覆盖完整相对范围 `[0,canvas.width]×[0,canvas.height]`，不漏首尾、最右端或中间区间。固定每格 1024 逻辑单位、行优先、无重叠：columns=ceil(width/1024)，index i 的 x=(i%columns)*1024、y=floor(i/columns)*1024，边缘宽高取剩余值。pixelsPerUnit 固定 1，不另传字段，pixelWidth/Height 等于 width/height；canvas.width/height/originX/originY 为整数。
+- 合成 blocks PNG 是**题干与笔迹合成后的完整解答块**，不是只有透明笔迹。服务端从当前账号数据库复制 questionId、subject、bodyMarkdown 到最终 manifest 的 `questionSnapshot`，并核对 questionBodySha256 为数据库正文原始 UTF-8 的 SHA-256；不把客户端传来的其他题干当本题保存。这样云端同时保留可读原题干、可编辑笔迹 JSON 与完整合成结果。
+- GET 当前作答在同一 envelope 上附加 `questionSnapshot`，合成 blocks 及 document.questionLayout.rasterBlocks 每块附加相对 API `url`，返回 `manifest`；不返回文件系统路径。Phone/Web 按 index、逻辑尺寸展示所有合成 PNG，忽略编辑数据；Tablet 可读取同一 document 恢复继续作答。Web 经既有 HttpOnly 会话 BFF 添加 Bearer 并使用 no-store 转发 manifest/PNG，不用匿名 img URL 直连受保护目录。
 - 本机最新草稿由 C2 按账号＋questionId 隔离保存；云端失败不能删除本机草稿、标完成或用旧图伪报成功。登录切换不能把上一账号的草稿、fileRef 或 PNG 带到下一账号。
 
-拟定边界（对齐时结合真实导出确定，不裁掉超限部分）：manifest ≤8 MiB，单 PNG ≤16 MiB，PNG 合计 ≤64 MiB，最多 256 块；每块宽高正数且各不超过 16384 像素、单块≤16M像素、合计≤64M像素。坐标必须有限并落在 canvas.bounds 内，负世界坐标不得被裁掉；PNG 签名、可解码性、实际尺寸和 SHA-256 均须匹配。超限整体拒绝，不能部分保存后返回 fileRef。Spring multipart 上限须高于协议有效载荷并计入边界开销，例如 16MB 单 part／80MB 整请求；实际值在最终契约与配置中统一。
+拟定边界（对齐时结合真实导出确定，不裁掉超限部分）：manifest ≤8 MiB，单 PNG ≤16 MiB，两组 PNG 合计 ≤64 MiB，合计最多 256 块；每块宽高正数且各不超过 16384 像素、单块≤16M像素、合计≤64M像素。合成块相对坐标须有限且落在 canvas 范围内，世界坐标（含半笔宽外延）不得超出 origin+canvas 完整范围，负世界坐标不得被裁掉；PNG 签名、可解码性、实际尺寸和 SHA-256 均须匹配。超限整体拒绝，不能部分保存后返回 fileRef。Spring multipart 上限须高于协议有效载荷并计入边界开销，例如 16MB 单 part／80MB 整请求；实际值在最终契约与配置中统一。
+
+题面底图 `rasterBlocks` 使用同一整格规则，但格原点为 `floor(questionLayout.bounds.x/y)`，宽高为向外取整后的题面范围，块 x/y 保留该世界原点；partName 为 `question_0000` 等，合成块为 `chunk_0000` 等。两组 index 各从0连续、partName 全包唯一，底图也必须给齐，不接受只有合成图。底图 GET 使用 question-blocks 路由，旧 fileRef 与跨账号均不可读。
 
 ## 4. 保存、覆盖、失败与重试
 
@@ -91,7 +94,7 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 1. 客户端在一次云端保存开始时冻结 saveRequestId（小写标准 UUID）、baseFileRef、manifest 的 UTF-8 字节和所有 PNG；网络重试使用同一冻结包。首次保存 baseFileRef 必须为 null；后续使用最近读取／保存成功的当前 fileRef。
 2. 服务端校验账号／题号，流式写同一持久化根目录的临时目录，校验所有 JSON／PNG；完成全部写入并 force 后，以同文件系统原子 rename 发布一个不可变目录。fileRef 是服务端生成的随机 UUID，与客户端路径或 filename 无关。
 3. 数据库事务锁定本题／当前作答。若当前 saveRequestId 与本次相同：请求摘要相同则返回原 fileRef 及当前状态（若已 COMPLETED 仍返回 COMPLETED，不降回 IN_PROGRESS），不同则 409。否则要求 baseFileRef 等于当前 fileRef；无当前记录时仅接受 null。匹配且当前不是 COMPLETED 才原子替换当前指针，状态为 IN_PROGRESS。
-4. 请求摘要绑定原始 manifest UTF-8 字节及按 index 排序的实际 PNG 摘要；客户端不得在重试时重新排 JSON 字段、改空白或重新导出图片。事务经 Spring 代理实际提交后才构造成功响应；未提交不能向 HTTP 暴露 fileRef。
+4. 请求摘要为原始 manifest UTF-8 字节的 SHA-256；manifest 已包含两组每块摘要，且服务端逐一核对实际 PNG，因此摘要绑定全部文件内容。客户端不得在重试时重新排 JSON 字段、改空白或重新导出图片。事务经 Spring 代理实际提交后才构造成功响应；未提交不能向 HTTP 暴露 fileRef。
 5. 同一 base 的并发不同保存只有一个可提交，另一个 409，原最新解答不被旧设备覆盖。A 保存→B 覆盖→A 的迟到原包重试，因原 base 与 B 不匹配而 409，不重新覆盖 B。去重只承诺当前保存及原包重试，不承诺查询过去 saveRequestId，也不声称能在服务端拒绝全历史 ID 复用；新动作必须生成新 ID 是客户端契约。
 6. 409 后保留本机草稿，明确提示刷新当前云端作答；不做冲突选择界面，不静默把 base 改为新 fileRef 并自动覆盖。超时／5xx 后先按冻结包重试；若前次实际提交但响应丢失，当前同 requestId＋摘要会返回原成功结果。
 
@@ -113,7 +116,7 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 
 ## 6. 错误与验收
 
-错误对象仍是 `{code,message,traceId,fieldErrors?}`。原 401/403/404/500/503 语义保持。新增场景拟定：同级名称重复、base/fileRef 过期、未完整保存即完成、已完成时再次保存 → 明确 409 错误码（题集名称冲突先固定 A0450，其余作答码对齐后固定）；非法 part/坐标/摘要/PNG 为 400，超大小 413，媒体类型错误 415（沿用 A0428），文件系统不可用 503。最终固定时统一在 ErrorCode、OpenAPI 与客户端映射中登记，禁止把文件错误当空解答。
+错误对象仍是 `{code,message,traceId,fieldErrors?}`。原 401/403/404/500/503 语义保持。新增场景拟定：同级名称重复、base/fileRef 过期、未完整保存即完成、已完成时再次保存 → 明确 409 错误码（A0450 名称重复；A0451 当前引用已改变；A0452 尚未完整保存；A0453 已完成须先继续；A0454 同 saveRequestId 的包内容不同）；非法 part/坐标/摘要/PNG 为 400 A0400，超大小 413 A0430，媒体类型错误 415（沿用 A0428），文件系统不可用 503。在实现中统一登记 ErrorCode、OpenAPI 与客户端映射，禁止把文件错误当空解答。
 
 C4 最小验收：题集主链路／多层归属与账号隔离；完整长文档所有块和最右端；缺块保存失败不返回 fileRef且保留旧解答／本机草稿；基本原包重试；保存后完成／继续状态；进程重启后当前 JSON/PNG 可读；Tablet 本机笔迹恢复与继续、Phone/Web 完整只读查看。输入边界沿实现做必要覆盖，不扩展为穷举大型故障矩阵。开发树不执行这些验证。
 
@@ -133,10 +136,6 @@ C4 最小验收：题集主链路／多层归属与账号隔离；完整长文�
 | `client/apps/tablet/src/main/ets/components/LibraryPane.ets` | develop 当前只有题干只读，没有可复用的正式画布导出；C2／Tablet 会话实现笔迹与完整导出 |
 | `web/apps/webui/src/lib/api/library-contract.ts`、`src/features/library/` | Web 现仅 M1 只读；由 Web 会话接题集写及完整解答只读，不直接依赖服务端实现类 |
 
-## 8. 本轮对齐点
+## 8. 固定与实施顺序
 
-1. C2 固定 `document` 真实最小 schema、逻辑／像素坐标及完整块覆盖规则，确认 manifest 与动态 PNG partName。
-2. 根会话／C2 确认当前 fileRef 条件覆盖与冻结包重试；这是无历史表方案的并发边界，不是版本库或写租约。
-3. 根据真实导出样本固定大小／像素／块数上限；完成／继续必须绑定当前 fileRef。
-
-对齐后 C1 固定错误码、DTO/字段与实施测试；本草案不代表接口已可调用。
+题集代码独立提交 `fdc5318b73a98819bf619d2b73fed25759408df1`，可先接收。作答按本版字段独立提交；C2 拥有公共 HAR／画布模型，C1 不写 client/web。服务端验证固定整格、负世界范围与两组 PNG，C4 用最小主链路与基本状态门禁验证，不做大型恢复框架。字段/schemaVersion 变更必须由 C1/C2 同步此文档，不能客户端自行换 part 名或坐标基准。
