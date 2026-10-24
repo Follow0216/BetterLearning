@@ -75,6 +75,7 @@ export struct LibraryPane {
   @State detail: QuestionDetail | null = null;
   @State detail_loading: boolean = false;
   @State detail_error: string = '';
+  @State current_answer_state: AnswerState = AnswerState.NOT_STARTED;
   @State canvas_ready: boolean = false;
   @State canvas_busy: boolean = false;
   @State canvas_can_complete: boolean = false;
@@ -658,8 +659,8 @@ export struct LibraryPane {
       .padding({ left: 10, right: 14 })
       .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
       .borderRadius(TABLET_RADIUS_SMALL)
-      .enabled(!this.closing)
-      .opacity(this.closing ? 0.5 : 1)
+      .enabled(!this.closing && this.pending_action.length === 0 && !this.canvas_busy)
+      .opacity(!this.closing && this.pending_action.length === 0 && !this.canvas_busy ? 1 : 0.5)
       .onClick(() => {
         this.request_close_detail();
       })
@@ -773,15 +774,17 @@ export struct LibraryPane {
 
   private save_enabled(): boolean {
     return this.canvas_ready && !this.canvas_busy && !this.canvas_completed &&
-      this.pending_action.length === 0;
+      this.pending_action.length === 0 && !this.closing;
   }
 
   private complete_enabled(): boolean {
-    return this.canvas_can_complete && !this.canvas_busy && this.pending_action.length === 0;
+    return this.canvas_can_complete && !this.canvas_busy && this.pending_action.length === 0 &&
+      !this.closing;
   }
 
   private continue_enabled(): boolean {
-    return this.canvas_completed && !this.canvas_busy && this.pending_action.length === 0;
+    return this.canvas_completed && !this.canvas_busy && this.pending_action.length === 0 &&
+      !this.closing;
   }
 
   private scope_title(): string {
@@ -827,8 +830,7 @@ export struct LibraryPane {
   }
 
   private detail_answer_state(): AnswerState {
-    const detail: QuestionDetail | null = this.detail;
-    return detail === null ? AnswerState.NOT_STARTED : detail.answerState;
+    return this.current_answer_state;
   }
 
   private is_collapsed(collection_id: string): boolean {
@@ -1024,6 +1026,7 @@ export struct LibraryPane {
     this.reset_answer_view();
     this.open_question_id = item.questionId;
     this.open_summary = item.summary;
+    this.current_answer_state = item.answerState;
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = true;
@@ -1047,28 +1050,45 @@ export struct LibraryPane {
     if (this.closing) {
       return;
     }
+    if (this.pending_action.length > 0 || this.canvas_busy) {
+      this.feedback_text = '正在保存，请稍候再离开。';
+      this.feedback_error = false;
+      return;
+    }
     if (!this.canvas_ready) {
       this.close_detail();
       return;
     }
+    const token: string | null = authSession.read_access_token();
+    if (token === null) {
+      this.expire_session();
+      return;
+    }
+    const question_id: string = this.open_question_id;
+    const seq: number = this.detail_seq;
     this.closing = true;
-    this.flush_then_close();
+    this.flush_then_close(token, question_id, seq);
   }
 
-  private async flush_then_close(): Promise<void> {
+  private async flush_then_close(token: string, question_id: string, seq: number): Promise<void> {
     let result: AuthResult<boolean> | null = null;
     try {
       result = await this.canvas_controller.flushLocal();
     } catch (error) {
       result = null;
     }
-    this.closing = false;
-    if (!this.alive) {
+    if (!this.is_detail_request_current(token, question_id, seq)) {
       return;
     }
-    if (result === null || !result.isSuccess) {
-      this.feedback_text = result === null ? '本机草稿保存失败，请重试后再离开' :
-        this.answer_failure_text(result.error);
+    if (!authSession.has_valid_session()) {
+      if (authSession.clear_session_if_token(token)) {
+        this.expire_session();
+      }
+      return;
+    }
+    this.closing = false;
+    if (result === null || !result.isSuccess || result.data !== true) {
+      this.feedback_text = '本机草稿尚未保存成功，请重试后再离开。';
       this.feedback_error = true;
       return;
     }
@@ -1090,6 +1110,7 @@ export struct LibraryPane {
     this.canvas_busy = false;
     this.canvas_can_complete = false;
     this.canvas_completed = false;
+    this.current_answer_state = AnswerState.NOT_STARTED;
     this.pending_action = '';
     this.feedback_text = '';
     this.feedback_error = false;
@@ -1111,7 +1132,8 @@ export struct LibraryPane {
   }
 
   private async run_answer_action(action: string): Promise<void> {
-    if (this.pending_action.length > 0 || this.detail === null || !this.alive) {
+    if (!this.alive || this.closing || this.pending_action.length > 0 || this.canvas_busy ||
+      this.detail === null || this.open_question_id.length === 0) {
       return;
     }
     const token: string | null = authSession.read_access_token();
@@ -1125,6 +1147,9 @@ export struct LibraryPane {
       }
       return;
     }
+    const question_id: string = this.open_question_id;
+    this.detail_seq += 1;
+    const seq: number = this.detail_seq;
     this.pending_action = action;
     this.feedback_text = '';
     this.feedback_error = false;
@@ -1138,15 +1163,15 @@ export struct LibraryPane {
         result = await this.canvas_controller.continueWriting();
       }
     } catch (error) {
-      if (this.alive) {
-        this.pending_action = '';
-        this.feedback_text = '操作未完成，请重试';
-        this.feedback_error = true;
+      if (!this.is_detail_request_current(token, question_id, seq)) {
+        return;
       }
+      this.pending_action = '';
+      this.feedback_text = '操作未完成，请重试';
+      this.feedback_error = true;
       return;
     }
-    this.pending_action = '';
-    if (!this.alive || !authSession.matches_access_token(token)) {
+    if (!this.is_detail_request_current(token, question_id, seq)) {
       return;
     }
     if (!authSession.has_valid_session()) {
@@ -1155,6 +1180,7 @@ export struct LibraryPane {
       }
       return;
     }
+    this.pending_action = '';
     if (result === null) {
       this.feedback_text = '操作未完成，请重试';
       this.feedback_error = true;
@@ -1171,24 +1197,43 @@ export struct LibraryPane {
       this.feedback_error = true;
       return;
     }
+    if (!this.is_valid_solution(action, result.data, question_id)) {
+      this.feedback_text = '服务返回的作答结果异常，请重试。';
+      this.feedback_error = true;
+      return;
+    }
+    this.current_answer_state = result.data.state;
     this.feedback_error = false;
-    this.feedback_text = this.success_text(action, result.data);
-    await this.refresh_answer_views(this.open_question_id);
+    this.feedback_text = this.success_text(action);
+    await this.refresh_answer_views(question_id, seq, token);
   }
 
-  private async refresh_answer_views(question_id: string): Promise<void> {
-    if (question_id.length === 0) {
+  private is_detail_request_current(token: string, question_id: string, seq: number): boolean {
+    return this.alive && this.open_question_id === question_id && this.detail_seq === seq &&
+      authSession.matches_access_token(token);
+  }
+
+  private is_valid_solution(action: string, solution: SolutionDetail, question_id: string): boolean {
+    if (solution.questionId !== question_id) {
+      return false;
+    }
+    const file_ref: string | null = solution.fileRef;
+    if (file_ref === null || file_ref.length === 0) {
+      return false;
+    }
+    if (action === 'complete') {
+      return solution.state === AnswerState.COMPLETED;
+    }
+    return solution.state === AnswerState.IN_PROGRESS;
+  }
+
+  private async refresh_answer_views(question_id: string, seq: number, token: string): Promise<void> {
+    if (!this.is_detail_request_current(token, question_id, seq)) {
       return;
     }
-    const token: string | null = authSession.read_access_token();
-    if (token === null || !this.alive) {
-      return;
-    }
-    this.detail_seq += 1;
-    const detail_seq: number = this.detail_seq;
     try {
       const result: AuthResult<QuestionDetail> = await this.api.getQuestion(token, question_id);
-      if (!this.check_detail_session(token, detail_seq)) {
+      if (!this.is_detail_request_current(token, question_id, seq)) {
         return;
       }
       if (result.error !== null && result.error.is_unauthorized()) {
@@ -1197,13 +1242,19 @@ export struct LibraryPane {
         }
         return;
       }
-      if (result.isSuccess && result.data !== null) {
-        this.detail = result.data;
+      if (result.isSuccess && result.data !== null && result.data.questionId === question_id) {
+        this.current_answer_state = result.data.answerState;
       }
     } catch (error) {
       return;
     }
-    if (!this.alive || !authSession.matches_access_token(token)) {
+    if (!this.is_detail_request_current(token, question_id, seq)) {
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      if (authSession.clear_session_if_token(token)) {
+        this.expire_session();
+      }
       return;
     }
     this.list_seq += 1;
@@ -1211,18 +1262,14 @@ export struct LibraryPane {
     await this.load_questions(token, list_seq, this.page);
   }
 
-  private success_text(action: string, solution: SolutionDetail): string {
+  private success_text(action: string): string {
     if (action === 'complete') {
-      return '本题已完成。';
+      return '已完成并保存到云端。';
     }
     if (action === 'continue') {
-      return '已恢复作答，可以继续书写。';
+      return '已恢复作答。';
     }
-    const file_ref: string | null = solution.fileRef;
-    if (file_ref === null || file_ref.length === 0) {
-      return '已保存到本机草稿，稍后会自动同步。';
-    }
-    return '已保存。';
+    return '已保存到云端。';
   }
 
   private answer_failure_text(error: AuthError | null): string {
@@ -1230,7 +1277,7 @@ export struct LibraryPane {
       return '操作未完成，请重试';
     }
     if (error.is_network()) {
-      return '网络连接失败，本机草稿已保留，请重试';
+      return '网络连接失败，请重试';
     }
     if (error.is_service_unavailable()) {
       return '服务暂时不可用，请稍后重试';
@@ -1296,6 +1343,7 @@ export struct LibraryPane {
         return;
       }
       this.detail = result.data;
+      this.current_answer_state = result.data.answerState;
     } catch (error) {
       if (!this.check_detail_session(token, seq)) {
         return;
