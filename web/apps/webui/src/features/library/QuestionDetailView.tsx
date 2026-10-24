@@ -19,6 +19,7 @@ import { AnswerStateBadge } from "./AnswerStateBadge";
 import { formatQuestionTime } from "./library-params";
 import { MoveQuestionControl } from "./MoveQuestionControl";
 import { RefreshButton } from "./RefreshButton";
+import { SavedAnswerPanel } from "./SavedAnswerPanel";
 import { StatePanel } from "./StatePanel";
 import { SubjectBadge } from "./SubjectBadge";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -159,6 +160,7 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
           <QuestionMarkdown bodyMarkdown={question.bodyMarkdown} ariaLabel="题目正文" />
         </div>
       </article>
+      <SavedAnswerPanel questionId={questionId} />
     </DetailFrame>
   );
 }

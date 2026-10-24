@@ -2,6 +2,12 @@ import "server-only";
 
 import { cookies } from "next/headers";
 
+import {
+  MAX_ANSWER_BLOCKS,
+  isValidAnswerFileRef,
+  parseSavedAnswer,
+  type SavedAnswer,
+} from "./answer-contract";
 import { SESSION_COOKIE_NAME } from "./auth-response";
 import {
   LibraryContractError,
@@ -367,4 +373,116 @@ export async function moveQuestion(
   } catch {
     return { ok: false, failure: contractFailure() };
   }
+}
+
+export interface AnswerBlockImage {
+  contentType: "image/png";
+  body: ArrayBuffer;
+}
+
+export async function getSavedAnswer(questionId: string): Promise<LibraryResult<SavedAnswer>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  const token = await readSessionToken();
+  if (token === null) {
+    return {
+      ok: false,
+      failure: failure("unauthenticated", 401, "A0200", "登录状态已失效，请重新登录"),
+    };
+  }
+
+  const result = await requestJson(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/answer`,
+    token,
+  );
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ok: true, data: parseSavedAnswer(result.value, questionId) };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+async function requestPng(
+  pathname: string,
+  token: string,
+): Promise<LibraryResult<AnswerBlockImage>> {
+  let url: string;
+  try {
+    url = `${resolveBaseUrl()}${pathname}`;
+  } catch {
+    return {
+      ok: false,
+      failure: failure("error", 500, "W0002", "题库服务配置缺失或不合法，请联系管理员"),
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "image/png",
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+      redirect: "manual",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "TimeoutError";
+    return {
+      ok: false,
+      failure: failure(
+        "unavailable",
+        503,
+        "C0001",
+        timedOut ? "作答图片响应超时，请重试" : "无法连接作答图片服务，请稍后重试",
+      ),
+    };
+  }
+
+  if (!response.ok) {
+    return { ok: false, failure: await toFailure(response) };
+  }
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "image/png") {
+    return { ok: false, failure: contractFailure() };
+  }
+  try {
+    return { ok: true, data: { contentType: "image/png", body: await response.arrayBuffer() } };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+export async function getAnswerBlock(
+  questionId: string,
+  fileRef: string,
+  index: number,
+): Promise<LibraryResult<AnswerBlockImage>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  if (!isValidAnswerFileRef(fileRef)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "作答文件编号不合法") };
+  }
+  if (!Number.isSafeInteger(index) || index < 0 || index >= MAX_ANSWER_BLOCKS) {
+    return { ok: false, failure: failure("error", 400, "A0400", "作答图块编号不合法") };
+  }
+  const token = await readSessionToken();
+  if (token === null) {
+    return {
+      ok: false,
+      failure: failure("unauthenticated", 401, "A0200", "登录状态已失效，请重新登录"),
+    };
+  }
+
+  return requestPng(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/answer/files/${encodeURIComponent(fileRef)}/blocks/${index}`,
+    token,
+  );
 }
