@@ -135,7 +135,7 @@ class UserRegistrationIntegrationTests {
 
     @BeforeEach
     void cleanTable() {
-        jdbcTemplate.update("TRUNCATE TABLE question_answer, question, question_collection, app_user RESTART IDENTITY");
+        jdbcTemplate.update("TRUNCATE TABLE tutor_turn, question_answer, question, question_collection, app_user RESTART IDENTITY");
         redisTemplate.execute((RedisCallback<Void>) connection -> {
             connection.serverCommands().flushDb();
             return null;

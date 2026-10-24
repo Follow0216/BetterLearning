@@ -6,6 +6,7 @@ import java.util.Objects;
 
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
+import com.betterlearning.server.learning.converter.AnswerConverter;
 import com.betterlearning.server.learning.dao.LearningDao;
 import com.betterlearning.server.learning.dao.QuestionAnswerDao;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
@@ -83,16 +84,8 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
             throw exception;
         }
         answer = ensureCurrent(accountId, id, answer.getFileRef());
-        AnswerModels.SaveManifest source = stored.source();
         String base = "/api/v1/learning/questions/" + questionId + "/answer/files/" + answer.getFileRef();
-        AnswerModels.QuestionLayout layout = source.document().questionLayout();
-        AnswerModels.ReadLayout readLayout = new AnswerModels.ReadLayout(layout.questionBodySha256(),
-                layout.contentWidth(), layout.fontSize(), layout.rendererId(), layout.bounds(), layout.blocks(),
-                readBlocks(layout.rasterBlocks(), base + "/question-blocks/"));
-        AnswerModels.ReadManifest manifest = new AnswerModels.ReadManifest(source.schemaVersion(),
-                source.saveRequestId(), source.baseFileRef(), source.canvas(),
-                new AnswerModels.ReadDocument(source.document().schemaVersion(), readLayout, source.document().strokes()),
-                readBlocks(source.blocks(), base + "/blocks/"), stored.questionSnapshot());
+        AnswerModels.ReadManifest manifest = AnswerConverter.read(stored, base);
         return new AnswerModels.Detail(questionId, answer.getState(), answer.getFileRef(),
                 answer.getSavedAt(), answer.getCompletedAt(), manifest);
     }
@@ -138,12 +131,6 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
     private QuestionDO question(long accountId, long id) {
         return learningDao.findById(accountId, id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-    }
-
-    private static List<AnswerModels.ReadBlock> readBlocks(List<AnswerModels.Block> blocks, String base) {
-        return blocks.stream().map(block -> new AnswerModels.ReadBlock(block.index(), block.partName(),
-                block.x(), block.y(), block.width(), block.height(), block.pixelWidth(), block.pixelHeight(),
-                block.sha256(), base + block.index())).toList();
     }
 
     private static AnswerModels.SaveResult result(QuestionAnswerDO answer) {

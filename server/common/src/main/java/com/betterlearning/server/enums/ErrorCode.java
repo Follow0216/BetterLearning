@@ -67,6 +67,12 @@ public enum ErrorCode {
     /** M2 有界完整上传。 */
     UPLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "A0430", "上传内容超出限制"),
 
+    /** A0455：辅导轮次活动或状态冲突；本项目扩展。 */
+    TUTOR_TURN_CONFLICT(HttpStatus.CONFLICT, "A0455", "当前辅导轮次状态冲突，请刷新后重试"),
+
+    /** C0002：模型接入不可用；本项目扩展，供应商原始错误不对外暴露。 */
+    MODEL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "C0002", "模型服务暂时不可用"),
+
     /** A0501：请求次数超出限制（沿用《Java 开发手册》附 3）。 */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "A0501", "请求过于频繁"),
 
