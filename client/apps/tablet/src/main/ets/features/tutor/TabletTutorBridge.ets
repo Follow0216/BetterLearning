@@ -131,6 +131,10 @@ export class TabletTutorBridge {
       clearInterval(this.timer);
       this.timer = -1;
     }
+    if (this.questionId.length > 0 && this.activeTurnId.length > 0) {
+      // 只取消该轮本机等待/导出/待发送；C2保留原包且不会调用服务端cancel。
+      this.canvas.cancelTutorFreeze(this.questionId, this.activeTurnId);
+    }
     this.publish(TabletTutorPhase.STOPPED, '辅导请求已暂停');
   }
 
