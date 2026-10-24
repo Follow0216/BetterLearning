@@ -121,58 +121,43 @@ async function AccountContent() {
     redirect("/login");
   }
 
+  let user: AdminUser | null = null;
+  let failure: unknown = null;
   try {
-    const user = await getAdminSession(token);
-    return <IdentityCard user={user} />;
+    user = await getAdminSession(token);
   } catch (error) {
-    if (error instanceof AdminBackendError && error.status === 403) {
-      return (
-        <StateCard
-          title="该账号不是管理员"
-          message="普通用户账号不能进入管理后台，请改用服务端初始化的管理员账号登录。"
-          primaryHref="/login"
-          primaryLabel="使用管理员账号登录"
-        />
-      );
-    }
-    if (error instanceof AdminBackendError && error.status === 401) {
-      return (
-        <StateCard
-          title="管理员会话已失效"
-          message="当前会话无法通过服务端校验，请重新登录。"
-          primaryHref="/login"
-          primaryLabel="重新登录"
-        />
-      );
-    }
-    if (error instanceof AdminUnavailableError) {
-      return (
-        <StateCard
-          title="认证服务暂不可用"
-          message="当前不会视为已登录，也不会展示本地伪造身份，请稍后重试。"
-          primaryHref="/account"
-          primaryLabel="重试"
-          secondaryHref="/login"
-          secondaryLabel="前往管理员登录"
-        />
-      );
-    }
-    if (error instanceof AdminContractError) {
-      return (
-        <StateCard
-          title="管理员身份响应异常"
-          message="认证服务返回的身份信息无法解析，请稍后重试或联系管理员。"
-          primaryHref="/account"
-          primaryLabel="重试"
-          secondaryHref="/login"
-          secondaryLabel="前往管理员登录"
-        />
-      );
-    }
+    failure = error;
+  }
+
+  if (user !== null) {
+    return <IdentityCard user={user} />;
+  }
+
+  if (failure instanceof AdminBackendError && failure.status === 403) {
     return (
       <StateCard
-        title="加载管理员身份失败"
-        message="服务端暂时无法完成身份校验，请稍后重试。"
+        title="该账号不是管理员"
+        message="普通用户账号不能进入管理后台，请改用服务端初始化的管理员账号登录。"
+        primaryHref="/login"
+        primaryLabel="使用管理员账号登录"
+      />
+    );
+  }
+  if (failure instanceof AdminBackendError && failure.status === 401) {
+    return (
+      <StateCard
+        title="管理员会话已失效"
+        message="当前会话无法通过服务端校验，请重新登录。"
+        primaryHref="/login"
+        primaryLabel="重新登录"
+      />
+    );
+  }
+  if (failure instanceof AdminUnavailableError) {
+    return (
+      <StateCard
+        title="认证服务暂不可用"
+        message="当前不会视为已登录，也不会展示本地伪造身份，请稍后重试。"
         primaryHref="/account"
         primaryLabel="重试"
         secondaryHref="/login"
@@ -180,6 +165,28 @@ async function AccountContent() {
       />
     );
   }
+  if (failure instanceof AdminContractError) {
+    return (
+      <StateCard
+        title="管理员身份响应异常"
+        message="认证服务返回的身份信息无法解析，请稍后重试或联系管理员。"
+        primaryHref="/account"
+        primaryLabel="重试"
+        secondaryHref="/login"
+        secondaryLabel="前往管理员登录"
+      />
+    );
+  }
+  return (
+    <StateCard
+      title="加载管理员身份失败"
+      message="服务端暂时无法完成身份校验，请稍后重试。"
+      primaryHref="/account"
+      primaryLabel="重试"
+      secondaryHref="/login"
+      secondaryLabel="前往管理员登录"
+    />
+  );
 }
 
 export default function AdminAccountPage() {
