@@ -5,6 +5,7 @@ import { BlIcon } from "@/components/icons/BlIcon";
 import { INBOX_COLLECTION_ID } from "@/lib/api/library-contract";
 import { getCollections, getQuestionPage, type LibraryFailure } from "@/lib/api/library-server";
 
+import { CollectionDialog } from "./CollectionDialog";
 import {
   LIBRARY_PAGE_SIZE,
   buildWorkspaceHref,
@@ -54,16 +55,24 @@ function FailurePanel({ failure, retryHref }: { failure: LibraryFailure; retryHr
 }
 
 function EmptyState({ view }: { view: LibraryView }) {
+  const isInbox = view.kind === "inbox";
+  const isCollection = view.kind === "collection";
   return (
     <div className="flex flex-col items-center rounded-2xl border border-dashed border-[var(--auth-border)] bg-white px-6 py-14 text-center">
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--auth-primary-soft)] text-[var(--auth-primary)]">
-        <BlIcon name={view === "inbox" ? "inbox" : "list"} size={22} />
+        <BlIcon name={isInbox ? "inbox" : "list"} size={22} />
       </span>
       <p className="mt-4 text-base font-medium text-[var(--auth-text)]">
-        {view === "inbox" ? "待整理里还没有题目" : "题库里还没有题目"}
+        {isInbox
+          ? "待整理里还没有题目"
+          : isCollection
+            ? "这个题集里还没有题目"
+            : "题库里还没有题目"}
       </p>
       <p className="mt-1 max-w-[420px] text-sm leading-6 text-[var(--auth-muted)]">
-        在手机端拍照录题并确认入库后，题目会出现在这里。
+        {isCollection
+          ? "可以在题目详情页把题目移动到这个题集。"
+          : "在手机端拍照录题并确认入库后，题目会出现在这里。"}
       </p>
     </div>
   );
@@ -88,12 +97,14 @@ export async function WorkspaceView({
     getCollections(),
   ]);
 
+  const collections = collectionsResult.ok ? collectionsResult.data.items : [];
+
   if (!pageResult.ok) {
     if (pageResult.failure.kind === "unauthenticated") {
       redirect("/");
     }
     return (
-      <WorkspaceFrame view={view}>
+      <WorkspaceFrame view={view} collections={collections}>
         <FailurePanel failure={pageResult.failure} retryHref={retryHref} />
       </WorkspaceFrame>
     );
@@ -103,25 +114,63 @@ export async function WorkspaceView({
   const pages = totalPages(data.total, data.pageSize);
   const safePage = Math.min(data.page, pages);
   const inboxCount = collectionsResult.ok
-    ? collectionsResult.data.items.find((item) => item.collectionId === INBOX_COLLECTION_ID)
-        ?.questionCount
+    ? collections.find((item) => item.collectionId === INBOX_COLLECTION_ID)?.questionCount
     : undefined;
-  const allCount = view === "all" ? data.total : undefined;
+  const allCount =
+    view.kind === "all"
+      ? data.total
+      : collectionsResult.ok
+        ? collections.reduce((sum, item) => sum + item.questionCount, 0)
+        : undefined;
+  const currentCollection =
+    view.kind === "collection"
+      ? collections.find((item) => item.collectionId === view.collectionId)
+      : undefined;
+
+  const heading =
+    view.kind === "inbox"
+      ? "待整理"
+      : view.kind === "all"
+        ? "全部题目"
+        : (currentCollection?.name ?? "题集");
+  const description =
+    view.kind === "inbox"
+      ? "手机端确认入库的题目默认进入这里。"
+      : view.kind === "all"
+        ? "当前账号的全部真实题目，按入库时间倒序。"
+        : "题集内直接归属的题目，按入库时间倒序；子题集题目不计入这里。";
 
   return (
-    <WorkspaceFrame view={view} inboxCount={inboxCount} allCount={allCount}>
+    <WorkspaceFrame
+      view={view}
+      collections={collections}
+      inboxCount={inboxCount}
+      allCount={allCount}
+    >
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl leading-8 font-semibold text-[var(--auth-text)]">
-            {view === "inbox" ? "待整理" : "全部题目"}
-          </h1>
-          <p className="mt-1 text-sm text-[var(--auth-muted)]">
-            {view === "inbox"
-              ? "手机端确认入库的题目默认进入这里。"
-              : "当前账号的全部真实题目，按入库时间倒序。"}
-          </p>
+          <h1 className="text-2xl leading-8 font-semibold text-[var(--auth-text)]">{heading}</h1>
+          <p className="mt-1 text-sm text-[var(--auth-muted)]">{description}</p>
         </div>
-        <RefreshButton />
+        <div className="flex flex-wrap items-center gap-2">
+          {currentCollection === undefined ? null : (
+            <>
+              <CollectionDialog
+                mode="rename"
+                collections={collections}
+                collection={currentCollection}
+                triggerLabel="改名"
+              />
+              <CollectionDialog
+                mode="create"
+                collections={collections}
+                triggerLabel="新建子集"
+                defaultParentCollectionId={currentCollection.collectionId}
+              />
+            </>
+          )}
+          <RefreshButton />
+        </div>
       </div>
 
       <div className="mt-5">

@@ -4,10 +4,20 @@ import type { ReactNode } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
-import { isValidQuestionId } from "@/lib/api/library-contract";
-import { getQuestionDetail, type LibraryFailure } from "@/lib/api/library-server";
+import {
+  INBOX_COLLECTION_ID,
+  INBOX_COLLECTION_NAME,
+  isValidQuestionId,
+} from "@/lib/api/library-contract";
+import {
+  getCollections,
+  getQuestionDetail,
+  type LibraryFailure,
+} from "@/lib/api/library-server";
 
+import { AnswerStateBadge } from "./AnswerStateBadge";
 import { formatQuestionTime } from "./library-params";
+import { MoveQuestionControl } from "./MoveQuestionControl";
 import { StatePanel } from "./StatePanel";
 import { SubjectBadge } from "./SubjectBadge";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -78,7 +88,10 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
     );
   }
 
-  const result = await getQuestionDetail(questionId);
+  const [result, collectionsResult] = await Promise.all([
+    getQuestionDetail(questionId),
+    getCollections(),
+  ]);
   if (!result.ok) {
     if (result.failure.kind === "unauthenticated") {
       redirect("/");
@@ -91,11 +104,19 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
   }
 
   const question = result.data;
+  const collections = collectionsResult.ok ? collectionsResult.data.items : [];
+  const collectionName =
+    question.collectionId === INBOX_COLLECTION_ID
+      ? INBOX_COLLECTION_NAME
+      : (collections.find((item) => item.collectionId === question.collectionId)?.name ??
+        `题集 #${question.collectionId}`);
+
   return (
     <DetailFrame>
       <article className="rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7">
         <div className="flex flex-wrap items-center gap-3">
           <SubjectBadge subject={question.subject} />
+          <AnswerStateBadge state={question.answerState} />
           <time dateTime={question.createdAt} className="text-xs text-[var(--auth-muted)]">
             入库于 {formatQuestionTime(question.createdAt)}
           </time>
@@ -103,7 +124,24 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
             题目 #{question.questionId}
           </span>
         </div>
-        <div className="mt-5 border-t border-[var(--auth-divider)] pt-5">
+        <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[var(--auth-divider)] pt-4">
+          <span className="text-xs text-[var(--auth-muted)]">归属</span>
+          <span
+            className="inline-flex items-center rounded-full bg-[var(--auth-bg)] px-2.5 py-0.5 text-xs font-medium text-[var(--auth-text)]"
+          >
+            {collectionName}
+          </span>
+          {collectionsResult.ok ? (
+            <div className="ml-auto">
+              <MoveQuestionControl
+                questionId={question.questionId}
+                currentCollectionId={question.collectionId}
+                collections={collections}
+              />
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-4">
           <QuestionMarkdown bodyMarkdown={question.bodyMarkdown} ariaLabel="题目正文" />
         </div>
       </article>

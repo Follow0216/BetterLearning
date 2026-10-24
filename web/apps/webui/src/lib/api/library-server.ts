@@ -6,13 +6,17 @@ import { SESSION_COOKIE_NAME } from "./auth-response";
 import {
   LibraryContractError,
   isValidCollectionId,
+  isRealCollectionId,
   isValidQuestionId,
+  normalizeCollectionName,
   parseCollectionList,
+  parseCollectionSummary,
   parseQuestionDetail,
   parseQuestionPage,
   tryParseErrorPayload,
   type ApiErrorPayload,
   type CollectionList,
+  type CollectionSummary,
   type QuestionDetail,
   type QuestionPage,
 } from "./library-contract";
@@ -127,9 +131,15 @@ async function toFailure(response: Response): Promise<LibraryFailure> {
   };
 }
 
+interface JsonRequestOptions {
+  method?: "GET" | "POST" | "PATCH";
+  body?: unknown;
+}
+
 async function requestJson(
   pathname: string,
   token: string,
+  options: JsonRequestOptions = {},
 ): Promise<{ ok: true; value: unknown } | { ok: false; failure: LibraryFailure }> {
   let url: string;
   try {
@@ -141,11 +151,22 @@ async function requestJson(
     };
   }
 
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  let body: string | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
+
   let response: Response;
   try {
     response = await fetch(url, {
-      method: "GET",
-      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+      method: options.method ?? "GET",
+      headers,
+      body,
       cache: "no-store",
       redirect: "manual",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -163,7 +184,7 @@ async function requestJson(
     };
   }
 
-  if (response.status !== 200) {
+  if (!response.ok) {
     return { ok: false, failure: await toFailure(response) };
   }
   try {
@@ -251,6 +272,98 @@ export async function getCollections(): Promise<LibraryResult<CollectionList>> {
   }
   try {
     return { ok: true, data: parseCollectionList(result.value) };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+export interface CreateCollectionInput {
+  name: string;
+  parentCollectionId: string | null;
+}
+
+export async function createCollection(
+  token: string,
+  input: CreateCollectionInput,
+): Promise<LibraryResult<CollectionSummary>> {
+  const name = normalizeCollectionName(input.name);
+  if (name === null) {
+    return {
+      ok: false,
+      failure: failure("error", 400, "A0400", "题集名称需为 1–64 个字符"),
+    };
+  }
+  if (input.parentCollectionId !== null && !isRealCollectionId(input.parentCollectionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "父题集不合法") };
+  }
+
+  const result = await requestJson("/api/v1/learning/collections", token, {
+    method: "POST",
+    body: { name, parentCollectionId: input.parentCollectionId },
+  });
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ok: true, data: parseCollectionSummary(result.value) };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+export async function renameCollection(
+  token: string,
+  collectionId: string,
+  rawName: string,
+): Promise<LibraryResult<CollectionSummary>> {
+  if (!isRealCollectionId(collectionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题集编号不合法") };
+  }
+  const name = normalizeCollectionName(rawName);
+  if (name === null) {
+    return {
+      ok: false,
+      failure: failure("error", 400, "A0400", "题集名称需为 1–64 个字符"),
+    };
+  }
+
+  const result = await requestJson(
+    `/api/v1/learning/collections/${encodeURIComponent(collectionId)}`,
+    token,
+    { method: "PATCH", body: { name } },
+  );
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ok: true, data: parseCollectionSummary(result.value) };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+export async function moveQuestion(
+  token: string,
+  questionId: string,
+  collectionId: string,
+): Promise<LibraryResult<QuestionDetail>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  if (!isValidCollectionId(collectionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "目标题集不合法") };
+  }
+
+  const result = await requestJson(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/collection`,
+    token,
+    { method: "PATCH", body: { collectionId } },
+  );
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ok: true, data: parseQuestionDetail(result.value) };
   } catch {
     return { ok: false, failure: contractFailure() };
   }

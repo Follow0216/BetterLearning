@@ -3,6 +3,7 @@ import Link from "next/link";
 import { BlIcon } from "@/components/icons/BlIcon";
 import type { QuestionSummary } from "@/lib/api/library-contract";
 
+import { AnswerStateBadge } from "./AnswerStateBadge";
 import { buildQuestionHref, formatQuestionTime } from "./library-params";
 import { SubjectBadge } from "./SubjectBadge";
 
@@ -19,6 +20,7 @@ export function QuestionList({ items }: { items: QuestionSummary[] }) {
             <span className="min-w-0 flex-1 text-sm leading-6 break-words text-[var(--auth-text)]">
               {question.summary}
             </span>
+            <AnswerStateBadge state={question.answerState} />
             <time
               dateTime={question.createdAt}
               className="hidden shrink-0 text-xs text-[var(--auth-muted)] tabular-nums sm:block"

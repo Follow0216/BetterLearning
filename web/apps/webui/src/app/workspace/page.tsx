@@ -7,7 +7,7 @@ import { WorkspaceView } from "@/features/library/WorkspaceView";
 
 export const metadata: Metadata = {
   title: "题库 · BetterLearning",
-  description: "当前账号的真实题库：待整理、全部题目与分页浏览。",
+  description: "当前账号的真实题库：待整理、题集树与分页浏览。",
 };
 
 interface WorkspacePageProps {
