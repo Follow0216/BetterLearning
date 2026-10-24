@@ -1,4 +1,5 @@
 import { AnswerState, QuestionDetail } from 'common';
+import { TabletTutorPhase } from '../features/tutor/TabletTutorBridge';
 import {
   CanvasWorkspaceState,
   TabletCanvasController,
@@ -40,6 +41,7 @@ export struct AnswerWorkspace {
   @Prop pending_action: string = '';
   @Prop feedback_text: string = '';
   @Prop feedback_error: boolean = false;
+  @Prop tutor_phase: TabletTutorPhase = TabletTutorPhase.STOPPED;
   @State private header_width_vp: number = 1000;
   controller: TabletCanvasController = new TabletCanvasController();
   on_state_change: (state: CanvasWorkspaceState) => void = () => {
@@ -58,6 +60,24 @@ export struct AnswerWorkspace {
   build() {
     Column() {
       this.answer_header()
+
+      if (this.tutor_hint().length > 0) {
+        Row({ space: 8 }) {
+          Image($r('app.media.bl_info'))
+            .width(14)
+            .height(14)
+            .objectFit(ImageFit.Contain)
+          Text(this.tutor_hint())
+            .fontSize(12)
+            .fontColor(this.tutor_hint_color())
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 6, bottom: 6 })
+        .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
+      }
 
       if (this.feedback_error && this.feedback_text.length > 0) {
         Row() {
@@ -228,6 +248,35 @@ export struct AnswerWorkspace {
         this.header_width_vp = width;
       }
     })
+  }
+
+  private tutor_hint(): string {
+    switch (this.tutor_phase) {
+      case TabletTutorPhase.FREEZING:
+        return '手机正在请求解答，等待抬笔后发送';
+      case TabletTutorPhase.UPLOADING:
+        return '正在发送本轮解答，可继续书写';
+      case TabletTutorPhase.GENERATING:
+        return '解答已发送，正在生成辅导';
+      case TabletTutorPhase.SUCCEEDED:
+        return '辅导已生成，可在手机查看';
+      case TabletTutorPhase.FAILED:
+        return '本轮辅导未完成，请在手机查看或重试';
+      case TabletTutorPhase.ERROR:
+        return '辅导暂时不可用，请在手机查看本轮状态';
+      default:
+        return '';
+    }
+  }
+
+  private tutor_hint_color(): string {
+    if (this.tutor_phase === TabletTutorPhase.SUCCEEDED) {
+      return TABLET_COLOR_SUCCESS;
+    }
+    if (this.tutor_phase === TabletTutorPhase.FAILED || this.tutor_phase === TabletTutorPhase.ERROR) {
+      return TABLET_COLOR_MUTED;
+    }
+    return TABLET_COLOR_PRIMARY;
   }
 
   private dispatch(action: string): void {
