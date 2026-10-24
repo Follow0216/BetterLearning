@@ -33,6 +33,8 @@ import {
 import { AnswerWorkspace } from './AnswerWorkspace';
 import { CanvasWorkspaceState, TabletCanvasController } from '../features/canvas/TabletCanvasWorkspace';
 
+import { SharedTabletTutorApi, TabletTutorBridge, TabletTutorPhase, TabletTutorState } from '../features/tutor/TabletTutorBridge';
+
 const PAGE_SIZE: number = 20;
 const ROOT_COLLECTION_KEY: string = '';
 
@@ -58,6 +60,8 @@ class CollectionNode {
  */
 @Component
 export struct LibraryPane {
+  @Prop @Watch('sync_tutor') active: boolean = false;
+  @State tutor_phase: TabletTutorPhase = TabletTutorPhase.STOPPED;
   on_session_expired: () => void = () => {
   };
   on_answer_mode_changed: (active: boolean) => void = () => {
@@ -91,19 +95,27 @@ export struct LibraryPane {
   @State feedback_text: string = '';
   @State feedback_error: boolean = false;
   @State closing: boolean = false;
+  @State answer_mount_revision: number = 0;
   private api: LearningApi = LearningApi.create_default();
   private collections: QuestionCollection[] = [];
   private canvas_controller: TabletCanvasController = new TabletCanvasController();
   private list_seq: number = 0;
   private detail_seq: number = 0;
   private alive: boolean = false;
+  private tutor_bridge: TabletTutorBridge | null = null;
+  private tutor_revision: number = 0;
+  private tutor_question_id: string = '';
+  private tutor_token: string = '';
+  private tutor_started: boolean = false;
 
   aboutToAppear(): void {
     this.alive = true;
     this.refresh_all();
+    this.sync_tutor();
   }
 
   aboutToDisappear(): void {
+    this.dispose_tutor();
     this.alive = false;
     this.list_seq += 1;
     this.detail_seq += 1;
@@ -631,42 +643,48 @@ export struct LibraryPane {
         this.detail_fallback_header()
         this.detail_failure_state()
       } else if (this.detail !== null) {
-        AnswerWorkspace({
-          question: this.detail,
-          collection_name: this.scope_title(),
-          question_ordinal: this.detail_ordinal(),
-          answer_state: this.current_answer_state,
-          save_hint: this.save_hint(),
-          can_back: this.back_enabled(),
-          can_save: this.save_enabled(),
-          can_complete: this.complete_enabled(),
-          can_continue: this.continue_enabled(),
-          show_continue: this.canvas_completed,
-          pending_action: this.pending_action,
-          feedback_text: this.feedback_text,
-          feedback_error: this.feedback_error,
-          controller: this.canvas_controller,
-          on_state_change: (state: CanvasWorkspaceState) => {
-            this.apply_canvas_state(state);
-          },
-          on_session_expired: () => {
-            this.expire_session();
-          },
-          on_back: () => {
-            this.request_close_detail();
-          },
-          on_save: () => {
-            this.run_answer_action('save');
-          },
-          on_complete: () => {
-            this.run_answer_action('complete');
-          },
-          on_continue: () => {
-            this.run_answer_action('continue');
-          }
-        })
-          .width('100%')
-          .layoutWeight(1)
+        // 仅开题/重试/关闭时更换挂载代次；普通保存的请求代次不重建画布。
+        ForEach([this.answer_mount_revision], (revision: number) => {
+          AnswerWorkspace({
+            question: this.detail,
+            tutor_phase: this.tutor_phase,
+            collection_name: this.scope_title(),
+            question_ordinal: this.detail_ordinal(),
+            answer_state: this.current_answer_state,
+            save_hint: this.save_hint(),
+            can_back: this.back_enabled(),
+            can_save: this.save_enabled(),
+            can_complete: this.complete_enabled(),
+            can_continue: this.continue_enabled(),
+            show_continue: this.canvas_completed,
+            pending_action: this.pending_action,
+            feedback_text: this.feedback_text,
+            feedback_error: this.feedback_error,
+            controller: this.canvas_controller,
+            on_state_change: (state: CanvasWorkspaceState) => {
+              if (this.answer_callback_current(revision)) {
+                this.apply_canvas_state(state);
+              }
+            },
+            on_session_expired: () => {
+              if (this.alive && revision === this.answer_mount_revision) { this.expire_session(); }
+            },
+            on_back: () => {
+              if (this.answer_callback_current(revision)) { this.request_close_detail(); }
+            },
+            on_save: () => {
+              if (this.answer_callback_current(revision)) { this.run_answer_action('save'); }
+            },
+            on_complete: () => {
+              if (this.answer_callback_current(revision)) { this.run_answer_action('complete'); }
+            },
+            on_continue: () => {
+              if (this.answer_callback_current(revision)) { this.run_answer_action('continue'); }
+            }
+          })
+            .width('100%')
+            .layoutWeight(1)
+        }, (revision: number): string => revision.toString())
       }
     }
     .width('100%')
@@ -1189,6 +1207,8 @@ export struct LibraryPane {
   }
 
   private reset_answer_view(): void {
+    this.answer_mount_revision += 1;
+    this.dispose_tutor();
     this.canvas_ready = false;
     this.canvas_busy = false;
     this.canvas_can_complete = false;
@@ -1218,6 +1238,7 @@ export struct LibraryPane {
       this.feedback_text = state.errorMessage;
       this.feedback_error = true;
     }
+    this.sync_tutor();
   }
 
   private async run_answer_action(action: string): Promise<void> {
@@ -1421,6 +1442,7 @@ export struct LibraryPane {
     } finally {
       if (this.alive && seq === this.detail_seq) {
         this.detail_loading = false;
+        this.sync_tutor();
       }
     }
   }
@@ -1467,6 +1489,84 @@ export struct LibraryPane {
     this.reset_answer_view();
     this.on_answer_mode_changed(false);
     this.on_session_expired();
+  }
+
+  private answer_callback_current(revision: number): boolean {
+    return this.alive && revision === this.answer_mount_revision && this.detail !== null &&
+      this.detail.questionId === this.open_question_id && !this.detail_loading;
+  }
+
+  private tutor_eligible(): boolean {
+    return this.alive && this.active && this.canvas_ready && !this.detail_loading &&
+      this.detail_error.length === 0 && this.detail !== null &&
+      this.open_question_id.length > 0 && this.detail.questionId === this.open_question_id;
+  }
+
+  private sync_tutor(): void {
+    if (!this.tutor_eligible()) {
+      this.stop_tutor();
+      return;
+    }
+    const token: string | null = authSession.read_access_token();
+    if (token === null) {
+      this.stop_tutor();
+      return;
+    }
+    const question_id: string = this.open_question_id;
+    if (this.tutor_bridge !== null &&
+      (this.tutor_question_id !== question_id || this.tutor_token !== token)) {
+      this.dispose_tutor();
+    }
+    if (this.tutor_bridge === null) {
+      const revision: number = ++this.tutor_revision;
+      this.tutor_question_id = question_id;
+      this.tutor_token = token;
+      this.tutor_bridge = new TabletTutorBridge(this.canvas_controller, new SharedTabletTutorApi(),
+        (state: TabletTutorState) => {
+          if (this.tutor_context_current(revision, question_id) && state.questionId === question_id &&
+            authSession.read_access_token() === token) {
+            this.tutor_phase = state.phase;
+          }
+        }, () => {
+          // Bridge 在真实 401 后已条件清理原 token；此处仍必须允许回到既有登录通路。
+          const current_token: string | null = authSession.read_access_token();
+          if (this.tutor_context_current(revision, question_id) &&
+            (current_token === null || current_token === token)) {
+            this.expire_session();
+          }
+        });
+    }
+    if (!this.tutor_started) {
+      this.tutor_started = true;
+      this.tutor_bridge.start(question_id);
+    }
+  }
+
+  private tutor_context_current(revision: number, question_id: string): boolean {
+    return revision === this.tutor_revision && this.tutor_started && this.tutor_eligible() &&
+      this.tutor_question_id === question_id && this.open_question_id === question_id;
+  }
+
+  private stop_tutor(): void {
+    const was_started: boolean = this.tutor_started;
+    this.tutor_started = false;
+    this.tutor_phase = TabletTutorPhase.STOPPED;
+    if (was_started && this.tutor_bridge !== null) {
+      this.tutor_bridge.stop();
+    }
+  }
+
+  private dispose_tutor(): void {
+    this.tutor_revision += 1;
+    this.tutor_started = false;
+    this.tutor_phase = TabletTutorPhase.STOPPED;
+    const bridge: TabletTutorBridge | null = this.tutor_bridge;
+    this.tutor_bridge = null;
+    this.tutor_question_id = '';
+    this.tutor_token = '';
+    if (bridge !== null) {
+      bridge.dispose();
+    }
   }
 
   private inbox_count_of(collections: QuestionCollection[]): number {

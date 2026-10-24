@@ -26,6 +26,7 @@ enum TabletTab {
 @Component
 export struct TabletShell {
   @Prop display_name: string = '';
+  @Prop foreground: boolean = false;
   on_signed_out: () => void = () => {
   };
   @State active_tab: TabletTab = TabletTab.LIBRARY;
@@ -36,6 +37,7 @@ export struct TabletShell {
       this.top_bar()
       Stack() {
         LibraryPane({
+          active: this.foreground && this.active_tab === TabletTab.LIBRARY,
           on_session_expired: () => {
             this.on_signed_out();
           },

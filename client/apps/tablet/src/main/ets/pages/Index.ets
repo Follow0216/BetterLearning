@@ -12,12 +12,18 @@ import { TabletShell } from '../components/TabletShell';
 struct Index {
   @State signed_in: boolean = false;
   @State display_name: string = '';
+  @State page_visible: boolean = false;
+
+  onPageShow(): void { this.page_visible = true; }
+  onPageHide(): void { this.page_visible = false; }
+  aboutToDisappear(): void { this.page_visible = false; }
 
   build() {
     Column() {
       if (this.signed_in) {
         TabletShell({
           display_name: this.display_name,
+          foreground: this.page_visible,
           on_signed_out: () => {
             this.handle_signed_out();
           }
