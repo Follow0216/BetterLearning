@@ -84,7 +84,7 @@ export struct AnswerTileViewer {
 
   build() {
     Column() {
-      this.toolbar()
+      this.answerToolbar()
       Stack({ alignContent: Alignment.TopStart }) {
         if (this.errorText.length > 0) {
           Text(this.errorText)
@@ -219,7 +219,7 @@ export struct AnswerTileViewer {
   }
 
   @Builder
-  toolbar() {
+  answerToolbar() {
     Row({ space: 6 }) {
       Text('完整解答')
         .fontSize(13)
