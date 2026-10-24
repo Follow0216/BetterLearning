@@ -75,3 +75,5 @@ GET 已保存作答必须有 manifest；保存/状态的200回执允许不含man
 - `markCompleted()` 如有脏草稿会先完整保存，再对当前 fileRef 调用状态接口；`continueWriting()` 收到真实 IN_PROGRESS 回执后才解锁。纯本机落盘不能完成。
 
 C4 首轮优先：ArkTS 编译/封装、Web 全页快照尺寸、超长公式最右端、长题最底端、负坐标屏外笔迹；保存后 GET/两组 PNG 回读、完成/继续、本机重启恢复。每项必须记录真实结果；未运行构建、HTTP、HDC、签名、安装或设备步骤。
+
+API24 兼容：common 的题集改名、单题移动、作答状态切换调用同路径 POST 别名，JSON 与返回语义不变。C1 保留 PATCH 供 Web；NetworkKit 的 PATCH 枚举 since26，因此 common 不以断言绕过兼容性，也不切换 RCP 或放宽明文网络策略。对应服务端兼容别名必须先接收再验证。

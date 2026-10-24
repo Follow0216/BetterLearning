@@ -97,7 +97,7 @@ export class SolutionApi {
       return AuthResult.failure<SolutionDetail>(AuthError.local_validation('作答状态参数无效', {}));
     }
     const payload: AnswerStatePayload = { state: state, fileRef: fileRef };
-    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.PATCH,
+    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.POST,
       '/api/v1/learning/questions/' + questionId + '/answer-state', token, JSON.stringify(payload));
     if (!result.isSuccess || result.data === null) { return AuthResult.failure<SolutionDetail>(request_error(result)); }
     try { return AuthResult.success<SolutionDetail>(parse_answer(result.data, questionId, false)); }

@@ -223,7 +223,7 @@ export class LearningApi {
       return AuthResult.failure<QuestionCollection>(AuthError.local_validation('题集名称或ID无效', {}));
     }
     const payload: RenameCollectionPayload = { name: trimmed };
-    return this.write_collection(token,http.RequestMethod.PATCH,COLLECTIONS_PATH + '/' + collectionId,JSON.stringify(payload),200);
+    return this.write_collection(token,http.RequestMethod.POST,COLLECTIONS_PATH + '/' + collectionId,JSON.stringify(payload),200);
   }
 
   async moveQuestion(token: string, questionId: string, collectionId: string): Promise<AuthResult<QuestionDetail>> {
@@ -231,7 +231,7 @@ export class LearningApi {
       return AuthResult.failure<QuestionDetail>(AuthError.local_validation('题目或目标题集无效', {}));
     }
     const payload: MoveQuestionPayload = { collectionId: collectionId };
-    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.PATCH,
+    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.POST,
       QUESTIONS_PATH + '/' + questionId + '/collection',token,JSON.stringify(payload));
     if (!result.isSuccess || result.data === null) { return AuthResult.failure<QuestionDetail>(failure_error(result)); }
     const detail: QuestionDetail | null = parse_detail(result.data);
