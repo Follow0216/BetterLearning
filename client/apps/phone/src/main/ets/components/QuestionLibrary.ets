@@ -1,4 +1,5 @@
 import {
+  AnswerState,
   authSession,
   AuthResult,
   INBOX_COLLECTION_ID,
@@ -9,7 +10,11 @@ import {
   QuestionPage,
   QuestionSummary
 } from 'common';
-import { describe_learning_error, format_question_time } from '../model/QuestionFormat';
+import {
+  describe_answer_state,
+  describe_learning_error,
+  format_question_time
+} from '../model/QuestionFormat';
 import {
   PHONE_COLOR_BACKGROUND,
   PHONE_COLOR_BORDER,
@@ -30,17 +35,36 @@ import {
 const PAGE_SIZE: number = 20;
 const SCOPE_ALL: string = 'all';
 const SCOPE_INBOX: string = 'inbox';
+const COLLECTION_INDENT: number = 10;
+
+/** 题集导航项：保持服务端同级顺序，depth 用于多层缩进。 */
+class CollectionRow {
+  readonly collectionId: string;
+  readonly name: string;
+  readonly questionCount: number;
+  readonly depth: number;
+
+  constructor(collectionId: string, name: string, questionCount: number, depth: number) {
+    this.collectionId = collectionId;
+    this.name = name;
+    this.questionCount = questionCount;
+    this.depth = depth;
+  }
+}
 
 /**
- * 正式题库列表：全部/待整理、服务端摘要、页码分页、显式刷新与失败重试。
+ * 正式题库列表：全部/待整理/具体题集的只读树浏览、服务端摘要、页码分页、
+ * 显式刷新与失败重试。
  *
- * <p>所有异步回写同时校验发起请求时的令牌与本端请求序号，旧账号或旧请求的
- * 结果不会覆盖当前页面。401 交由外层清除会话并回到登录。</p>
+ * <p>题集按服务端同级顺序与 parentCollectionId 组树，仅展示直接 questionCount；
+ * 搜索、筛选与题集写操作不在此页面。所有异步回写同时校验发起请求时的令牌与
+ * 本端请求序号，旧账号或旧请求的结果不会覆盖当前页面。401 交由外层清除会话
+ * 并回到登录。</p>
  */
 @Component
 export struct QuestionLibrary {
   @Prop @Watch('on_refresh_token_changed') refreshToken: number = 0;
-  onOpenQuestion: (questionId: string) => void = () => {
+  onOpenQuestion: (questionId: string, collectionName: string) => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
   };
@@ -54,15 +78,27 @@ export struct QuestionLibrary {
   @State hasLoaded: boolean = false;
   @State errorText: string = '';
   @State failedPage: number = 0;
+  @State collectionRows: CollectionRow[] = [];
 
   private api: LearningApi = LearningApi.create_default();
   private requestSeq: number = 0;
+  private collections: QuestionCollection[] = [];
+  private sessionToken: string = '';
 
   aboutToAppear(): void {
+    const token: string | null = authSession.read_access_token();
+    this.sessionToken = token === null ? '' : token;
     this.reload_from_first_page();
   }
 
   on_refresh_token_changed(): void {
+    const token: string | null = authSession.read_access_token();
+    const currentToken: string = token === null ? '' : token;
+    if (currentToken !== this.sessionToken) {
+      this.sessionToken = currentToken;
+      this.scope = SCOPE_ALL;
+      this.clear_collections();
+    }
     this.reload_from_first_page();
   }
 
@@ -152,16 +188,24 @@ export struct QuestionLibrary {
 
   @Builder
   scope_row() {
-    Row() {
-      this.scope_chip('全部', SCOPE_ALL, -1)
-      this.scope_chip('待整理', SCOPE_INBOX, this.inboxCount)
+    Scroll() {
+      Row() {
+        this.scope_chip('全部', SCOPE_ALL, -1, 0)
+        this.scope_chip('待整理', SCOPE_INBOX, this.inboxCount, 0)
+        ForEach(this.collectionRows, (row: CollectionRow) => {
+          this.scope_chip(row.name, row.collectionId, row.questionCount, row.depth)
+        }, (row: CollectionRow) => row.collectionId)
+      }
+      .padding({ left: 18, right: 18, bottom: 6 })
     }
     .width('100%')
-    .padding({ left: 18, right: 18, bottom: 6 })
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring)
   }
 
   @Builder
-  scope_chip(label: string, value: string, count: number) {
+  scope_chip(label: string, value: string, count: number, depth: number) {
     Row() {
       Text(label)
         .fontSize(13)
@@ -174,7 +218,7 @@ export struct QuestionLibrary {
           .margin({ left: 5 })
       }
     }
-    .padding({ left: 14, right: 14, top: 7, bottom: 7 })
+    .padding({ left: 14 + depth * COLLECTION_INDENT, right: 14, top: 7, bottom: 7 })
     .backgroundColor(this.scope === value ? PHONE_COLOR_PRIMARY : PHONE_COLOR_CARD)
     .borderRadius(16)
     .margin({ right: 8 })
@@ -257,13 +301,12 @@ export struct QuestionLibrary {
       Image($r('app.media.bl_inbox'))
         .width(42)
         .height(42)
-      Text(this.scope === SCOPE_INBOX ? '待整理中还没有题目' : '还没有题目')
+      Text(this.empty_title())
         .fontSize(16)
         .fontWeight(FontWeight.Medium)
         .fontColor(PHONE_COLOR_TITLE)
         .margin({ top: 12 })
-      Text(this.scope === SCOPE_INBOX ?
-        '在“录题”中手工确认的题目会进入待整理。' : '前往“录题”粘贴 Markdown，创建第一道题。')
+      Text(this.empty_hint())
         .fontSize(12)
         .fontColor(PHONE_COLOR_MUTED)
         .textAlign(TextAlign.Center)
@@ -325,14 +368,27 @@ export struct QuestionLibrary {
           .padding({ left: 8, right: 8, top: 3, bottom: 3 })
           .backgroundColor(PHONE_COLOR_SOFT)
           .borderRadius(8)
-        Text(item.collectionId === INBOX_COLLECTION_ID ? '待整理' : '题集')
+        if (this.collection_label(item.collectionId).length > 0) {
+          Text(this.collection_label(item.collectionId))
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_MUTED)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .margin({ left: 6 })
+        } else {
+          Blank()
+        }
+        Text(describe_answer_state(item.answerState))
           .fontSize(11)
-          .fontColor(PHONE_COLOR_MUTED)
-          .margin({ left: 6 })
-        Blank()
+          .fontColor(this.answer_state_foreground(item.answerState))
+          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+          .backgroundColor(this.answer_state_background(item.answerState))
+          .borderRadius(6)
         Text(format_question_time(item.createdAt))
           .fontSize(11)
           .fontColor(PHONE_COLOR_MUTED)
+          .margin({ left: 8 })
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
@@ -345,7 +401,7 @@ export struct QuestionLibrary {
     .margin({ top: 10 })
     .accessibilityText('打开题目 ' + item.summary)
     .onClick(() => {
-      this.onOpenQuestion(item.questionId);
+      this.onOpenQuestion(item.questionId, this.collection_label(item.collectionId));
     })
   }
 
@@ -417,7 +473,7 @@ export struct QuestionLibrary {
     this.loading = true;
     this.errorText = '';
     try {
-      const collectionId: string | null = requestedScope === SCOPE_INBOX ? INBOX_COLLECTION_ID : null;
+      const collectionId: string | null = requestedScope === SCOPE_ALL ? null : requestedScope;
       const result: AuthResult<QuestionPage> = await this.api.listQuestions(token,
         new QuestionListQuery(targetPage, PAGE_SIZE, collectionId));
       if (!this.is_current_request(seq, token)) {
@@ -464,7 +520,7 @@ export struct QuestionLibrary {
   }
 
   /**
-   * 读取待整理题数；失败不影响已成功加载的题目列表。
+   * 读取题集树并补充待整理题数；失败不影响已成功加载的题目列表。
    *
    * @param token 访问令牌
    * @param seq 请求序号
@@ -479,21 +535,13 @@ export struct QuestionLibrary {
         this.handle_unauthorized(token);
         return;
       }
-      if (result.isSuccess && result.data !== null) {
-        let found: boolean = false;
-        let count: number = 0;
-        for (let index: number = 0; index < result.data.length; index++) {
-          if (result.data[index].collectionId === INBOX_COLLECTION_ID) {
-            found = true;
-            count = result.data[index].questionCount;
-          }
+      if (!result.isSuccess || result.data === null) {
+        if (result.error !== null && result.error.is_unauthorized()) {
+          this.handle_unauthorized(token);
         }
-        this.inboxCount = found ? count : -1;
         return;
       }
-      if (result.error !== null && result.error.is_unauthorized()) {
-        this.handle_unauthorized(token);
-      }
+      this.apply_collections(result.data);
     } catch (error) {
       if (!this.is_current_request(seq, token)) {
         return;
@@ -502,8 +550,134 @@ export struct QuestionLibrary {
         this.handle_unauthorized(token);
         return;
       }
-      this.inboxCount = -1;
     }
+  }
+
+  private apply_collections(items: QuestionCollection[]): void {
+    this.collections = items;
+    let inboxCount: number = -1;
+    for (let index: number = 0; index < items.length; index++) {
+      if (items[index].collectionId === INBOX_COLLECTION_ID) {
+        inboxCount = items[index].questionCount;
+      }
+    }
+    this.inboxCount = inboxCount;
+    this.collectionRows = this.build_collection_rows();
+  }
+
+  private clear_collections(): void {
+    this.collections = [];
+    this.collectionRows = [];
+    this.inboxCount = -1;
+  }
+
+  /**
+   * 按服务端同级顺序生成题集导航；待整理固定在最前，缺失父级按根处理。
+   */
+  private build_collection_rows(): CollectionRow[] {
+    const rows: CollectionRow[] = [];
+    const known: Set<string> = new Set();
+    let inbox: QuestionCollection | null = null;
+    for (let index: number = 0; index < this.collections.length; index++) {
+      const item: QuestionCollection = this.collections[index];
+      known.add(item.collectionId);
+      if (item.collectionId === INBOX_COLLECTION_ID) {
+        inbox = item;
+      }
+    }
+
+    const roots: QuestionCollection[] = [];
+    const children: Map<string, QuestionCollection[]> = new Map();
+    for (let index: number = 0; index < this.collections.length; index++) {
+      const item: QuestionCollection = this.collections[index];
+      if (item.collectionId === INBOX_COLLECTION_ID) {
+        continue;
+      }
+      const parentId: string | null = item.parentCollectionId;
+      if (item.system || parentId === null || parentId.length === 0 ||
+        parentId === item.collectionId || !known.has(parentId)) {
+        roots.push(item);
+        continue;
+      }
+      const siblings: QuestionCollection[] | undefined = children.get(parentId);
+      if (siblings === undefined) {
+        children.set(parentId, [item]);
+      } else {
+        siblings.push(item);
+      }
+    }
+
+    const visited: Set<string> = new Set();
+    if (inbox !== null) {
+      visited.add(inbox.collectionId);
+    }
+    for (let index: number = 0; index < roots.length; index++) {
+      this.append_collection_rows(roots[index], 0, children, visited, rows);
+    }
+    return rows;
+  }
+
+  private append_collection_rows(item: QuestionCollection, depth: number,
+    children: Map<string, QuestionCollection[]>, visited: Set<string>, rows: CollectionRow[]): void {
+    if (visited.has(item.collectionId)) {
+      return;
+    }
+    visited.add(item.collectionId);
+    rows.push(new CollectionRow(item.collectionId, item.name, item.questionCount, depth));
+    const childItems: QuestionCollection[] | undefined = children.get(item.collectionId);
+    if (childItems === undefined) {
+      return;
+    }
+    for (let index: number = 0; index < childItems.length; index++) {
+      this.append_collection_rows(childItems[index], depth + 1, children, visited, rows);
+    }
+  }
+
+  private collection_label(collectionId: string): string {
+    if (collectionId === INBOX_COLLECTION_ID) {
+      return '待整理';
+    }
+    for (let index: number = 0; index < this.collections.length; index++) {
+      if (this.collections[index].collectionId === collectionId) {
+        return this.collections[index].name;
+      }
+    }
+    return '';
+  }
+
+  private empty_title(): string {
+    if (this.scope === SCOPE_ALL) {
+      return '还没有题目';
+    }
+    if (this.scope === SCOPE_INBOX) {
+      return '待整理中还没有题目';
+    }
+    const name: string = this.collection_label(this.scope);
+    return name.length > 0 ? '“' + name + '”中还没有题目' : '该题集还没有题目';
+  }
+
+  private empty_hint(): string {
+    if (this.scope === SCOPE_ALL) {
+      return '前往“录题”粘贴 Markdown，创建第一道题。';
+    }
+    if (this.scope === SCOPE_INBOX) {
+      return '在“录题”中手工确认的题目会进入待整理。';
+    }
+    return '该题集暂时没有直接归属的题目。';
+  }
+
+  private answer_state_foreground(state: AnswerState): string {
+    return state === AnswerState.COMPLETED ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP;
+  }
+
+  private answer_state_background(state: AnswerState): string {
+    if (state === AnswerState.COMPLETED) {
+      return PHONE_COLOR_PRIMARY;
+    }
+    if (state === AnswerState.IN_PROGRESS) {
+      return PHONE_COLOR_SOFT_STRONG;
+    }
+    return PHONE_COLOR_SOFT;
   }
 
   private switch_scope(nextScope: string): void {

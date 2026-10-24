@@ -19,7 +19,7 @@ enum PhoneTab {
 }
 
 /**
- * 手机 M1 主壳：登录、正式题库、手工录题、详情与账号。
+ * 手机主壳：登录、题库与题集浏览、手工录题、详情与账号。
  *
  * <p>登录成功后只进入真实题库；不提供游客或演示数据入口。题库、录题与账号
  * 三个页面在会话内常驻并以可见性切换，录题正文与确认快照不会因切换 tab 丢失。
@@ -31,6 +31,7 @@ export struct PhoneApp {
   @State isAuthenticated: boolean = false;
   @State activeTab: PhoneTab = PhoneTab.LIBRARY;
   @State detailQuestionId: string = '';
+  @State detailCollectionName: string = '';
   @State libraryRefreshToken: number = 0;
 
   aboutToAppear(): void {
@@ -67,7 +68,8 @@ export struct PhoneApp {
       Stack() {
         QuestionLibrary({
           refreshToken: this.libraryRefreshToken,
-          onOpenQuestion: (questionId: string) => {
+          onOpenQuestion: (questionId: string, collectionName: string) => {
+            this.detailCollectionName = collectionName;
             this.detailQuestionId = questionId;
           },
           onUnauthorized: (token: string) => {
@@ -81,6 +83,7 @@ export struct PhoneApp {
           onSaved: (detail: QuestionDetail) => {
             this.libraryRefreshToken = this.libraryRefreshToken + 1;
             this.activeTab = PhoneTab.LIBRARY;
+            this.detailCollectionName = '待整理';
             this.detailQuestionId = detail.questionId;
           },
           onUnauthorized: (token: string) => {
@@ -104,8 +107,10 @@ export struct PhoneApp {
         if (this.detailQuestionId.length > 0) {
           QuestionDetailPage({
             questionId: this.detailQuestionId,
+            collectionName: this.detailCollectionName,
             onBack: () => {
               this.detailQuestionId = '';
+              this.detailCollectionName = '';
             },
             onUnauthorized: (token: string) => {
               this.handle_signed_out(token);
@@ -155,6 +160,7 @@ export struct PhoneApp {
     .accessibilityText(label)
     .onClick(() => {
       this.detailQuestionId = '';
+      this.detailCollectionName = '';
       this.activeTab = tab;
     })
   }
@@ -175,6 +181,7 @@ export struct PhoneApp {
     this.isAuthenticated = true;
     this.activeTab = PhoneTab.LIBRARY;
     this.detailQuestionId = '';
+    this.detailCollectionName = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
   }
 
@@ -198,6 +205,7 @@ export struct PhoneApp {
     this.isAuthenticated = false;
     this.activeTab = PhoneTab.LIBRARY;
     this.detailQuestionId = '';
+    this.detailCollectionName = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
   }
 }

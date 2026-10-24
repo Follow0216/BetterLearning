@@ -1,4 +1,20 @@
-import { AuthError, AuthFailureKind } from 'common';
+import { AnswerState, AuthError, AuthFailureKind } from 'common';
+
+/**
+ * 把服务端作答状态转换为中文标签。
+ *
+ * @param state 作答状态
+ * @return 未开始、进行中或已完成
+ */
+export function describe_answer_state(state: AnswerState): string {
+  if (state === AnswerState.IN_PROGRESS) {
+    return '进行中';
+  }
+  if (state === AnswerState.COMPLETED) {
+    return '已完成';
+  }
+  return '未开始';
+}
 
 /**
  * 两位补零。
