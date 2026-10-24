@@ -1,0 +1,46 @@
+html {
+  color-scheme: light;
+  background: #fff;
+  color: #0f172a;
+  font-family: sans-serif;
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-text-size-adjust: 100%;
+}
+body { margin: 0; padding: 16px; }
+#question-content { overflow-wrap: anywhere; }
+#question-content > :first-child { margin-top: 0; }
+#question-content > :last-child { margin-bottom: 0; }
+p, ul, ol, blockquote, pre, table, section { margin: 0 0 1em; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.4; margin: 1.25em 0 .6em; }
+h1 { font-size: 1.5em; }
+h2 { font-size: 1.3em; }
+h3 { font-size: 1.15em; }
+ul, ol { padding-left: 1.75em; }
+li + li { margin-top: .3em; }
+blockquote { margin-left: 0; padding-left: 1em; border-left: 3px solid #cbd5e1; color: #475569; }
+pre, code { font-family: monospace; font-size: .9em; background: #f1f5f9; border-radius: 4px; }
+code { padding: .1em .25em; }
+pre { padding: .75em; overflow-x: auto; white-space: pre; }
+pre code { padding: 0; }
+table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+th, td { border: 1px solid #cbd5e1; padding: .4em .65em; }
+hr { border: 0; border-top: 1px solid #e2e8f0; margin: 1.25em 0; }
+eq {
+  display: inline-block;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+}
+.math-block { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .25em 0; }
+/* 长公式从滚动区域左边界完整展开；短公式保留整行居中。 */
+.math-block .katex-display, eq > .katex-display { width: max-content; min-width: 100%; margin: .5em 0; }
+.math-block.has-number { display: flex; align-items: center; gap: 1em; }
+.math-block.has-number > :first-child { flex: 1 0 auto; min-width: 0; }
+.equation-number { flex-shrink: 0; }
+.formula-error { display: inline-block; color: #b91c1c; background: #fef2f2; padding: .2em .5em; border-radius: 4px; }
+.markdown-link { color: #2563eb; text-decoration: underline; }
+.image-description { color: #64748b; font-style: italic; }

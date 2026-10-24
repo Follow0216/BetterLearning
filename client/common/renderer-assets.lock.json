@@ -1,0 +1,684 @@
+{
+  "schemaVersion": 1,
+  "approval": "用户已明确批准 M1 精确10包及完整65件浏览器发行资源；仅复制同发行版原始字节。",
+  "approvalDate": "2026-10-24",
+  "sourceBrowserManifestSha256": "3b3b0ff9c88482c74a651c58c48bca69f95a33bb88d833adc5e8475b17b243df",
+  "sourcePackageLockSha256": "9ddef19ecfa60476c0d09de1dddd9d5874ae629048ce077e88a95827c79b25b3",
+  "runtimeFileCount": 65,
+  "runtimeTotalBytes": 1489744,
+  "licenseNoticeCount": 10,
+  "packages": [
+    {
+      "name": "argparse",
+      "version": "3.0.4",
+      "license": "PSF-2.0",
+      "integrity": "sha512-fwWK3Zq22l4XJJjx5mcBHGikIk+hJqO+32dPm0Jur7+rtG5x1scOjSfdT9ZKeWHPpsya/l0HHK4tDImBkTrtvA==",
+      "archiveSha256": "564125ffdf5f0f8ef934e89d725b0cf564b45add3f310276fd35a10a996a81e2"
+    },
+    {
+      "name": "commander",
+      "version": "15.0.0",
+      "license": "MIT",
+      "integrity": "sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==",
+      "archiveSha256": "632c1e039b31e98fa79c4fae5b10a5ffbbf9df0f21c9ffb3d74e95734b30696f"
+    },
+    {
+      "name": "entities",
+      "version": "8.1.0",
+      "license": "BSD-2-Clause",
+      "integrity": "sha512-kxL7msIffSuh9aaFAMD7rxAIuTRMAHMeBtgHW2yUdWw732ZNh4MehkF2gdjvtdmikkaIP9bFDDJOPlsvm7avrA==",
+      "archiveSha256": "e9a27d66db0d0a6f2d76454219d94f5729ae2a29f08ab06c92e5f6eaa37cbe68"
+    },
+    {
+      "name": "katex",
+      "version": "0.19.1",
+      "license": "MIT",
+      "integrity": "sha512-jG8uKntjSEcm2EpQOh0XturpPuuC9r3Sq5HLHdsFdWZT27E672SF19QEi+of0/YeOy15lDgRhKvr5614uRrEfA==",
+      "archiveSha256": "24da5a599eb2fcede2e270b99a6ff48bca816beecc95feeb84e8cccbd1bb34fd"
+    },
+    {
+      "name": "linkify-it",
+      "version": "6.1.0",
+      "license": "MIT",
+      "integrity": "sha512-wJ/TwpSDTLepCrQoYWYIExIKg5Zchex2Nn5yk2mFnB+6PtdkHtyLx742md9csRjjOnGkKIS/RrbY7l8D6gT9Vw==",
+      "archiveSha256": "780a9e8232ea7e4c9f04348e2e2a567485c34abed805a15cfff8fff2029076b8"
+    },
+    {
+      "name": "markdown-it-texmath",
+      "version": "1.0.0",
+      "license": "MIT",
+      "integrity": "sha512-4hhkiX8/gus+6e53PLCUmUrsa6ZWGgJW2XCW6O0ASvZUiezIK900ZicinTDtG3kAO2kon7oUA/ReWmpW2FByxg==",
+      "archiveSha256": "afca1f328047ecd9a121ed3148232b91166c374766011c8f85372a7a0d18c2b3"
+    },
+    {
+      "name": "markdown-it",
+      "version": "15.0.3",
+      "license": "MIT",
+      "integrity": "sha512-+Az7Ojz3iRGu8KYMvJ6xVhvrxP3eE+vEtJX75Ow88XBpcQNV/0lGX5ZynIIBftREo4DC2jsveAMDaeltmm8QvQ==",
+      "archiveSha256": "98a7453983ab0e268c17dbd5260bf7190ba46b4cca912327fc1c1a2578e4b56d"
+    },
+    {
+      "name": "mdurl",
+      "version": "2.1.0",
+      "license": "MIT",
+      "integrity": "sha512-1+HBaOx0zi/dQWht8rNv9MYf9qqpqL/kxI0hXImU6Y547zM6Sni8BQibt7ifgMcYtQg41ao3Ivd6cnSM86inpg==",
+      "archiveSha256": "23fc27c3d70e776c3aa40ec019c2be21ef43ed33b73f8476ada8715c5aabd11d"
+    },
+    {
+      "name": "punycode.js",
+      "version": "2.3.1",
+      "license": "MIT",
+      "integrity": "sha512-uxFIHU0YlHYhDQtV4R9J6a52SLx28BCjT+4ieh7IGbgwVJWO+km431c4yRlREUAsAmt/uMjQUyQHNEPf0M39CA==",
+      "archiveSha256": "8768d89aa6359164220014ba575e1464e3ddff11bedff1cc268e39a21f7324a8"
+    },
+    {
+      "name": "uc.micro",
+      "version": "3.0.0",
+      "license": "MIT",
+      "integrity": "sha512-U3PppEkleoTnIfi8BozMx3yju3qc/L6SwqWo2Sw+54PX+PX0q9I+r1Um5HCmqD7n9VDX5/v3vQH/AjA6deDdtw==",
+      "archiveSha256": "23a2704905d2f7a773f89c97be1102a4a2eb3a69b58c0e8c326a649c75552981"
+    }
+  ],
+  "files": [
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_AMS-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_AMS-Regular.ttf",
+      "bytes": 63632,
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_AMS-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_AMS-Regular.woff",
+      "bytes": 33516,
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_AMS-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_AMS-Regular.woff2",
+      "bytes": 28076,
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Bold.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Bold.ttf",
+      "bytes": 12368,
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Bold.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Bold.woff",
+      "bytes": 7716,
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Bold.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Bold.woff2",
+      "bytes": 6912,
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Regular.ttf",
+      "bytes": 12344,
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Regular.woff",
+      "bytes": 7656,
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Caligraphic-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Caligraphic-Regular.woff2",
+      "bytes": 6908,
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Bold.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Bold.ttf",
+      "bytes": 19584,
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Bold.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Bold.woff",
+      "bytes": 13296,
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Bold.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Bold.woff2",
+      "bytes": 11348,
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Regular.ttf",
+      "bytes": 19572,
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Regular.woff",
+      "bytes": 13208,
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Fraktur-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Fraktur-Regular.woff2",
+      "bytes": 11316,
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Bold.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Bold.ttf",
+      "bytes": 51336,
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Bold.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Bold.woff",
+      "bytes": 29912,
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Bold.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Bold.woff2",
+      "bytes": 25324,
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-BoldItalic.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-BoldItalic.ttf",
+      "bytes": 32968,
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-BoldItalic.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-BoldItalic.woff",
+      "bytes": 19412,
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-BoldItalic.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-BoldItalic.woff2",
+      "bytes": 16780,
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Italic.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Italic.ttf",
+      "bytes": 33580,
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Italic.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Italic.woff",
+      "bytes": 19676,
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Italic.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Italic.woff2",
+      "bytes": 16988,
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Regular.ttf",
+      "bytes": 53580,
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Regular.woff",
+      "bytes": 30772,
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Main-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Main-Regular.woff2",
+      "bytes": 26272,
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-BoldItalic.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-BoldItalic.ttf",
+      "bytes": 31196,
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-BoldItalic.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-BoldItalic.woff",
+      "bytes": 18668,
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-BoldItalic.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-BoldItalic.woff2",
+      "bytes": 16400,
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-Italic.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-Italic.ttf",
+      "bytes": 31308,
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-Italic.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-Italic.woff",
+      "bytes": 18748,
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Math-Italic.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Math-Italic.woff2",
+      "bytes": 16440,
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Bold.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Bold.ttf",
+      "bytes": 24504,
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Bold.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Bold.woff",
+      "bytes": 14408,
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Bold.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Bold.woff2",
+      "bytes": 12216,
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Italic.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Italic.ttf",
+      "bytes": 22364,
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Italic.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Italic.woff",
+      "bytes": 14112,
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Italic.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Italic.woff2",
+      "bytes": 12028,
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Regular.ttf",
+      "bytes": 19436,
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Regular.woff",
+      "bytes": 12316,
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_SansSerif-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_SansSerif-Regular.woff2",
+      "bytes": 10344,
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Script-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Script-Regular.ttf",
+      "bytes": 16648,
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Script-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Script-Regular.woff",
+      "bytes": 10588,
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Script-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Script-Regular.woff2",
+      "bytes": 9644,
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size1-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size1-Regular.ttf",
+      "bytes": 12228,
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size1-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size1-Regular.woff",
+      "bytes": 6496,
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size1-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size1-Regular.woff2",
+      "bytes": 5468,
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size2-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size2-Regular.ttf",
+      "bytes": 11508,
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size2-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size2-Regular.woff",
+      "bytes": 6188,
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size2-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size2-Regular.woff2",
+      "bytes": 5208,
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size3-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size3-Regular.ttf",
+      "bytes": 7588,
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size3-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size3-Regular.woff",
+      "bytes": 4420,
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size3-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size3-Regular.woff2",
+      "bytes": 3624,
+      "sha256": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size4-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size4-Regular.ttf",
+      "bytes": 10364,
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size4-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size4-Regular.woff",
+      "bytes": 5980,
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Size4-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Size4-Regular.woff2",
+      "bytes": 4928,
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Typewriter-Regular.ttf",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Typewriter-Regular.ttf",
+      "bytes": 27556,
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Typewriter-Regular.woff",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Typewriter-Regular.woff",
+      "bytes": 16028,
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/fonts/KaTeX_Typewriter-Regular.woff2",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/fonts/KaTeX_Typewriter-Regular.woff2",
+      "bytes": 13568,
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+      "role": "css-referenced-font"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/katex.min.css",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/katex.min.css",
+      "bytes": 24793,
+      "sha256": "00e0b094171b07f58422075f469b4feac2b2f7bce1aeec943c08da4d697f4dcf",
+      "role": "browser-style"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/katex.min.js",
+      "package": "katex@0.19.1",
+      "sourcePath": "dist/katex.min.js",
+      "bytes": 273081,
+      "sha256": "fa140498b8cfc8302cbe5e7cb1bdbc1f952bc38b3fa258ede09e73edbf9a74bc",
+      "role": "browser-runtime"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/argparse@3.0.4.txt",
+      "package": "argparse@3.0.4",
+      "sourcePath": "LICENSE",
+      "bytes": 2427,
+      "sha256": "ab745c5061d1dea43a3885e5b4b6befc7e983954954775c5736debeefcdfd89b",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/commander@15.0.0.txt",
+      "package": "commander@15.0.0",
+      "sourcePath": "LICENSE",
+      "bytes": 1098,
+      "sha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/entities@8.1.0.txt",
+      "package": "entities@8.1.0",
+      "sourcePath": "LICENSE",
+      "bytes": 1260,
+      "sha256": "cb992345949ccd6e8394b2cd6c465f7b897c864f845937dbf64e8997f389e164",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/katex@0.19.1.txt",
+      "package": "katex@0.19.1",
+      "sourcePath": "LICENSE",
+      "bytes": 1107,
+      "sha256": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/linkify-it@6.1.0.txt",
+      "package": "linkify-it@6.1.0",
+      "sourcePath": "LICENSE",
+      "bytes": 1058,
+      "sha256": "95e3f7f0e81e9b4940cdfaa1956aaff5e4dfd2fb1565041e7c78eb9a606f23e3",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/markdown-it-texmath@1.0.0.txt",
+      "package": "markdown-it-texmath@1.0.0",
+      "sourcePath": "license.txt",
+      "bytes": 1096,
+      "sha256": "655a4d5721dabe668d3ef640d5587d44534d370e7dc256d4f33740278dc710d5",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/markdown-it@15.0.3.txt",
+      "package": "markdown-it@15.0.3",
+      "sourcePath": "LICENSE",
+      "bytes": 1073,
+      "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/mdurl@2.1.0.txt",
+      "package": "mdurl@2.1.0",
+      "sourcePath": "LICENSE",
+      "bytes": 2303,
+      "sha256": "6b6a356c4337e2446841f30f3cdf7e7023af8c5260b5e347c0f987b9f6aa2644",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/punycode.js@2.3.1.txt",
+      "package": "punycode.js@2.3.1",
+      "sourcePath": "LICENSE-MIT.txt",
+      "bytes": 1077,
+      "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/licenses/uc.micro@3.0.0.txt",
+      "package": "uc.micro@3.0.0",
+      "sourcePath": "LICENSE.txt",
+      "bytes": 1077,
+      "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
+      "role": "license-notice"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/markdown-it.min.js",
+      "package": "markdown-it@15.0.3",
+      "sourcePath": "dist/browser/markdown-it.umd.min.js",
+      "bytes": 100786,
+      "sha256": "391f2aa638e75e6c7859d0a5c5650ef0956722a45998f17e05b83bc655778e1e",
+      "role": "browser-runtime"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/texmath.css",
+      "package": "markdown-it-texmath@1.0.0",
+      "sourcePath": "css/texmath.css",
+      "bytes": 441,
+      "sha256": "8ebf5b7b292aaa20b9bd5141290f2295734e5e4ed17873145161dc5aa53c9baf",
+      "role": "browser-style"
+    },
+    {
+      "path": "src/main/resources/rawfile/question-markdown/vendor/texmath.js",
+      "package": "markdown-it-texmath@1.0.0",
+      "sourcePath": "texmath.js",
+      "bytes": 14071,
+      "sha256": "926e075a1745e1019813b8418b90183feea0c7b3782c85dceb4f246da999edc6",
+      "role": "browser-runtime"
+    }
+  ]
+}
