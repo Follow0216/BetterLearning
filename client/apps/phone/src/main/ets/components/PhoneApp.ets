@@ -115,6 +115,7 @@ export struct PhoneApp {
           this.activeTab === PhoneTab.LIBRARY ? Visibility.Visible : Visibility.None)
 
         ManualEntry({
+          active: this.detailQuestionId.length === 0 && this.activeTab === PhoneTab.ENTRY,
           onSaved: (detail: QuestionDetail) => {
             this.libraryRefreshToken = this.libraryRefreshToken + 1;
             this.activeTab = PhoneTab.LIBRARY;
