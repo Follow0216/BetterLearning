@@ -1,4 +1,5 @@
 import {
+  AnswerState,
   authSession,
   AuthResult,
   LearningApi,
@@ -6,7 +7,11 @@ import {
   QuestionDetail,
   QuestionMarkdownView
 } from 'common';
-import { describe_learning_error, format_question_time } from '../model/QuestionFormat';
+import {
+  describe_answer_state,
+  describe_learning_error,
+  format_question_time
+} from '../model/QuestionFormat';
 import {
   PHONE_COLOR_BACKGROUND,
   PHONE_COLOR_BORDER,
@@ -16,6 +21,7 @@ import {
   PHONE_COLOR_PRIMARY,
   PHONE_COLOR_PRIMARY_DEEP,
   PHONE_COLOR_SOFT,
+  PHONE_COLOR_SOFT_STRONG,
   PHONE_COLOR_TITLE,
   PHONE_COLOR_WHITE,
   PHONE_RADIUS_CARD,
@@ -23,7 +29,8 @@ import {
 } from '../theme/PhoneTheme';
 
 /**
- * 题目详情：按 questionId 读取完整正文并交给共享 Markdown 组件渲染。
+ * 题目详情：按 questionId 读取完整正文并交给共享 Markdown 组件渲染，
+ * 同时展示真实题集归属与当前作答状态。
  *
  * <p>加载结果回写前校验令牌与请求序号；401 交由外层回到登录，其他失败
  * 保留重试入口，不把加载失败显示成空题面。</p>
@@ -31,6 +38,7 @@ import {
 @Component
 export struct QuestionDetailPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
+  @Prop collectionName: string = '';
   onBack: () => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
@@ -119,14 +127,27 @@ export struct QuestionDetailPage {
           .padding({ left: 8, right: 8, top: 3, bottom: 3 })
           .backgroundColor(PHONE_COLOR_SOFT)
           .borderRadius(8)
-        Text('待整理')
+        if (this.collectionName.length > 0) {
+          Text(this.collectionName)
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_MUTED)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .margin({ left: 6 })
+        } else {
+          Blank()
+        }
+        Text(describe_answer_state(detail.answerState))
           .fontSize(11)
-          .fontColor(PHONE_COLOR_MUTED)
-          .margin({ left: 6 })
-        Blank()
+          .fontColor(this.answer_state_foreground(detail.answerState))
+          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+          .backgroundColor(this.answer_state_background(detail.answerState))
+          .borderRadius(6)
         Text(format_question_time(detail.createdAt))
           .fontSize(11)
           .fontColor(PHONE_COLOR_MUTED)
+          .margin({ left: 8 })
       }
       .width('100%')
       .padding({ left: 18, right: 18 })
@@ -256,6 +277,20 @@ export struct QuestionDetailPage {
         this.loading = false;
       }
     }
+  }
+
+  private answer_state_foreground(state: AnswerState): string {
+    return state === AnswerState.COMPLETED ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP;
+  }
+
+  private answer_state_background(state: AnswerState): string {
+    if (state === AnswerState.COMPLETED) {
+      return PHONE_COLOR_PRIMARY;
+    }
+    if (state === AnswerState.IN_PROGRESS) {
+      return PHONE_COLOR_SOFT_STRONG;
+    }
+    return PHONE_COLOR_SOFT;
   }
 
   private handle_unauthorized(token: string): void {
