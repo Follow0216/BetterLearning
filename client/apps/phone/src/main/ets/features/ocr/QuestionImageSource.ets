@@ -85,7 +85,6 @@ export async function takePhoto(context: Context): Promise<string | undefined> {
   let created: boolean = false;
   let accepted: boolean = false;
   try {
-    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=context entry');
     stage = 'temp-directory';
     directory = fileIo.mkdtempSync(context.cacheDir + '/ocr-photo-XXXXXX');
     path = directory + '/photo.jpg';
@@ -96,21 +95,15 @@ export async function takePhoto(context: Context): Promise<string | undefined> {
     fileIo.closeSync(file);
     stage = 'file-uri';
     const uri: string = new fileUri.FileUri(path).toString();
-    stage = 'profile-constructor';
-    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=profile-constructor start');
-    const profile: cameraPicker.PickerProfile = new cameraPicker.PickerProfile();
-    stage = 'profile-fields';
-    profile.cameraPosition = camera.CameraPosition.CAMERA_POSITION_BACK;
-    profile.saveUri = uri;
+    stage = 'profile';
+    const profile: cameraPicker.PickerProfile = {
+      cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK,
+      saveUri: uri
+    };
     stage = 'pick-call';
-    const pending: Promise<cameraPicker.PickerResult> = cameraPicker.pick(context,
+    const result: cameraPicker.PickerResult = await cameraPicker.pick(context,
       [cameraPicker.PickerMediaType.PHOTO], profile);
-    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=pick-call returnType=%{public}s', typeof pending);
-    const result: cameraPicker.PickerResult = await pending;
     stage = 'pick-result';
-    const present: boolean = result !== null && result !== undefined;
-    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=pick-result present=%{public}s code=%{public}d',
-      present ? 'yes' : 'no', present ? result.resultCode : -1);
     if (result.resultCode !== 0 || result.resultUri.length === 0) {
       return undefined;
     }
