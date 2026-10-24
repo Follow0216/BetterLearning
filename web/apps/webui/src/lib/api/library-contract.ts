@@ -1,5 +1,5 @@
 /**
- * M1 题库接口契约：严格对应 C1 维护的 HTTP 契约。
+ * M1/M2 题库接口契约：严格对应 C1 维护的 HTTP 契约。
  *
  * 仅包含类型与纯解析函数，可同时被 Server Component 与 Route Handler 引用。
  * 不在客户端保存或传递访问令牌。
@@ -13,6 +13,17 @@ export const SUBJECT_LABELS: Record<QuestionSubject, string> = {
 };
 
 export const INBOX_COLLECTION_ID = "inbox";
+export const INBOX_COLLECTION_NAME = "待整理";
+
+export type QuestionAnswerState = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
+
+export const ANSWER_STATE_LABELS: Record<QuestionAnswerState, string> = {
+  NOT_STARTED: "未开始",
+  IN_PROGRESS: "进行中",
+  COMPLETED: "已完成",
+};
+
+export const COLLECTION_NAME_MAX_LENGTH = 64;
 
 export interface QuestionSummary {
   questionId: string;
@@ -20,6 +31,7 @@ export interface QuestionSummary {
   subject: QuestionSubject;
   summary: string;
   createdAt: string;
+  answerState: QuestionAnswerState;
 }
 
 export interface QuestionDetail extends QuestionSummary {
@@ -38,6 +50,7 @@ export interface CollectionSummary {
   name: string;
   system: boolean;
   questionCount: number;
+  parentCollectionId: string | null;
 }
 
 export interface CollectionList {
@@ -128,6 +141,40 @@ export function isValidCollectionId(value: string): boolean {
   return value === INBOX_COLLECTION_ID || isValidQuestionId(value);
 }
 
+export function isRealCollectionId(value: string): boolean {
+  return isValidQuestionId(value);
+}
+
+export function normalizeCollectionName(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > COLLECTION_NAME_MAX_LENGTH) {
+    return null;
+  }
+  return trimmed;
+}
+
+function readAnswerState(source: Record<string, unknown>): QuestionAnswerState {
+  const value = source.answerState;
+  if (value !== "NOT_STARTED" && value !== "IN_PROGRESS" && value !== "COMPLETED") {
+    throw new LibraryContractError("响应字段 answerState 不在枚举范围内");
+  }
+  return value;
+}
+
+function readParentCollectionId(source: Record<string, unknown>): string | null {
+  const value = source.parentCollectionId;
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !isRealCollectionId(value)) {
+    throw new LibraryContractError("响应字段 parentCollectionId 格式错误");
+  }
+  return value;
+}
+
 function readSubject(source: Record<string, unknown>): QuestionSubject {
   const value = source.subject;
   if (value !== "HIGHER_MATHEMATICS" && value !== "OTHER") {
@@ -158,6 +205,7 @@ export function parseQuestionSummary(value: unknown): QuestionSummary {
     subject: readSubject(value),
     summary: readString(value, "summary"),
     createdAt: readTimestamp(value, "createdAt"),
+    answerState: readAnswerState(value),
   };
 }
 
@@ -188,6 +236,23 @@ export function parseQuestionPage(value: unknown): QuestionPage {
   };
 }
 
+export function parseCollectionSummary(value: unknown): CollectionSummary {
+  if (!isRecord(value)) {
+    throw new LibraryContractError("题集节点格式错误");
+  }
+  const collectionId = readNonEmptyString(value, "collectionId");
+  if (!isValidCollectionId(collectionId)) {
+    throw new LibraryContractError("响应字段 collectionId 格式错误");
+  }
+  return {
+    collectionId,
+    name: readNonEmptyString(value, "name"),
+    system: readBoolean(value, "system"),
+    questionCount: readInteger(value, "questionCount", 0, Number.MAX_SAFE_INTEGER),
+    parentCollectionId: readParentCollectionId(value),
+  };
+}
+
 export function parseCollectionList(value: unknown): CollectionList {
   if (!isRecord(value)) {
     throw new LibraryContractError("题集列表响应格式错误");
@@ -197,21 +262,7 @@ export function parseCollectionList(value: unknown): CollectionList {
     throw new LibraryContractError("响应字段 items 类型错误");
   }
   return {
-    items: items.map((item) => {
-      if (!isRecord(item)) {
-        throw new LibraryContractError("题集列表项格式错误");
-      }
-      const collectionId = readNonEmptyString(item, "collectionId");
-      if (!isValidCollectionId(collectionId)) {
-        throw new LibraryContractError("响应字段 collectionId 格式错误");
-      }
-      return {
-        collectionId,
-        name: readNonEmptyString(item, "name"),
-        system: readBoolean(item, "system"),
-        questionCount: readInteger(item, "questionCount", 0, Number.MAX_SAFE_INTEGER),
-      };
-    }),
+    items: items.map((item) => parseCollectionSummary(item)),
   };
 }
 

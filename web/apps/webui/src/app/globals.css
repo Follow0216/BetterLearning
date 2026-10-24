@@ -12,6 +12,9 @@
   --auth-primary-soft: #e8f0ff;
   --auth-border: #e2eaf5;
   --auth-danger: #c62f3b;
+  --auth-success: #1f7a45;
+  --auth-success-soft: #eaf7ee;
+  --auth-success-border: #c8e6d0;
   --auth-hover: #f0f5ff;
   --auth-divider: #eef2f8;
 }

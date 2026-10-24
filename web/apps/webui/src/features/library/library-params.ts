@@ -1,9 +1,15 @@
-import { INBOX_COLLECTION_ID } from "@/lib/api/library-contract";
+import { INBOX_COLLECTION_ID, isValidQuestionId } from "@/lib/api/library-contract";
 
 export const LIBRARY_PAGE_SIZE = 20;
 export const MAX_PAGE = 1_000_000;
 
-export type LibraryView = "all" | "inbox";
+export type LibraryView =
+  | { kind: "all" }
+  | { kind: "inbox" }
+  | { kind: "collection"; collectionId: string };
+
+export const ALL_VIEW: LibraryView = { kind: "all" };
+export const INBOX_VIEW: LibraryView = { kind: "inbox" };
 
 export type SearchParamsInput = Record<string, string | string[] | undefined>;
 
@@ -12,7 +18,17 @@ function firstValue(value: string | string[] | undefined): string | undefined {
 }
 
 export function parseLibraryView(searchParams: SearchParamsInput): LibraryView {
-  return firstValue(searchParams.view) === "inbox" ? "inbox" : "all";
+  if (firstValue(searchParams.view) === "inbox") {
+    return INBOX_VIEW;
+  }
+  const collectionId = firstValue(searchParams.collection);
+  if (collectionId === INBOX_COLLECTION_ID) {
+    return INBOX_VIEW;
+  }
+  if (collectionId !== undefined && isValidQuestionId(collectionId)) {
+    return { kind: "collection", collectionId };
+  }
+  return ALL_VIEW;
 }
 
 export function parsePageNumber(value: string | string[] | undefined): number {
@@ -25,13 +41,30 @@ export function parsePageNumber(value: string | string[] | undefined): number {
 }
 
 export function collectionIdForView(view: LibraryView): string | undefined {
-  return view === "inbox" ? INBOX_COLLECTION_ID : undefined;
+  if (view.kind === "inbox") {
+    return INBOX_COLLECTION_ID;
+  }
+  if (view.kind === "collection") {
+    return view.collectionId;
+  }
+  return undefined;
+}
+
+export function viewKey(view: LibraryView): string {
+  return view.kind === "collection" ? `collection:${view.collectionId}` : view.kind;
+}
+
+export function isSameView(left: LibraryView, right: LibraryView): boolean {
+  return viewKey(left) === viewKey(right);
 }
 
 export function buildWorkspaceHref(view: LibraryView, page: number): string {
   const params = new URLSearchParams();
-  if (view === "inbox") {
+  if (view.kind === "inbox") {
     params.set("view", "inbox");
+  }
+  if (view.kind === "collection") {
+    params.set("collection", view.collectionId);
   }
   if (page > 1) {
     params.set("page", String(page));
