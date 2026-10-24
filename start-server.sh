@@ -175,4 +175,9 @@ if [[ ! -x "$SERVER_DIR/mvnw" ]]; then
 fi
 
 cd "$SERVER_DIR"
-exec ./mvnw spring-boot:run
+# 先由 reactor 打包依赖，再只启动 app；不能对所有模块执行 spring-boot:run。
+./mvnw -pl app -am -DskipTests package
+if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
+    exec "$JAVA_HOME/bin/java" -jar "$SERVER_DIR/app/target/server.jar"
+fi
+exec java -jar "$SERVER_DIR/app/target/server.jar"

@@ -2,6 +2,20 @@
 
 认证与用户资料服务，基于 Spring Boot 4.0.8、Java 17、PostgreSQL、Redis。本服务只使用已准备好的基础设施，不负责创建数据库实例、Redis 实例或系统账号。
 
+## 0. Maven 模块边界
+
+`server/pom.xml` 是父聚合 POM，构建一个 Spring Boot 应用：
+
+| 模块 | 职责 |
+| --- | --- |
+| `common` | 公共错误响应、业务异常、traceId 与脱敏诊断契约 |
+| `user` | 用户/会话 API、注册登录、资料改密、JWT、安全认证、Redis 会话与限流、DAO/Mapper |
+| `learning` | 学习业务骨架，M0 不实现题库 |
+| `agent` | 智能体能力骨架，M0 不调用模型、不引入 AI 运行依赖 |
+| `app` | 唯一启动入口、HTTP/安全装配、应用配置、统一 Flyway 迁移、跨模块测试 |
+
+依赖为 `app → user/learning/agent/common`、`user/learning/agent → common`；业务不依赖 app，user 与 agent 不互相依赖。四个依赖模块是普通 jar，只有 app 生成可执行的 `app/target/server.jar`。原 Java 包名保留为 `com.betterlearning.server` 下的分层包；启动类仍位于根包，因此会扫描各模块中的组件。
+
 ## 1. 环境要求
 
 - JDK 17。
@@ -101,11 +115,13 @@ BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 
 ## 3. 数据库迁移
 
-应用启动时由 Flyway 自动执行 `server/src/main/resources/db/migration` 下的迁移。请使用为本服务单独准备的数据库，不要把迁移指向共享库或生产库。
+应用启动时由 Flyway 自动执行 `server/app/src/main/resources/db/migration` 下的迁移。请使用为本服务单独准备的数据库，不要把迁移指向共享库或生产库。
 
 ### 3.1 持久化实现
 
-用户表通过 MyBatis-Plus 3.5.17 访问，starter 传递 MyBatis 3.5.19 与 mybatis-spring 4.0.0。`UserDao` 是唯一生产数据访问类，构造注入 `UserMapper`，并在类内完成唯一约束与连接故障翻译；`UserMapper` 位于同级的 `mapper` 包，`UserDO` 使用显式 `@TableName`／`@TableId`／`@TableField` 映射，`UserMapper.xml` 固定注册的 `RETURNING account_id`、联系方式动态 `UPDATE` 与密码 CAS 语句。
+用户表通过 MyBatis-Plus 3.5.17 访问，starter 传递 MyBatis 3.5.19 与 mybatis-spring 4.0.0。`UserDao` 是唯一生产数据访问类，构造注入 `UserMapper`，并在类内完成唯一约束与连接故障翻译；`UserMapper` 位于同级的 `mapper` 包，`UserDO` 使用显式 `@TableName`／`@TableId`／`@TableField` 映射，`user/src/main/resources/mapper/UserMapper.xml` 固定注册的 `RETURNING account_id`、联系方式动态 `UPDATE` 与密码 CAS 语句。
+
+Mapper 扫描仍固定为 `com.betterlearning.server.mapper`，XML 通过 `classpath*:/mapper/**/*.xml` 从 user 模块加载。
 
 二级缓存关闭、`localCacheScope=STATEMENT`、`SIMPLE` 执行器、驼峰映射与 `NoLoggingImpl` 由 `config/MybatisConfiguration` 固定，不新增部署环境变量，也不启用含参数值的 SQL 日志。
 
@@ -120,7 +136,9 @@ BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 
 `--check` 只检查 JDK 17 与必填环境变量是否存在，**不验证**数据库/Redis 连接、JWT 格式或 Spring 配置；真正启动时由 Spring Boot 完成全部配置校验。
 
-也可以手工导出环境变量后直接用 Maven 启动：
+脚本会先用 Maven reactor 打包 app 及其依赖，再以 JDK 17 启动 app jar；打包使用 `-DskipTests`，不代表测试或功能验收已通过。`--check` 不执行打包。
+
+也可以手工导出环境变量后打包启动：
 
 ```bash
 export SPRING_DATASOURCE_PASSWORD='...'
@@ -128,7 +146,8 @@ export APP_JWT_SECRET_BASE64='...'
 export APP_JWT_ISSUER='betterlearning-server'
 export APP_JWT_AUDIENCE='betterlearning-api'
 cd server
-./mvnw spring-boot:run
+./mvnw -pl app -am -DskipTests package
+java -jar app/target/server.jar
 ```
 
 打包并运行独立进程：
@@ -136,10 +155,12 @@ cd server
 ```bash
 cd server
 ./mvnw -DskipTests package
-java -jar target/server-0.0.1-SNAPSHOT.jar
+java -jar app/target/server.jar
 ```
 
-`./mvnw package` 会先运行测试；`-DskipTests` 只跳过测试，不会跳过编译。
+`./mvnw package` 会先运行测试；`-DskipTests` 只跳过测试执行，不会跳过源码与测试源码编译。
+
+如需 `spring-boot:run` 的开发启动模式，可在 `server/` 先执行 `./mvnw -pl app -am -DskipTests install`，将同版本模块安装到本地 Maven 仓库，再执行 `./mvnw -pl app spring-boot:run`。不要执行 `./mvnw -pl app -am spring-boot:run`，它会对聚合及依赖模块一起执行启动目标。
 
 ## 5. REST 接口
 
@@ -239,7 +260,7 @@ cd server
 ./mvnw checkstyle:check  # 仅执行 Checkstyle
 ```
 
-使用固定版本 `maven-checkstyle-plugin` 3.6.0（默认 Checkstyle 9.3），规则位于 `config/checkstyle/checkstyle.xml`，覆盖 `src/main/java` 与 `src/test/java`。该配置只检查格式子集，不代表阿里巴巴 Java 开发手册全量合规；违规时构建失败。
+使用固定版本 `maven-checkstyle-plugin` 3.6.0（默认 Checkstyle 9.3），规则位于 `config/checkstyle/checkstyle.xml`，覆盖各模块 `src/main/java` 与 `src/test/java`；父 POM 使用 `${maven.multiModuleProjectDirectory}` 定位同一规则文件。该配置只检查格式子集，不代表阿里巴巴 Java 开发手册全量合规；违规时构建失败。
 
 ## 7. 测试
 
@@ -251,7 +272,9 @@ cd server
 ./mvnw package
 ```
 
-默认 `./mvnw test` 执行全部测试，不跳过任何测试类。依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
+既有测试原样迁入 `app/src/test/java/`，共享 `support/` 与 `security-it` 测试端点也留在 app 的测试类路径，避免跨模块 Spring 测试无法发现启动类。单元、配置及集成测试继续保留原包名与标签，不发布测试 jar。
+
+默认 `./mvnw test` 通过 reactor 执行全部测试，不跳过任何测试类。依赖 PostgreSQL/Redis 的测试类标注 `@Tag("integration")`：`-Punit` 排除它们，`-Pintegration` 只执行它们。运行容器测试时 Docker 必须可用，Testcontainers 会启动 PostgreSQL 18.3 与 Redis 7.4.2。配置绑定与校验测试不依赖外部服务。
 
 现有测试类已覆盖的主要范围：
 
