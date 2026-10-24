@@ -136,9 +136,9 @@ export struct CanvasSurface {
   /** 仅为屏幕纸面着色和绘制点阵，不修改固定题面 PNG 或导出画布。 */
   private paint_paper(context: CanvasRenderingContext2D): void {
     context.save();
-    context.globalAlpha = 0.045; context.fillStyle = TABLET_COLOR_PRIMARY;
+    context.globalAlpha = 0.012; context.fillStyle = TABLET_COLOR_PRIMARY;
     context.fillRect(0,0,this.canvasWidthVp,this.canvasHeightVp);
-    context.globalAlpha = 1; context.fillStyle = '#D9E4F4';
+    context.globalAlpha = 1; context.fillStyle = '#CFDDF2';
     const step: number = 24;
     // 显示网格不参与世界坐标计算，平移时仅调整视觉相位。
     const offsetX: number = ((-this.view.x * this.view.scale) % step + step) % step;
@@ -258,15 +258,21 @@ export struct CanvasSurface {
   @Builder
   tool_button(key: CanvasTool, icon: Resource, label: string) {
     Button() {
-      Image(icon).width(20).height(20).objectFit(ImageFit.Contain)
-        .fillColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_DEEP : TABLET_COLOR_TEXT)
-        .opacity(this.readOnly && key !== CanvasTool.MOVE ? 0.35 : 1)
+      Column({ space: 3 }) {
+        Image(icon).width(18).height(18).objectFit(ImageFit.Contain)
+          .fillColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_DEEP : TABLET_COLOR_TEXT)
+        Text(label).fontSize(10)
+          .fontColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_DEEP : TABLET_COLOR_TEXT)
+      }
+      .opacity(this.readOnly && key !== CanvasTool.MOVE ? 0.35 : 1)
     }
-    .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+    .type(ButtonType.Normal).width(52).height(TABLET_CONTROL_SIZE).padding(0)
     .backgroundColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .border({ width: 1, color: this.tool_selected(key) ? '#C5D7FC' : Color.Transparent })
     .borderRadius(TABLET_RADIUS_SMALL)
-    .accessibilityText(label).accessibilityDescription(this.tool_selected(key) ? '已选中' : '选择' + label)
+    .accessibilityText(key === CanvasTool.ERASER ? '整笔擦除' : label)
+    .accessibilityDescription(this.tool_selected(key) ? '已选中' : '选择' +
+      (key === CanvasTool.ERASER ? '整笔擦除' : label))
     .enabled(!this.readOnly || key === CanvasTool.MOVE)
     .onClick(() => { this.cancel_gesture(); this.tool = key; this.paint(); })
   }
@@ -274,25 +280,28 @@ export struct CanvasSurface {
   tool_card() {
     Scroll() {
       Row({ space: 4 }) {
-        this.tool_button(CanvasTool.PEN,$r('app.media.bl_pen'),'笔')
-        this.tool_button(CanvasTool.ERASER,$r('app.media.bl_eraser'),'整笔擦除')
+        this.tool_button(CanvasTool.PEN,$r('app.media.bl_pen'),'画笔')
+        this.tool_button(CanvasTool.ERASER,$r('app.media.bl_eraser'),'擦除')
         this.tool_button(CanvasTool.MOVE,$r('app.media.bl_move'),'移动')
         Divider().vertical(true).height(24).color(TABLET_COLOR_BORDER).margin({ left: 4, right: 4 })
         Button() {
-          Image($r('app.media.bl_undo')).width(20).height(20).objectFit(ImageFit.Contain)
-            .fillColor(TABLET_COLOR_TEXT).opacity(this.undoEnabled && !this.readOnly ? 1 : 0.3)
+          Column({ space: 3 }) {
+            Image($r('app.media.bl_undo')).width(18).height(18).objectFit(ImageFit.Contain)
+              .fillColor(TABLET_COLOR_TEXT)
+            Text('撤销').fontSize(10).fontColor(TABLET_COLOR_TEXT)
+          }.opacity(this.undoEnabled && !this.readOnly ? 1 : 0.3)
         }
-        .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+        .type(ButtonType.Normal).width(52).height(TABLET_CONTROL_SIZE).padding(0)
         .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL)
         .accessibilityText('撤销').accessibilityDescription('撤销上一次笔迹操作')
         .onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
       }.height(TABLET_CONTROL_SIZE)
     }
     .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
-    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(224,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
+    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(256,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(16)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
-    .shadow({ radius: 18, color: '#18246BFF', offsetY: 6 })
+    .shadow({ radius: 18, color: '#14246BFF', offsetY: 6 })
     // align 控制 Scroll 内部内容；layoutGravity 才定位它在外层 Stack 中的位置。
     .layoutGravity(LocalizedAlignment.BOTTOM).margin({ bottom: 16 })
   }
@@ -323,7 +332,7 @@ export struct CanvasSurface {
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(14)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
     .shadow({ radius: 12, color: '#10246BFF', offsetY: 4 })
-    .layoutGravity(LocalizedAlignment.BOTTOM_END).margin({ right: 16, bottom: this.chromeWidthVp < 720 ? 88 : 16 })
+    .layoutGravity(LocalizedAlignment.BOTTOM_END).margin({ right: 16, bottom: this.chromeWidthVp < 800 ? 88 : 16 })
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -338,8 +347,10 @@ export struct CanvasSurface {
           }
         })
         .onTouch((event: TouchEvent) => { this.touch(event); })
-      this.tool_card()
-      this.zoom_card()
+      if (this.chromeWidthVp > 0) {
+        this.tool_card()
+        this.zoom_card()
+      }
     }.width('100%').height('100%').backgroundColor(TABLET_COLOR_BACKGROUND)
   }
 }

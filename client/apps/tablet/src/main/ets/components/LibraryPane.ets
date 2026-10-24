@@ -11,8 +11,7 @@ import {
   QuestionPage,
   QuestionSummary,
   SolutionDetail,
-  authSession,
-  learning_subject_label
+  authSession
 } from 'common';
 import {
   TABLET_ANSWER_HEADER_HEIGHT,
@@ -26,21 +25,16 @@ import {
   TABLET_COLOR_PRIMARY_SOFT,
   TABLET_COLOR_SIDEBAR,
   TABLET_COLOR_SUCCESS,
-  TABLET_COLOR_SUCCESS_SOFT,
   TABLET_COLOR_TEXT,
   TABLET_CONTROL_SIZE,
   TABLET_PAGE_PADDING,
-  TABLET_RADIUS,
-  TABLET_RADIUS_SMALL,
-  TABLET_SIDEBAR_WIDTH
+  TABLET_RADIUS_SMALL
 } from '../theme/TabletTheme';
-import { format_created_at } from '../utils/DateTimeText';
 import { AnswerWorkspace } from './AnswerWorkspace';
 import { CanvasWorkspaceState, TabletCanvasController } from '../features/canvas/TabletCanvasWorkspace';
 
 const PAGE_SIZE: number = 20;
 const ROOT_COLLECTION_KEY: string = '';
-const ANSWER_IDLE_BACKGROUND: string = '#F0F3F9';
 
 /** 侧栏题集树的扁平可见节点，避免在构建函数里递归渲染。 */
 class CollectionNode {
@@ -74,6 +68,7 @@ export struct LibraryPane {
   @State total: number = 0;
   @State items: QuestionSummary[] = [];
   @State inbox_count: number = -1;
+  @State all_question_count: number = -1;
   @State collection_nodes: CollectionNode[] = [];
   @State collapsed_ids: string[] = [];
   @State collections_error: string = '';
@@ -143,35 +138,28 @@ export struct LibraryPane {
         Text(this.sidebar_caption())
           .fontSize(12)
           .fontColor(TABLET_COLOR_MUTED)
-          .margin({ top: 4 })
+          .margin({ top: 5 })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .padding({ left: 20, right: 20, top: 20, bottom: 12 })
+      .padding({ left: 24, right: 20, top: 24, bottom: 16 })
 
       Scroll() {
-        Column({ space: 4 }) {
+        Column({ space: 6 }) {
           this.scope_all_item()
+
+          ForEach(this.collection_nodes, (node: CollectionNode) => {
+            this.collection_row(node)
+          }, (node: CollectionNode): string => {
+            return `${node.collection.collectionId}:${node.collection.questionCount}:` +
+              `${node.depth}:${this.is_collapsed(node.collection.collectionId)}:` +
+              `${this.scope_collection_id === node.collection.collectionId}`;
+          })
+
           this.scope_inbox_item()
-
-          if (this.collection_nodes.length > 0) {
-            Text('题集')
-              .fontSize(11)
-              .fontColor(TABLET_COLOR_MUTED)
-              .width('100%')
-              .padding({ left: 8, top: 12, bottom: 4 })
-
-            ForEach(this.collection_nodes, (node: CollectionNode) => {
-              this.collection_row(node)
-            }, (node: CollectionNode): string => {
-              return `${node.collection.collectionId}:${node.collection.questionCount}:` +
-                `${node.depth}:${this.is_collapsed(node.collection.collectionId)}:` +
-                `${this.scope_collection_id === node.collection.collectionId}`;
-            })
-          }
         }
         .width('100%')
-        .padding({ left: 8, right: 8, bottom: 12 })
+        .padding({ left: 12, right: 12, bottom: 20 })
       }
       .layoutWeight(1)
       .width('100%')
@@ -191,11 +179,12 @@ export struct LibraryPane {
             .margin({ left: 6 })
         }
         .width('100%')
-        .padding({ left: 20, right: 16, top: 12, bottom: 16 })
+        .padding({ left: 24, right: 16, top: 12, bottom: 16 })
         .border({ width: { top: 1 }, color: TABLET_COLOR_BORDER })
       }
     }
-    .width(TABLET_SIDEBAR_WIDTH)
+    .width('25%')
+    .constraintSize({ minWidth: 224, maxWidth: 320 })
     .height('100%')
     .backgroundColor(TABLET_COLOR_SIDEBAR)
     .border({ width: { right: 1 }, color: TABLET_COLOR_BORDER })
@@ -204,26 +193,29 @@ export struct LibraryPane {
   @Builder
   scope_all_item() {
     Row() {
-      Blank()
-        .width(32)
-        .height(TABLET_CONTROL_SIZE)
-      Image($r('app.media.bl_list'))
-        .width(20)
-        .height(20)
+      Image($r('app.media.bl_book_cream'))
+        .width(40)
+        .height(54)
         .objectFit(ImageFit.Contain)
       Text('全部题目')
-        .fontSize(14)
-        .fontWeight(this.scope_collection_id === null ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.scope_collection_id === null ? TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_TEXT)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .margin({ left: 8 })
+        .margin({ left: 12 })
+      if (this.all_question_count >= 0 && this.collections_error.length === 0) {
+        Text(`${this.all_question_count} 题`)
+          .fontSize(12)
+          .fontColor(TABLET_COLOR_MUTED)
+          .margin({ left: 8 })
+      }
     }
     .width('100%')
-    .height(TABLET_CONTROL_SIZE)
-    .padding({ left: 4, right: 4 })
-    .borderRadius(TABLET_RADIUS_SMALL)
+    .height(76)
+    .padding({ left: 12, right: 12 })
+    .borderRadius(12)
     .backgroundColor(this.scope_collection_id === null ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .onClick(() => {
       this.change_scope(null);
@@ -233,34 +225,29 @@ export struct LibraryPane {
   @Builder
   scope_inbox_item() {
     Row() {
-      Blank()
-        .width(32)
-        .height(TABLET_CONTROL_SIZE)
-      Image($r('app.media.bl_inbox'))
-        .width(20)
-        .height(20)
+      Image($r('app.media.bl_collection_folder'))
+        .width(40)
+        .height(54)
         .objectFit(ImageFit.Contain)
       Text('待整理')
-        .fontSize(14)
-        .fontWeight(this.scope_collection_id === INBOX_COLLECTION_ID ?
-          FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.scope_collection_id === INBOX_COLLECTION_ID ?
-          TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_TEXT)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .margin({ left: 8 })
+        .margin({ left: 12 })
       if (this.inbox_count >= 0) {
-        Text(`${this.inbox_count}`)
+        Text(`${this.inbox_count} 题`)
           .fontSize(12)
           .fontColor(TABLET_COLOR_MUTED)
-          .margin({ left: 6, right: 4 })
+          .margin({ left: 8 })
       }
     }
     .width('100%')
-    .height(TABLET_CONTROL_SIZE)
-    .padding({ left: 4, right: 4 })
-    .borderRadius(TABLET_RADIUS_SMALL)
+    .height(76)
+    .padding({ left: 12, right: 12 })
+    .borderRadius(12)
     .backgroundColor(this.scope_collection_id === INBOX_COLLECTION_ID ?
       TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .onClick(() => {
@@ -271,6 +258,25 @@ export struct LibraryPane {
   @Builder
   collection_row(node: CollectionNode) {
     Row() {
+      Image(this.collection_cover(node.collection.collectionId))
+        .width(node.depth > 0 ? 32 : 40)
+        .height(node.depth > 0 ? 44 : 54)
+        .objectFit(ImageFit.Contain)
+
+      Text(node.collection.name)
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+        .margin({ left: node.depth > 0 ? 8 : 12 })
+
+      Text(`${node.collection.questionCount}`)
+        .fontSize(12)
+        .fontColor(TABLET_COLOR_MUTED)
+        .margin({ left: 8 })
+
       if (node.has_children) {
         Button() {
           Image($r('app.media.bl_chevron_right'))
@@ -280,44 +286,21 @@ export struct LibraryPane {
             .rotate({ angle: this.is_collapsed(node.collection.collectionId) ? 0 : 90 })
         }
         .type(ButtonType.Normal)
-        .width(32)
+        .width(TABLET_CONTROL_SIZE)
         .height(TABLET_CONTROL_SIZE)
         .padding(0)
         .backgroundColor(Color.Transparent)
+        .accessibilityText((this.is_collapsed(node.collection.collectionId) ? '展开' : '收起') +
+          node.collection.name)
         .onClick(() => {
           this.toggle_collection(node.collection.collectionId);
         })
-      } else {
-        Blank()
-          .width(32)
-          .height(TABLET_CONTROL_SIZE)
       }
-
-      Image($r('app.media.bl_list'))
-        .width(20)
-        .height(20)
-        .objectFit(ImageFit.Contain)
-
-      Text(node.collection.name)
-        .fontSize(14)
-        .fontWeight(this.scope_collection_id === node.collection.collectionId ?
-          FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.scope_collection_id === node.collection.collectionId ?
-          TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(1)
-        .margin({ left: 8 })
-
-      Text(`${node.collection.questionCount}`)
-        .fontSize(12)
-        .fontColor(TABLET_COLOR_MUTED)
-        .margin({ left: 6, right: 4 })
     }
     .width('100%')
-    .height(TABLET_CONTROL_SIZE)
-    .padding({ left: 4 + Math.min(node.depth, 6) * 16, right: 4 })
-    .borderRadius(TABLET_RADIUS_SMALL)
+    .height(76)
+    .padding({ left: 12 + Math.min(node.depth, 3) * 8, right: node.has_children ? 0 : 12 })
+    .borderRadius(12)
     .backgroundColor(this.scope_collection_id === node.collection.collectionId ?
       TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .onClick(() => {
@@ -349,23 +332,31 @@ export struct LibraryPane {
     }
     .layoutWeight(1)
     .height('100%')
-    .padding({ left: TABLET_PAGE_PADDING, right: TABLET_PAGE_PADDING, top: 16 })
+    .padding({ left: TABLET_PAGE_PADDING, right: TABLET_PAGE_PADDING })
+    .backgroundColor(TABLET_COLOR_CARD)
   }
 
   @Builder
   list_header() {
     Row() {
+      Image(this.collection_cover(this.scope_collection_id))
+        .width(72)
+        .height(96)
+        .objectFit(ImageFit.Contain)
+        .margin({ right: 22 })
+
       Column() {
         Text(this.scope_title())
-          .fontSize(26)
+          .fontSize(30)
           .fontWeight(FontWeight.Bold)
           .fontColor(TABLET_COLOR_TEXT)
-          .maxLines(1)
+          .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
         Text(this.scope_meta())
-          .fontSize(12)
+          .fontSize(14)
           .fontColor(TABLET_COLOR_MUTED)
-          .margin({ top: 4 })
+          .margin({ top: 10 })
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
@@ -373,21 +364,22 @@ export struct LibraryPane {
       Button() {
         Row() {
           Image($r('app.media.bl_refresh'))
-            .width(18)
-            .height(18)
+            .width(16)
+            .height(16)
             .objectFit(ImageFit.Contain)
           Text(this.loading ? '刷新中…' : '刷新')
-            .fontSize(13)
-            .fontColor(TABLET_COLOR_PRIMARY)
+            .fontSize(12)
+            .fontColor(TABLET_COLOR_MUTED)
             .margin({ left: 6 })
         }
       }
       .type(ButtonType.Normal)
       .height(TABLET_CONTROL_SIZE)
-      .padding({ left: 14, right: 14 })
-      .backgroundColor(TABLET_COLOR_CARD)
+      .padding({ left: 12, right: 12 })
+      .backgroundColor(Color.Transparent)
       .border({ width: 1, color: TABLET_COLOR_BORDER })
       .borderRadius(TABLET_RADIUS_SMALL)
+      .margin({ left: 20 })
       .enabled(!this.loading)
       .opacity(this.loading ? 0.5 : 1)
       .onClick(() => {
@@ -395,25 +387,15 @@ export struct LibraryPane {
       })
     }
     .width('100%')
-    .margin({ top: 4, bottom: 14 })
+    .constraintSize({ minHeight: 144 })
+    .padding({ top: 24, bottom: 24 })
+    .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
   }
 
   @Builder
   question_list() {
     Scroll() {
-      Column({ space: 12 }) {
-        Row() {
-          Text('题目')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(TABLET_COLOR_TEXT)
-          Blank()
-          Text('点击进入作答')
-            .fontSize(11)
-            .fontColor(TABLET_COLOR_MUTED)
-        }
-        .width('100%')
-
+      Column() {
         ForEach(this.items, (item: QuestionSummary, index: number) => {
           this.question_row(item, index)
         }, (item: QuestionSummary): string => `${item.questionId}:${item.answerState}`)
@@ -432,68 +414,63 @@ export struct LibraryPane {
   question_row(item: QuestionSummary, index: number) {
     Row() {
       Text(this.ordinal_text(index))
-        .fontSize(18)
-        .fontWeight(FontWeight.Medium)
+        .fontSize(27)
+        .fontWeight(FontWeight.Normal)
         .fontColor(TABLET_COLOR_MUTED)
-        .width(40)
+        .width(52)
+        .margin({ top: 1 })
 
       Column() {
         Text(item.summary)
-          .fontSize(15)
+          .fontSize(19)
+          .lineHeight(29)
           .fontWeight(FontWeight.Medium)
           .fontColor(TABLET_COLOR_TEXT)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        Row() {
-          Text(learning_subject_label(item.subject))
-            .fontSize(11)
-            .fontColor(TABLET_COLOR_PRIMARY)
-            .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-            .borderRadius(6)
-            .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-          if (item.collectionId === INBOX_COLLECTION_ID) {
-            Text('待整理')
-              .fontSize(11)
-              .fontColor(TABLET_COLOR_MUTED)
-              .backgroundColor(ANSWER_IDLE_BACKGROUND)
-              .borderRadius(6)
-              .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-              .margin({ left: 6 })
+        Row({ space: 8 }) {
+          if (item.answerState === AnswerState.COMPLETED) {
+            Image($r('app.media.bl_state_completed'))
+              .width(15)
+              .height(15)
+              .objectFit(ImageFit.Contain)
+          } else if (item.answerState === AnswerState.IN_PROGRESS) {
+            Circle()
+              .width(12)
+              .height(12)
+              .fill(Color.Transparent)
+              .stroke(TABLET_COLOR_PRIMARY)
+              .strokeWidth(2)
+          } else {
+            Circle()
+              .width(10)
+              .height(10)
+              .fill('#9AA9CC')
           }
           Text(this.answer_state_label(item.answerState))
-            .fontSize(11)
+            .fontSize(13)
             .fontColor(this.answer_state_foreground(item.answerState))
-            .backgroundColor(this.answer_state_background(item.answerState))
-            .borderRadius(6)
-            .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-            .margin({ left: 6 })
-          Text(format_created_at(item.createdAt))
-            .fontSize(11)
-            .fontColor(TABLET_COLOR_MUTED)
-            .margin({ left: 8 })
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
         }
         .width('100%')
-        .margin({ top: 6 })
+        .margin({ top: 10 })
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
-      .margin({ left: 4 })
 
-      Image($r('app.media.bl_chevron_right'))
-        .width(18)
-        .height(18)
+      Image($r('app.media.bl_arrow_blue'))
+        .width(22)
+        .height(22)
         .objectFit(ImageFit.Contain)
-        .margin({ left: 10 })
+        .margin({ left: 24 })
+        .alignSelf(ItemAlign.Center)
     }
+    .alignItems(VerticalAlign.Top)
     .width('100%')
-    .padding({ left: 16, right: 14, top: 14, bottom: 14 })
+    .constraintSize({ minHeight: 112 })
+    .padding({ top: 24, bottom: 24 })
     .backgroundColor(TABLET_COLOR_CARD)
-    .borderRadius(TABLET_RADIUS)
-    .border({ width: 1, color: TABLET_COLOR_BORDER })
+    .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
     .onClick(() => {
       this.open_detail(item);
     })
@@ -867,6 +844,26 @@ export struct LibraryPane {
     return '题集';
   }
 
+  private collection_cover(collection_id: string | null): Resource {
+    if (collection_id === null) {
+      return $r('app.media.bl_book_cream');
+    }
+    if (collection_id === INBOX_COLLECTION_ID) {
+      return $r('app.media.bl_collection_folder');
+    }
+    let tone: number = 0;
+    for (let index: number = 0; index < collection_id.length; index++) {
+      tone = (tone * 31 + collection_id.charCodeAt(index)) % 3;
+    }
+    if (tone === 1) {
+      return $r('app.media.bl_book_coral');
+    }
+    if (tone === 2) {
+      return $r('app.media.bl_book_lavender');
+    }
+    return $r('app.media.bl_book_blue');
+  }
+
   private scope_meta(): string {
     if (!this.loaded_once) {
       return '正在读取…';
@@ -1042,6 +1039,9 @@ export struct LibraryPane {
       this.collections = result.data;
       this.collections_error = '';
       this.inbox_count = this.inbox_count_of(this.collections);
+      // questionCount 为直接归属题数，含待整理；只用于左侧真实汇总展示。
+      this.all_question_count = this.collections.reduce((sum: number, collection: QuestionCollection): number =>
+        sum + collection.questionCount, 0);
       this.rebuild_collection_nodes();
     } catch (error) {
       if (!this.check_session(token, seq)) {
@@ -1388,16 +1388,6 @@ export struct LibraryPane {
       return TABLET_COLOR_PRIMARY;
     }
     return TABLET_COLOR_MUTED;
-  }
-
-  private answer_state_background(state: AnswerState): string {
-    if (state === AnswerState.COMPLETED) {
-      return TABLET_COLOR_SUCCESS_SOFT;
-    }
-    if (state === AnswerState.IN_PROGRESS) {
-      return TABLET_COLOR_PRIMARY_SOFT;
-    }
-    return ANSWER_IDLE_BACKGROUND;
   }
 
   private async run_detail(question_id: string, seq: number): Promise<void> {

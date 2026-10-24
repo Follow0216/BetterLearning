@@ -40,6 +40,7 @@ export struct AnswerWorkspace {
   @Prop pending_action: string = '';
   @Prop feedback_text: string = '';
   @Prop feedback_error: boolean = false;
+  @State private header_width_vp: number = 1000;
   controller: TabletCanvasController = new TabletCanvasController();
   on_state_change: (state: CanvasWorkspaceState) => void = () => {
   };
@@ -117,35 +118,42 @@ export struct AnswerWorkspace {
         this.on_back();
       })
 
-      Text(this.collection_name.length > 0 ? this.collection_name : '题目')
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(TABLET_COLOR_TEXT)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 180 })
-        .margin({ left: 2, right: 12 })
+      Row() {
+        Text(this.collection_name.length > 0 ? this.collection_name : '题目')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(TABLET_COLOR_TEXT)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 220 })
+          .layoutWeight(1)
+          .margin({ left: 2, right: 12 })
 
-      Divider()
-        .vertical(true)
-        .height(16)
-        .strokeWidth(1)
-        .color(TABLET_COLOR_BORDER)
+        Divider()
+          .vertical(true)
+          .height(16)
+          .strokeWidth(1)
+          .color(TABLET_COLOR_BORDER)
 
-      Text(this.question_ordinal.length > 0 ? this.question_ordinal : '题目')
-        .fontSize(14)
-        .fontColor(TABLET_COLOR_TEXT)
-        .maxLines(1)
-        .margin({ left: 12, right: 10 })
+        Text(this.question_ordinal.length > 0 ? this.question_ordinal : '题目')
+          .fontSize(14)
+          .fontColor(TABLET_COLOR_TEXT)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: this.header_width_vp < 640 ? 64 : 100 })
+          .margin({ left: 12, right: 10 })
 
-      Text(this.state_label())
-        .fontSize(11)
-        .fontColor(this.state_foreground())
-        .backgroundColor(this.state_background())
-        .borderRadius(6)
-        .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+        if (this.header_width_vp >= 640) {
+          Text(this.state_label())
+            .fontSize(11)
+            .fontColor(this.state_foreground())
+            .backgroundColor(this.state_background())
+            .borderRadius(4)
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+        }
 
-      Blank()
+      }
+      .layoutWeight(1)
 
       if (this.save_hint.length > 0) {
         Text(this.save_hint)
@@ -153,8 +161,9 @@ export struct AnswerWorkspace {
           .fontColor(TABLET_COLOR_MUTED)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 160 })
-          .margin({ right: 12 })
+          .constraintSize({ maxWidth: this.header_width_vp < 520 ? 56 : (this.header_width_vp < 760 ? 84 : 160) })
+          .margin({ left: 8, right: 12 })
+          .accessibilityText(this.save_hint)
       }
 
       if (!this.show_continue) {
@@ -162,9 +171,11 @@ export struct AnswerWorkspace {
           .type(ButtonType.Normal)
           .fontSize(13)
           .fontColor(TABLET_COLOR_PRIMARY)
+          .width(this.header_width_vp < 520 ? 64 : 80)
           .height(44)
-          .padding({ left: 16, right: 16 })
-          .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
+          .padding({ left: this.header_width_vp < 520 ? 4 : 12, right: this.header_width_vp < 520 ? 4 : 12 })
+          .backgroundColor(Color.Transparent)
+          .border({ width: 1, color: TABLET_COLOR_BORDER })
           .borderRadius(22)
           .enabled(this.can_save)
           .opacity(this.can_save ? 1 : 0.4)
@@ -175,10 +186,12 @@ export struct AnswerWorkspace {
         Button(this.pending_action === 'complete' ? '完成中…' : '完成')
           .type(ButtonType.Normal)
           .fontSize(13)
-          .fontColor(TABLET_COLOR_CARD)
+          .fontColor(TABLET_COLOR_PRIMARY)
+          .width(this.header_width_vp < 520 ? 68 : 84)
           .height(44)
-          .padding({ left: 18, right: 18 })
-          .backgroundColor(TABLET_COLOR_PRIMARY)
+          .padding({ left: this.header_width_vp < 520 ? 4 : 12, right: this.header_width_vp < 520 ? 4 : 12 })
+          .backgroundColor(TABLET_COLOR_CARD)
+          .border({ width: 1, color: TABLET_COLOR_PRIMARY })
           .borderRadius(22)
           .margin({ left: 8 })
           .enabled(this.can_complete)
@@ -190,10 +203,12 @@ export struct AnswerWorkspace {
         Button(this.pending_action === 'continue' ? '恢复中…' : '继续作答')
           .type(ButtonType.Normal)
           .fontSize(13)
-          .fontColor(TABLET_COLOR_CARD)
+          .fontColor(TABLET_COLOR_PRIMARY)
+          .width(100)
           .height(44)
-          .padding({ left: 18, right: 18 })
-          .backgroundColor(TABLET_COLOR_PRIMARY)
+          .padding({ left: this.header_width_vp < 520 ? 4 : 12, right: this.header_width_vp < 520 ? 4 : 12 })
+          .backgroundColor(TABLET_COLOR_CARD)
+          .border({ width: 1, color: TABLET_COLOR_PRIMARY })
           .borderRadius(22)
           .enabled(this.can_continue)
           .opacity(this.can_continue ? 1 : 0.4)
@@ -207,6 +222,12 @@ export struct AnswerWorkspace {
     .padding({ left: 16, right: 16 })
     .backgroundColor(TABLET_COLOR_CARD)
     .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
+    .onAreaChange((_old: Area, area: Area) => {
+      const width: number = typeof area.width === 'number' ? area.width : parseFloat(area.width.toString());
+      if (Number.isFinite(width) && width > 0) {
+        this.header_width_vp = width;
+      }
+    })
   }
 
   private dispatch(action: string): void {
