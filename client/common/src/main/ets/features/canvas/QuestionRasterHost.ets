@@ -13,6 +13,7 @@ const ORIGIN: string = 'https://question-markdown.betterlearning.invalid/';
 const URL: string = ORIGIN + 'canvas-raster.html';
 export interface QuestionRasterResult { layout: CanvasQuestionLayout; files: CanvasLocalFile[]; }
 interface RasterStatus { batch: string; ready: boolean; error: string; bounds: CanvasRect; blocks: CanvasTextBlock[]; tileReady: number; }
+interface SnapshotNativeError { code?: number | string; message?: string; }
 interface SnapshotAttempt { map: image.PixelMap | null; retryable: boolean; reason: string; code: number; }
 function json_result(value: string): RasterStatus {
   const first: Object = JSON.parse(value) as Object;
@@ -130,10 +131,24 @@ export struct QuestionRasterHost {
       } catch (error) {
         if (!settled) {
           settled = true; clearTimeout(timer);
-          const native: BusinessError = error as BusinessError;
-          const notPainted: boolean = typeof native.message === 'string' && /not.*paint.*ready|paint.*not.*ready/i.test(native.message);
-          resolve({ map: null, retryable: notPainted, reason: notPainted ? 'Web is not painted ready for snapshot' : 'native_throw',
-            code: typeof native.code === 'number' ? native.code : 0 });
+          // 设备上的同步抛值不保证是 BusinessError，也可能无 code/message。
+          const nativeError: SnapshotNativeError | null = error === null || error === undefined ? null : error as SnapshotNativeError;
+          const rawCode: number | string | undefined = nativeError?.code;
+          const numericCode: string = typeof rawCode === 'number' ? rawCode.toString() :
+            typeof rawCode === 'string' && /^-?[0-9]{1,10}$/.test(rawCode) ? rawCode : '[missing/non-numeric]';
+          const code: number = numericCode === '[missing/non-numeric]' ? 0 : Number(numericCode);
+          const text: string = typeof error === 'string' ? error as string :
+            typeof nativeError?.message === 'string' ? nativeError.message :
+              typeof error === 'boolean' || typeof error === 'number' ? String(error) : '[no message]';
+          const detail: string = text.replace(/Bearer\s+\S+/gi,'Bearer [redacted]')
+            .replace(/(?:https?|file):\/\/\S+/gi,'[uri]').replace(/\/(?:data|storage|private)\/\S+/g,'[path]')
+            .replace(/\s+/g,' ').slice(0,180);
+          const notPainted: boolean = /not.*paint.*ready|paint.*not.*ready/i.test(text);
+          // NAPI 将快照 init=false 转为同步 INIT_ERROR(17100001)；设备也可能不给结构化错误码。
+          // 仅在已过绘制门禁的快照调用中保留现有4次探测；参数等明确错误仍直接失败。
+          resolve({ map: null, retryable: notPainted || code === 17100001 || code === 0,
+            reason: 'native_throw type=' + typeof error + ' codeType=' + typeof rawCode +
+              ' codeValue=' + numericCode + ' message=' + detail, code: code });
         }
       }
     });
