@@ -19,6 +19,8 @@ public class QuestionDO {
 
     private String summary;
 
+    private String answerState;
+
     private OffsetDateTime createdAt;
 
     /** 返回 questionId。 */
@@ -89,6 +91,14 @@ public class QuestionDO {
     /** 设置 summary。 */
     public void setSummary(String summary) {
         this.summary = summary;
+    }
+
+    public String getAnswerState() {
+        return answerState;
+    }
+
+    public void setAnswerState(String answerState) {
+        this.answerState = answerState;
     }
 
     /** 返回 createdAt。 */

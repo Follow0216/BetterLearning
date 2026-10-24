@@ -1,8 +1,8 @@
-# M2 HTTP／文件契约草案
+# M2 HTTP／文件契约 v1
 
-状态：题集字段已固定并独立交付；作答 envelope／坐标／题面底图按根会话与 C2 方案固定为下述 v1。开发树未构建或测试。基线 develop：`063a35493be9636a976928fe63ca6b4231d75898`。
+状态：题集已独立交付；作答 envelope／坐标／题面底图按根会话与 C2 方案固定为下述 v1，首轮源码冻结供 C4 实测。开发树未构建或测试。基线 develop：`063a35493be9636a976928fe63ca6b4231d75898`。
 
-M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复的最新笔迹与完整导出、云端当前作答保存、完成／继续状态、Phone/Web 只读完整解答。无题集删除／移动、正文编辑、历史版本、归档、搜索筛选、OCR 或 AI。沿用 M1 的 Bearer 登录、真实 principal.accountId、字符串数据库 ID、`inbox`、科目枚举与错误对象。M2 请求使用独立 DTO，继续拒绝未知字段，不扩展 M1 confirm 请求。题集部分已获根会话放行实施，作答部分按本版字段继续实施。
+M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复的最新笔迹与完整导出、云端当前作答保存、完成／继续状态、Phone/Web 只读完整解答。无题集删除／移动、正文编辑、历史版本、归档、搜索筛选、OCR 或 AI。沿用 M1 的 Bearer 登录、真实 principal.accountId、字符串数据库 ID、`inbox`、科目枚举与错误对象。M2 请求使用独立 DTO，继续拒绝未知字段，不扩展 M1 confirm 请求。题集部分已获根会话放行实施，作答部分已按本版字段实现首轮源码。
 
 ## 1. 题集与题目归属
 
@@ -59,18 +59,18 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 
 固定 JSON part 名为 `manifest`，媒体类型为 `application/json`。PNG 使用各自唯一 part 名，必须与 `blocks[].partName` **逐字一致**；如 `chunk_0000`、`chunk_0001`。不按上传顺序或 filename 猜配对，不接收重复 part、缺块或未声明的额外文件；`manifest` 为保留名。JSON part 可以带 filename，但仍不是 PNG 块。
 
-拟定请求 envelope：
+请求 envelope：
 
 ```json
 {
   "schemaVersion":1,
   "saveRequestId":"b82c1d44-d75a-4ec6-b653-023f1ed921b2",
   "baseFileRef":null,
-  "canvas":{"width":1200,"height":2400,"originX":-200,"originY":-100,"coordinateUnit":"logical"},
+  "canvas":{"width":1400,"height":2400,"originX":-200,"originY":-100,"coordinateUnit":"logical"},
   "document":{"schemaVersion":1,"questionLayout":{"questionBodySha256":"<64位小写hex>","contentWidth":1200,"fontSize":16,"rendererId":"local-markdown-v1","bounds":{"x":0,"y":0,"width":1200,"height":1200},"blocks":[{"blockId":"body-0","x":0,"y":0,"width":1200,"height":1200}],"rasterBlocks":[{"index":0,"partName":"question_0000","x":0,"y":0,"width":1024,"height":1024,"pixelWidth":1024,"pixelHeight":1024,"sha256":"<64位小写hex>"}]},"strokes":[{"strokeId":"stroke-1","color":"#152744","width":2,"points":[{"x":-20,"y":40},{"x":60,"y":80}]}]},
   "blocks":[
     {"index":0,"partName":"chunk_0000","x":0,"y":0,"width":1024,"height":1024,"pixelWidth":1024,"pixelHeight":1024,"sha256":"<64位小写hex>"},
-    {"index":1,"partName":"chunk_0001","x":1024,"y":0,"width":176,"height":1024,"pixelWidth":176,"pixelHeight":1024,"sha256":"<64位小写hex>"}
+    {"index":1,"partName":"chunk_0001","x":1024,"y":0,"width":376,"height":1024,"pixelWidth":376,"pixelHeight":1024,"sha256":"<64位小写hex>"}
   ]
 }
 ```
@@ -83,13 +83,13 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 - GET 当前作答在同一 envelope 上附加 `questionSnapshot`，合成 blocks 及 document.questionLayout.rasterBlocks 每块附加相对 API `url`，返回 `manifest`；不返回文件系统路径。Phone/Web 按 index、逻辑尺寸展示所有合成 PNG，忽略编辑数据；Tablet 可读取同一 document 恢复继续作答。Web 经既有 HttpOnly 会话 BFF 添加 Bearer 并使用 no-store 转发 manifest/PNG，不用匿名 img URL 直连受保护目录。
 - 本机最新草稿由 C2 按账号＋questionId 隔离保存；云端失败不能删除本机草稿、标完成或用旧图伪报成功。登录切换不能把上一账号的草稿、fileRef 或 PNG 带到下一账号。
 
-拟定边界（对齐时结合真实导出确定，不裁掉超限部分）：manifest ≤8 MiB，单 PNG ≤16 MiB，两组 PNG 合计 ≤64 MiB，合计最多 256 块；每块宽高正数且各不超过 16384 像素、单块≤16M像素、合计≤64M像素。合成块相对坐标须有限且落在 canvas 范围内，世界坐标（含半笔宽外延）不得超出 origin+canvas 完整范围，负世界坐标不得被裁掉；PNG 签名、可解码性、实际尺寸和 SHA-256 均须匹配。超限整体拒绝，不能部分保存后返回 fileRef。Spring multipart 上限须高于协议有效载荷并计入边界开销，例如 16MB 单 part／80MB 整请求；实际值在最终契约与配置中统一。
+固定边界（不裁掉超限部分）：manifest ≤8 MiB，单 PNG ≤16 MiB，两组 PNG 合计 ≤64 MiB，合计最多 256 块；每块宽高为1–1024整数像素（边缘可小于1024），合计≤64M像素。合成块相对坐标须有限且落在 canvas 范围内，世界坐标（含半笔宽外延）不得超出 origin+canvas 完整范围，负世界坐标不得被裁掉；PNG 签名、可解码性、实际尺寸和 SHA-256 均须匹配。超限整体拒绝，不能部分保存后返回 fileRef。Spring multipart 上限须高于协议有效载荷并计入边界开销，固定 16MB 单 part／80MB 整请求；Tomcat max-part-count=257，form post 上限80MB，容纳协议最大完整包。
 
 题面底图 `rasterBlocks` 使用同一整格规则，但格原点为 `floor(questionLayout.bounds.x/y)`，宽高为向外取整后的题面范围，块 x/y 保留该世界原点；partName 为 `question_0000` 等，合成块为 `chunk_0000` 等。两组 index 各从0连续、partName 全包唯一，底图也必须给齐，不接受只有合成图。底图 GET 使用 question-blocks 路由，旧 fileRef 与跨账号均不可读。
 
 ## 4. 保存、覆盖、失败与重试
 
-草案选择 **当前 fileRef 条件覆盖**，不新增历史版本或通用幂等账本：
+使用 **当前 fileRef 条件覆盖**，不新增历史版本或通用幂等账本：
 
 1. 客户端在一次云端保存开始时冻结 saveRequestId（小写标准 UUID）、baseFileRef、manifest 的 UTF-8 字节和所有 PNG；网络重试使用同一冻结包。首次保存 baseFileRef 必须为 null；后续使用最近读取／保存成功的当前 fileRef。
 2. 服务端校验账号／题号，流式写同一持久化根目录的临时目录，校验所有 JSON／PNG；完成全部写入并 force 后，以同文件系统原子 rename 发布一个不可变目录。fileRef 是服务端生成的随机 UUID，与客户端路径或 filename 无关。
@@ -98,13 +98,13 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 5. 同一 base 的并发不同保存只有一个可提交，另一个 409，原最新解答不被旧设备覆盖。A 保存→B 覆盖→A 的迟到原包重试，因原 base 与 B 不匹配而 409，不重新覆盖 B。去重只承诺当前保存及原包重试，不承诺查询过去 saveRequestId，也不声称能在服务端拒绝全历史 ID 复用；新动作必须生成新 ID 是客户端契约。
 6. 409 后保留本机草稿，明确提示刷新当前云端作答；不做冲突选择界面，不静默把 base 改为新 fileRef 并自动覆盖。超时／5xx 后先按冻结包重试；若前次实际提交但响应丢失，当前同 requestId＋摘要会返回原成功结果。
 
-任一校验、写盘、rename 或 DB 提交失败均无成功 fileRef，旧的当前指针保持不变；清理本次临时／未安装候选目录。重复请求返回原成功结果时，也须清理本次多余候选，不能误删原当前目录。文件系统与数据库不能组成真正的分布式原子事务；“先完整文件、后 DB 指针”可避免可见半包，崩溃窗口可能留下不可见孤儿。MVP 不做启动扫描、定时孤儿回收或通用恢复；崩溃孤儿保留为已知空间限制，不对外可见。本次明确不实现后台清理框架。
+任一校验、写盘、rename 或 DB 提交失败均不返回成功 fileRef；提交前失败保持旧指针。提交结果未知时不得声称未提交，客户端按冻结包重试确认；服务端在能读回确认候选未被引用后才删除它，读回失败则保留候选。清理本次临时／未安装候选目录。重复请求返回原成功结果时，也须清理本次多余候选，不能误删原当前目录。文件系统与数据库不能组成真正的分布式原子事务；“先完整文件、后 DB 指针”可避免可见半包，崩溃窗口可能留下不可见孤儿。MVP 不做启动扫描、定时孤儿回收或通用恢复；崩溃孤儿保留为已知空间限制，不对外可见。本次明确不实现后台清理框架。
 
-覆盖后的旧 fileRef 不作为历史资源对外读取，统一 404。每个块 GET 必须先按 principal.accountId、questionId、**当前 fileRef** 查库授权，再读取服务端生成路径；仅知道 UUID 不获得访问权。新保存导致旧块 404 时，查看器重新读取最新 manifest，不能混用两份解答的块。
+正常覆盖经代理提交成功后，删除被替代的旧对象目录；清理失败也保留为不可见空间限制，不回滚已提交的新指针。覆盖后的旧 fileRef 不作为历史资源对外读取，统一 404。每个块 GET 必须先按 principal.accountId、questionId、**当前 fileRef** 查库授权，再读取服务端生成路径；仅知道 UUID 不获得访问权。详情在读取文件后复查当前引用，已变化时返回409 A0451；响应后新保存仍可能使旧块404，查看器重新读取最新 manifest，不能混用两份解答的块。
 
 ## 5. 最小持久化与配置
 
-为便于独立接收，题集与作答分提交：V3 先扩题集树；待 C2 schema 对齐后由 V4 增当前作答。V1/V2 不改字节：
+为便于独立接收，题集与作答分提交：V3 先扩题集树；C2 schema 对齐后由 V4 增当前作答。V1/V2 不改字节：
 
 - `question_collection` 增加可空 `parent_collection_id`，根为 null，同账号复合自引用 FK；根／非根各用明确唯一索引保证同级同名冲突。无 parent 更新 API。
 - `question` 增加 `UNIQUE(account_id,question_id)`，供当前作答复合外键使用；沿用已有题集归属字段与复合 FK。
@@ -116,7 +116,7 @@ M1 题目列表项和详情将新增 `answerState` 字段（同三个值），�
 
 ## 6. 错误与验收
 
-错误对象仍是 `{code,message,traceId,fieldErrors?}`。原 401/403/404/500/503 语义保持。新增场景拟定：同级名称重复、base/fileRef 过期、未完整保存即完成、已完成时再次保存 → 明确 409 错误码（A0450 名称重复；A0451 当前引用已改变；A0452 尚未完整保存；A0453 已完成须先继续；A0454 同 saveRequestId 的包内容不同）；非法 part/坐标/摘要/PNG 为 400 A0400，超大小 413 A0430，媒体类型错误 415（沿用 A0428），文件系统不可用 503。在实现中统一登记 ErrorCode、OpenAPI 与客户端映射，禁止把文件错误当空解答。
+错误对象仍是 `{code,message,traceId,fieldErrors?}`。原 401/403/404/500/503 语义保持。新增场景：同级名称重复、base/fileRef 过期、未完整保存即完成、已完成时再次保存 → 明确 409 错误码（A0450 名称重复；A0451 当前引用已改变；A0452 尚未完整保存；A0453 已完成须先继续；A0454 同 saveRequestId 的包内容不同）；非法 part/坐标/摘要/PNG 为 400 A0400，超大小 413 A0430，媒体类型错误 415（沿用 A0428），文件系统不可用 503。在实现中统一登记 ErrorCode、OpenAPI 与客户端映射，禁止把文件错误当空解答。
 
 C4 最小验收：题集主链路／多层归属与账号隔离；完整长文档所有块和最右端；缺块保存失败不返回 fileRef且保留旧解答／本机草稿；基本原包重试；保存后完成／继续状态；进程重启后当前 JSON/PNG 可读；Tablet 本机笔迹恢复与继续、Phone/Web 完整只读查看。输入边界沿实现做必要覆盖，不扩展为穷举大型故障矩阵。开发树不执行这些验证。
 

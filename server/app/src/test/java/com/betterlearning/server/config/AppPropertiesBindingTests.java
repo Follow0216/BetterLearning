@@ -85,6 +85,11 @@ class AppPropertiesBindingTests {
     }
 
     @Test
+    void missingFileRootFailsBinding() {
+        assertStartupFails(Map.of("app.files.root", ""), "APP_FILES_ROOT");
+    }
+
+    @Test
     void docsSwitchMapsToSwaggerUiAndApiDocs() {
         assertDocsSwitch("false");
         assertDocsSwitch("true");
@@ -103,6 +108,8 @@ class AppPropertiesBindingTests {
                     Environment environment = context.getEnvironment();
                     assertThat(environment.getProperty("springdoc.api-docs.enabled")).isEqualTo("false");
                     assertThat(environment.getProperty("springdoc.swagger-ui.enabled")).isEqualTo("false");
+                    assertThat(environment.getProperty("spring.servlet.multipart.max-request-size")).isEqualTo("80MB");
+                    assertThat(environment.getProperty("server.tomcat.max-part-count")).isEqualTo("257");
                     AppJwtProperties jwt = context.getBean(AppJwtProperties.class);
                     assertThat(jwt.getIssuer()).isEqualTo("betterlearning-server");
                     assertThat(jwt.getAudience()).isEqualTo("betterlearning-api");
@@ -228,6 +235,7 @@ class AppPropertiesBindingTests {
     private static String[] properties(Map<String, String> overrides) {
         Map<String, String> values = new LinkedHashMap<>();
         values.put("spring.datasource.password", "db-secret");
+        values.put("app.files.root", System.getProperty("java.io.tmpdir") + "/betterlearning-m2-test-files");
         values.put("app.jwt.secret-base64", VALID_SECRET);
         values.put("app.jwt.issuer", "betterlearning-server");
         values.put("app.jwt.audience", "betterlearning-api");

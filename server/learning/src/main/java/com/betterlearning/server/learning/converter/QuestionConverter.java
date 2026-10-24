@@ -18,14 +18,18 @@ public final class QuestionConverter {
     public static QuestionVO detail(QuestionDO question) {
         return new QuestionVO(Long.toString(question.getQuestionId()),
                 collectionId(question.getCollectionId()), QuestionSubject.valueOf(question.getSubject()),
-                question.getBodyMarkdown(), question.getSummary(), question.getCreatedAt());
+                question.getBodyMarkdown(), question.getSummary(), question.getCreatedAt(), state(question));
     }
 
     /** 转换列表项，正文不传给客户端。 */
     public static QuestionSummaryVO summary(QuestionDO question) {
         return new QuestionSummaryVO(Long.toString(question.getQuestionId()),
                 collectionId(question.getCollectionId()), QuestionSubject.valueOf(question.getSubject()),
-                question.getSummary(), question.getCreatedAt());
+                question.getSummary(), question.getCreatedAt(), state(question));
+    }
+
+    private static String state(QuestionDO question) {
+        return question.getAnswerState() == null ? "NOT_STARTED" : question.getAnswerState();
     }
 
     private static String collectionId(Long id) {

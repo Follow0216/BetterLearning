@@ -105,7 +105,7 @@ class UniqueConstraintMappingIntegrationTests {
 
     @BeforeEach
     void cleanTable() {
-        jdbcTemplate.update("TRUNCATE TABLE question, question_collection, app_user RESTART IDENTITY");
+        jdbcTemplate.update("TRUNCATE TABLE question_answer, question, question_collection, app_user RESTART IDENTITY");
     }
 
     @Test

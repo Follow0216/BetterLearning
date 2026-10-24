@@ -53,6 +53,17 @@ public enum ErrorCode {
     /** A0450：同账号同级题集名称重复；本项目扩展。 */
     COLLECTION_NAME_EXISTS(HttpStatus.CONFLICT, "A0450", "同级题集名称已存在"),
 
+    /** M2 当前作答引用冲突。 */
+    ANSWER_CHANGED(HttpStatus.CONFLICT, "A0451", "云端作答已更新，请刷新"),
+    /** M2 尚无完整保存。 */
+    ANSWER_NOT_SAVED(HttpStatus.CONFLICT, "A0452", "请先完整保存作答"),
+    /** M2 完成后须显式继续。 */
+    ANSWER_COMPLETED(HttpStatus.CONFLICT, "A0453", "已完成，请先继续作答"),
+    /** M2 保存动作 ID 内容不一致。 */
+    ANSWER_SAVE_CONFLICT(HttpStatus.CONFLICT, "A0454", "保存请求已用于其他内容"),
+    /** M2 有界完整上传。 */
+    UPLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "A0430", "上传内容超出限制"),
+
     /** A0501：请求次数超出限制（沿用《Java 开发手册》附 3）。 */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "A0501", "请求过于频繁"),
 

@@ -11,6 +11,7 @@
         <result column="body_markdown" property="bodyMarkdown"/>
         <result column="summary" property="summary"/>
         <result column="created_at" property="createdAt"/>
+        <result column="answer_state" property="answerState"/>
     </resultMap>
     <sql id="columns">
         question_id, account_id, collection_id, request_id, subject, body_markdown, summary, created_at
@@ -23,12 +24,16 @@
         ON CONFLICT ON CONSTRAINT uk_question_account_request DO NOTHING
         RETURNING question_id
     </select>
+    <sql id="answerState">
+        COALESCE((SELECT a.state FROM question_answer a
+            WHERE a.account_id = question.account_id AND a.question_id = question.question_id), 'NOT_STARTED') AS answer_state
+    </sql>
     <select id="findByRequestId" resultMap="question">
-        SELECT <include refid="columns"/> FROM question
+        SELECT <include refid="columns"/>, <include refid="answerState"/> FROM question
         WHERE account_id = #{accountId} AND request_id = #{requestId}
     </select>
     <select id="findById" resultMap="question">
-        SELECT <include refid="columns"/> FROM question
+        SELECT <include refid="columns"/>, <include refid="answerState"/> FROM question
         WHERE account_id = #{accountId} AND question_id = #{questionId}
     </select>
     <sql id="accountAndCollection">
@@ -41,7 +46,8 @@
         </if>
     </sql>
     <select id="findPage" resultMap="question">
-        SELECT question_id, collection_id, subject, summary, created_at FROM question
+        SELECT question_id, collection_id, subject, summary, created_at,
+            <include refid="answerState"/> FROM question
         WHERE <include refid="accountAndCollection"/>
         ORDER BY created_at DESC, question_id DESC
         LIMIT #{limit} OFFSET #{offset}

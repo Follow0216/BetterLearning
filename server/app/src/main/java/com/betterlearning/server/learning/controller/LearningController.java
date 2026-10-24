@@ -1,6 +1,8 @@
 package com.betterlearning.server.learning.controller;
 
 import com.betterlearning.server.config.OpenApiConfiguration;
+import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.learning.service.QuestionAnswerService;
 import com.betterlearning.server.learning.model.dto.ConfirmQuestionDTO;
 import com.betterlearning.server.learning.model.dto.CreateQuestionCollectionDTO;
 import com.betterlearning.server.learning.model.dto.RenameQuestionCollectionDTO;
@@ -38,9 +40,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class LearningController {
 
     private final LearningService learningService;
+    private final QuestionAnswerService answerService;
 
-    public LearningController(LearningService learningService) {
+    public LearningController(LearningService learningService, QuestionAnswerService answerService) {
         this.learningService = learningService;
+        this.answerService = answerService;
     }
 
     @PostMapping("/questions")
@@ -87,6 +91,13 @@ public class LearningController {
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String questionId, @Valid @RequestBody MoveQuestionDTO request) {
         return learningService.moveQuestion(account.accountId(), questionId, request);
+    }
+
+    @PatchMapping("/questions/{questionId}/answer-state")
+    public AnswerModels.SaveResult answerState(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
+            @PathVariable String questionId, @RequestBody AnswerModels.StateRequest request) {
+        return answerService.changeState(account.accountId(), questionId, request);
     }
 
     @GetMapping("/collections")
