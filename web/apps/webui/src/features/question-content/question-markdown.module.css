@@ -47,6 +47,16 @@
   padding-left: 1.6em;
 }
 
+.content :global(ul) {
+  list-style-type: disc;
+  list-style-position: outside;
+}
+
+.content :global(ol) {
+  list-style-type: decimal;
+  list-style-position: outside;
+}
+
 .content :global(li) {
   margin: 0.2em 0;
 }
