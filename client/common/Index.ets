@@ -49,3 +49,18 @@ export {
   validate_register_form,
   validate_login_form
 } from './src/main/ets/features/auth/AuthValidation';
+
+export {
+  INBOX_COLLECTION_ID,
+  LearningSubject,
+  MAX_QUESTION_MARKDOWN_LENGTH,
+  learning_subject_label,
+  QuestionSummary,
+  QuestionDetail,
+  QuestionPage,
+  QuestionCollection,
+  QuestionListQuery,
+  ManualQuestionInput
+} from './src/main/ets/features/learning/LearningModels';
+
+export { LearningApi } from './src/main/ets/features/learning/LearningApi';

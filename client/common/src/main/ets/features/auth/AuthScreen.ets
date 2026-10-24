@@ -120,6 +120,12 @@ struct AuthInputField {
  */
 @Component
 export struct AuthScreen {
+  /** 登录后资料校验通过；外层可切换到真实题库。 */
+  onAuthenticated: (user: UserProfile) => void = () => {
+  };
+  /** 已确认退出或登录失效；外层应清除账号可见数据。 */
+  onSignedOut: () => void = () => {
+  };
   @State mode: AuthMode = AuthMode.LOGIN;
   @State stage: AuthStage = AuthStage.FORM;
   @State username: string = '';
@@ -725,14 +731,27 @@ export struct AuthScreen {
     this.profileError = '';
     try {
       const result: AuthResult<UserProfile> = await this.api.getCurrentUser(token);
+      if (!authSession.matches_access_token(token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        authSession.clear_session_if_token(token);
+        this.return_to_login('登录状态已失效，请重新登录');
+        return;
+      }
       if (!result.isSuccess || result.data === null) {
-        this.handle_profile_failure(result.error, isRefresh);
+        this.handle_profile_failure(result.error, isRefresh, token);
         return;
       }
       this.profile = result.data;
       this.stage = AuthStage.PROFILE;
+      if (!isRefresh) {
+        this.onAuthenticated(result.data);
+      }
     } catch (error) {
-      this.handle_profile_failure(null, isRefresh);
+      if (authSession.matches_access_token(token)) {
+        this.handle_profile_failure(null, isRefresh, token);
+      }
     } finally {
       this.profileLoading = false;
     }
@@ -744,9 +763,9 @@ export struct AuthScreen {
    * @param error 接口错误，可能为 null
    * @param isRefresh 是否为已登录状态下的刷新
    */
-  private handle_profile_failure(error: AuthError | null, isRefresh: boolean): void {
+  private handle_profile_failure(error: AuthError | null, isRefresh: boolean, token: string): void {
     if (error !== null && error.is_unauthorized()) {
-      authSession.clear_session();
+      authSession.clear_session_if_token(token);
       this.return_to_login('登录状态已失效，请重新登录');
       return;
     }
@@ -826,9 +845,12 @@ export struct AuthScreen {
     this.isLoggingOut = true;
     try {
       const result: AuthResult<boolean> = await this.api.logout(token);
+      if (!authSession.matches_access_token(token)) {
+        return;
+      }
       if (result.isSuccess ||
         (result.error !== null && result.error.is_unauthorized())) {
-        authSession.clear_session();
+        authSession.clear_session_if_token(token);
         this.return_to_login('已退出登录');
         return;
       }
@@ -854,6 +876,7 @@ export struct AuthScreen {
     this.confirmPassword = '';
     this.clear_errors();
     this.formNotice = notice;
+    this.onSignedOut();
   }
 
   /**
