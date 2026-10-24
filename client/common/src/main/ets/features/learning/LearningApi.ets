@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { AuthApi, DEFAULT_DEV_BASE_URL } from '../auth/AuthApi';
 import { AuthError, AuthResult } from '../auth/AuthModels';
+import { AnswerState } from './SolutionModels';
 import {
   INBOX_COLLECTION_ID,
   LearningSubject,
@@ -84,7 +85,14 @@ function parse_summary(value: Object | null | undefined): QuestionSummary | null
     createdAt.length === 0) {
     return null;
   }
-  return new QuestionSummary(questionId, collectionId, subject, summary, createdAt);
+  const answerValue: Object | undefined = record['answerState'];
+  let answerState: AnswerState = AnswerState.NOT_STARTED;
+  if (answerValue !== undefined) {
+    if (answerValue !== AnswerState.NOT_STARTED && answerValue !== AnswerState.IN_PROGRESS &&
+      answerValue !== AnswerState.COMPLETED) { return null; }
+    answerState = answerValue as AnswerState;
+  }
+  return new QuestionSummary(questionId, collectionId, subject, summary, createdAt, answerState);
 }
 
 function parse_detail(body: string): QuestionDetail | null {
@@ -98,7 +106,7 @@ function parse_detail(body: string): QuestionDetail | null {
     return null;
   }
   return new QuestionDetail(summary.questionId, summary.collectionId, summary.subject,
-    summary.summary, summary.createdAt, markdown);
+    summary.summary, summary.createdAt, markdown, summary.answerState);
 }
 
 function parse_page(body: string): QuestionPage | null {
@@ -149,7 +157,13 @@ function parse_collections(body: string): QuestionCollection[] | null {
       typeof systemValue !== 'boolean' || questionCount === null) {
       return null;
     }
-    items.push(new QuestionCollection(collectionId, name, systemValue as boolean, questionCount));
+    const parentValue: Object | null | undefined = item['parentCollectionId'];
+    let parentId: string | null = null;
+    if (parentValue !== undefined && parentValue !== null) {
+      if (typeof parentValue !== 'string' || !is_id(parentValue as string)) { return null; }
+      parentId = parentValue as string;
+    }
+    items.push(new QuestionCollection(collectionId, name, systemValue as boolean, questionCount, parentId));
   }
   if (items.length === 0 || items[0].collectionId !== INBOX_COLLECTION_ID || !items[0].system) {
     return null;
