@@ -46,19 +46,15 @@ class LearningServiceTests {
         when(dao.findByRequestId(7L, REQUEST_ID)).thenReturn(Optional.of(row()));
         assertThatThrownBy(() -> service.confirm(7L,
                 new ConfirmQuestionDTO(REQUEST_ID, "OTHER", "different")))
-                .isInstanceOfSatisfying(BusinessException.class,
-                failure -> assertThat(failure.getErrorCode())
-                .isEqualTo(ErrorCode.CONFIRM_REQUEST_CONFLICT));
+                .isInstanceOfSatisfying(BusinessException.class, failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.CONFIRM_REQUEST_CONFLICT));
     }
 
     @Test
     void rejectsOtherOwnersCollectionAndInvalidPaginationBeforeReadingPage() {
         assertThatThrownBy(() -> service.page(7L, "88", 1, 20))
-                .isInstanceOfSatisfying(BusinessException.class,
-                failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+                .isInstanceOfSatisfying(BusinessException.class, failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND));
         assertThatThrownBy(() -> service.page(7L, null, 0, 20))
-                .isInstanceOfSatisfying(BusinessException.class,
-                failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.INVALID_PARAM));
+                .isInstanceOfSatisfying(BusinessException.class, failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.INVALID_PARAM));
         verify(dao, never()).findPage(7L, true, 88L, 0L, 20);
     }
 
