@@ -1,7 +1,4 @@
-import {
-  ANSWER_STATE_LABELS,
-  type QuestionAnswerState,
-} from "@/lib/api/library-contract";
+import { ANSWER_STATE_LABELS, type QuestionAnswerState } from "@/lib/api/library-contract";
 
 const STATE_STYLES: Record<QuestionAnswerState, string> = {
   NOT_STARTED: "border-[var(--auth-border)] bg-[var(--auth-bg)] text-[var(--auth-muted)]",

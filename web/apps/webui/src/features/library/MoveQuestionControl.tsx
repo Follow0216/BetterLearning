@@ -48,7 +48,7 @@ export function MoveQuestionControl({
       );
 
       if (response.status === 401) {
-        window.location.assign("/");
+        router.replace("/");
         return;
       }
 
@@ -81,7 +81,7 @@ export function MoveQuestionControl({
             setSaved(false);
             setError(null);
           }}
-          className="h-9 rounded-lg border border-[var(--auth-border)] bg-white px-2 text-sm text-[var(--auth-text)] outline-none transition-colors focus:border-[var(--auth-primary)] focus:ring-2 focus:ring-[var(--auth-primary-soft)]"
+          className="h-9 rounded-lg border border-[var(--auth-border)] bg-white px-2 text-sm text-[var(--auth-text)] transition-colors outline-none focus:border-[var(--auth-primary)] focus:ring-2 focus:ring-[var(--auth-primary-soft)]"
         >
           <option value={INBOX_COLLECTION_ID}>{INBOX_COLLECTION_NAME}</option>
           {options.map((item) => (
@@ -95,7 +95,7 @@ export function MoveQuestionControl({
         type="button"
         onClick={submit}
         disabled={pending || target === currentCollectionId}
-        className="inline-flex h-9 items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-3 text-sm font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)] disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none"
+        className="inline-flex h-9 items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-3 text-sm font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "移动中…" : "移动"}
       </button>

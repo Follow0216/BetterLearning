@@ -67,9 +67,7 @@ export function SavedAnswerPanel({ questionId }: SavedAnswerPanelProps) {
       ? storedOutcome.outcome
       : { status: "loading" };
   const tileError =
-    storedTileError !== null && storedTileError.key === requestKey
-      ? storedTileError.index
-      : null;
+    storedTileError !== null && storedTileError.key === requestKey ? storedTileError.index : null;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -151,9 +149,7 @@ export function SavedAnswerPanel({ questionId }: SavedAnswerPanelProps) {
       ) : null}
 
       {outcome.status === "failed" ? (
-        <div
-          className="mt-4 rounded-xl border border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 py-4"
-        >
+        <div className="mt-4 rounded-xl border border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 py-4">
           <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
             {outcome.message}
           </p>
@@ -210,9 +206,7 @@ function SavedAnswerBody({
   const { fileRef, savedAt, completedAt, manifest } = answer;
   if (fileRef === null || savedAt === null || manifest === null) {
     return (
-      <div
-        className="mt-4 rounded-xl border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-5 py-8 text-center"
-      >
+      <div className="mt-4 rounded-xl border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-5 py-8 text-center">
         <p className="text-sm font-medium text-[var(--auth-text)]">尚未保存作答</p>
         <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
           当前没有云端已保存的完整作答；在平板完成并导出保存后，这里会显示只读图片。

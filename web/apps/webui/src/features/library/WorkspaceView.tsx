@@ -109,11 +109,7 @@ export async function WorkspaceView({
       redirect("/");
     }
     return (
-      <WorkspaceFrame
-        view={view}
-        collections={collections}
-        collectionsFailure={collectionsFailure}
-      >
+      <WorkspaceFrame view={view} collections={collections} collectionsFailure={collectionsFailure}>
         <FailurePanel failure={pageResult.failure} retryHref={retryHref} />
       </WorkspaceFrame>
     );

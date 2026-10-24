@@ -4,9 +4,7 @@ export const LIBRARY_PAGE_SIZE = 20;
 export const MAX_PAGE = 1_000_000;
 
 export type LibraryView =
-  | { kind: "all" }
-  | { kind: "inbox" }
-  | { kind: "collection"; collectionId: string };
+  { kind: "all" } | { kind: "inbox" } | { kind: "collection"; collectionId: string };
 
 export const ALL_VIEW: LibraryView = { kind: "all" };
 export const INBOX_VIEW: LibraryView = { kind: "inbox" };
