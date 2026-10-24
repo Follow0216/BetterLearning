@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import type { ReactNode } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
@@ -18,6 +19,7 @@ import { RefreshButton } from "./RefreshButton";
 import { SavedAnswerPanel } from "./SavedAnswerPanel";
 import { StatePanel } from "./StatePanel";
 import { SubjectBadge } from "./SubjectBadge";
+import { TutorHistoryPanel } from "./TutorHistoryPanel";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 
 function DetailFrame({ children }: { children: ReactNode }) {
@@ -155,6 +157,17 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
         </div>
       </article>
       <SavedAnswerPanel questionId={questionId} />
+      <Suspense
+        fallback={
+          <section className="mt-4 rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7">
+            <p role="status" className="text-sm text-[var(--auth-muted)]">
+              正在读取 AI 辅导记录…
+            </p>
+          </section>
+        }
+      >
+        <TutorHistoryPanel questionId={questionId} />
+      </Suspense>
     </DetailFrame>
   );
 }

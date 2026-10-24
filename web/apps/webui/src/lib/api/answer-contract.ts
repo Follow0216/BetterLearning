@@ -99,7 +99,7 @@ function parseBlock(value: unknown): AnswerBlock {
   return { index, x, y, width, height };
 }
 
-function parseManifest(value: unknown): AnswerManifest {
+export function parseManifest(value: unknown): AnswerManifest {
   if (!isRecord(value)) {
     throw new LibraryContractError("作答 manifest 格式错误");
   }
