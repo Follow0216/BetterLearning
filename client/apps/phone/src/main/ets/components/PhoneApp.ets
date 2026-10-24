@@ -53,6 +53,7 @@ export struct PhoneApp {
         if (this.tutorQuestionId.length > 0) {
           PhoneTutorPage({
             questionId: this.tutorQuestionId,
+            visible: this.answerQuestionId.length === 0,
             onBack: () => {
               this.tutorQuestionId = '';
             },

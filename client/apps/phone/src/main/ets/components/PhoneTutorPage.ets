@@ -39,6 +39,8 @@ const POLL_INTERVAL_MS: number = 3000;
 @Component
 export struct PhoneTutorPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
+  @Prop @Watch('on_poll_gate_changed') visible: boolean = true;
+  @StorageProp('phoneForeground') @Watch('on_poll_gate_changed') foreground: boolean = true;
   onBack: () => void = () => {
   };
   onOpenFrozenAnswer: (questionId: string, turnId: string) => void = () => {
@@ -62,16 +64,20 @@ export struct PhoneTutorPage {
   private api: TutorApi = TutorApi.create_default();
   private requestSeq: number = 0;
   private pollTimer: number = -1;
-  private pollBusy: boolean = false;
+  private pollBusyGeneration: number = -1;
+  private pollGeneration: number = 0;
+  private alive: boolean = true;
   private activeTurnId: string = '';
   private pendingRequestId: string = '';
   private pendingPrompt: string = '';
 
   aboutToAppear(): void {
+    this.alive = true;
     this.load_turns();
   }
 
   aboutToDisappear(): void {
+    this.alive = false;
     this.requestSeq = this.requestSeq + 1;
     this.stop_poll();
   }
@@ -92,6 +98,14 @@ export struct PhoneTutorPage {
     this.pendingRequestId = '';
     this.pendingPrompt = '';
     this.load_turns();
+  }
+
+  on_poll_gate_changed(): void {
+    if (!this.poll_allowed()) {
+      this.stop_poll();
+      return;
+    }
+    this.resume_poll();
   }
 
   build() {
@@ -689,7 +703,26 @@ export struct PhoneTutorPage {
     this.start_poll();
   }
 
+  private poll_allowed(): boolean {
+    return this.alive && this.visible && this.foreground;
+  }
+
+  private resume_poll(): void {
+    if (!this.poll_allowed()) {
+      return;
+    }
+    this.sync_active_turn();
+    if (this.activeTurnId.length === 0) {
+      return;
+    }
+    this.poll_active();
+  }
+
   private start_poll(): void {
+    if (!this.poll_allowed()) {
+      this.stop_poll();
+      return;
+    }
     if (this.pollTimer !== -1) {
       return;
     }
@@ -699,6 +732,7 @@ export struct PhoneTutorPage {
   }
 
   private stop_poll(): void {
+    this.pollGeneration = this.pollGeneration + 1;
     if (this.pollTimer !== -1) {
       clearInterval(this.pollTimer);
       this.pollTimer = -1;
@@ -706,7 +740,10 @@ export struct PhoneTutorPage {
   }
 
   private async poll_active(): Promise<void> {
-    if (this.pollBusy || this.activeTurnId.length === 0) {
+    if (!this.poll_allowed() || this.activeTurnId.length === 0 || this.questionId.length === 0) {
+      return;
+    }
+    if (this.pollBusyGeneration === this.pollGeneration) {
       return;
     }
     const token: string | null = authSession.read_access_token();
@@ -717,10 +754,12 @@ export struct PhoneTutorPage {
     const accountId: string = user.accountId;
     const turnId: string = this.activeTurnId;
     const seq: number = this.requestSeq;
-    this.pollBusy = true;
+    const generation: number = this.pollGeneration;
+    this.pollBusyGeneration = generation;
     try {
       const result: AuthResult<TutorTurn> = await this.api.getTurn(token, this.questionId, turnId);
-      if (this.is_stale(seq, token, accountId) || this.activeTurnId !== turnId) {
+      if (generation !== this.pollGeneration || !this.poll_allowed() ||
+        this.is_stale(seq, token, accountId) || this.activeTurnId !== turnId) {
         return;
       }
       if (!authSession.has_valid_session()) {
@@ -739,11 +778,14 @@ export struct PhoneTutorPage {
       this.merge_turn(result.data);
       this.sync_active_turn();
     } catch (error) {
-      if (!this.is_stale(seq, token, accountId)) {
+      if (generation === this.pollGeneration && this.poll_allowed() &&
+        !this.is_stale(seq, token, accountId)) {
         this.pollNotice = '暂时无法刷新本轮状态，将继续重试';
       }
     } finally {
-      this.pollBusy = false;
+      if (this.pollBusyGeneration === generation) {
+        this.pollBusyGeneration = -1;
+      }
     }
   }
 
