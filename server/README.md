@@ -339,3 +339,12 @@ V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动�
 正常覆盖提交成功后清理被替代文件；请求失败／重复包清理本次多余候选。提交结果未知时保留可能已提交候选；崩溃或清理失败的不可见孤儿为已知空间限制，无启动扫描、定时回收或历史版本功能。备份必须同时保留 PostgreSQL 当前记录与文件根目录。
 
 测试源码包含 AnswerManifestValidatorTests、AnswerFileStoreTests 与 QuestionAnswerIntegrationTests，尚未在开发树执行。测试 classpath 的 config/application.properties 仅为测试设置 APP_TEST_FILES_ROOT；C4 应指向自己的临时目录并在结束后清理。新集成类自行创建／清理独有目录，重新创建存储对象的单元测试不代表已完成真实进程重启验收。
+
+
+## 11. M3 跨端辅导与 M4 OCR
+
+接收版本和验证边界见 `M3-STORAGE-HANDOFF.md`，HTTP字段依C3 `agent/M3-M4-CONTRACT.md`。发问 POST `/api/v1/learning/questions/{questionId}/tutor-turns`，创建/重复统一200；同账号跨题最多一个等待/生成轮次。Tablet仅轮询当前题pending，抬笔后冻结全量文档并POST `/{turnId}/answer`，独立保存，后续普通作答或新轮次不会替换该轮文件。GET同路径直接返回ReadManifest，retry/cancel POST使用空JSON。模型失败原轮保留文件，手工retry，无自动重试/队列。
+
+OCR POST `/api/v1/learning/ocr`只接受名为image的单个PNG/JPEG part（16MiB上限），返回待校对bodyMarkdown，不创建正式题目。用户校对后才调用既有M1确认接口。源图不持久化，模型密钥不进响应和日志。
+
+OCR/TUTORING独立配置环境前缀 `APP_AGENT_OCR_*`、`APP_AGENT_TUTORING_*`：BASE_URL含完整路径前缀，MODEL填写实际模型ID，API_KEY独立注入；可选TIMEOUT_SECONDS默认120。缺配置不阻断原有功能；调用时503 C0002使用固定安全文案。辅导必须接收全部合成图片，模型不支持图像时明确失败，不能改为纯文本或偷偷截块。测试替身不代表真实模型调用成功。
