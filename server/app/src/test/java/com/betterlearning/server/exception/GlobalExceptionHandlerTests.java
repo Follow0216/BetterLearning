@@ -102,6 +102,18 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void returnsJsonBusinessErrorForPngOnlyAcceptOnImageRoute() throws Exception {
+        MvcResult result = mockMvc.perform(get("/test/image-not-found").accept(MediaType.IMAGE_PNG))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("A0606"))
+                .andExpect(jsonPath("$.traceId").isNotEmpty())
+                .andReturn();
+        assertThat((String) JsonPath.read(result.getResponse().getContentAsString(), "$.traceId"))
+                .isEqualTo(result.getResponse().getHeader(TraceIdContext.HEADER));
+    }
+
+    @Test
     void returnsServiceUnavailableForConnectionFailure() throws Exception {
         mockMvc.perform(get("/test/unavailable"))
                 .andExpect(status().isServiceUnavailable())
@@ -158,6 +170,11 @@ class GlobalExceptionHandlerTests {
         @GetMapping("/test/business")
         public void business() {
             throw new BusinessException(ErrorCode.RATE_LIMITED);
+        }
+
+        @GetMapping(value = "/test/image-not-found", produces = MediaType.IMAGE_PNG_VALUE)
+        public void imageNotFound() {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
         }
 
         @GetMapping("/test/unavailable")

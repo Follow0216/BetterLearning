@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.transaction.CannotCreateTransactionException;
@@ -342,7 +343,7 @@ public class GlobalExceptionHandler {
             Map<String, String> fieldErrors, HttpServletRequest request) {
         ApiErrorVO body = errorFactory.create(TraceIdContext.resolve(request), errorCode, message,
                 fieldErrors);
-        return ResponseEntity.status(errorCode.getStatus()).body(body);
+        return ResponseEntity.status(errorCode.getStatus()).contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
 }
