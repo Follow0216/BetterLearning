@@ -13,13 +13,14 @@ function clean_block(block: CanvasImageBlock): CanvasImageBlock {
     height: block.height, pixelWidth: block.pixelWidth, pixelHeight: block.pixelHeight, sha256: block.sha256 };
 }
 export async function export_canvas(document: CanvasEditableDocument, rasterFiles: CanvasLocalFile[],
-  baseFileRef: string | null, directory: string, active: () => boolean): Promise<FrozenAnswerUpload> {
+  baseFileRef: string | null, directory: string, active: () => boolean, frozenId: string = ''): Promise<FrozenAnswerUpload> {
   const doc: CanvasEditableDocument = clone_canvas_document(document);
   doc.questionLayout.rasterBlocks = doc.questionLayout.rasterBlocks.map((block: CanvasImageBlock) => clean_block(block));
   const extent: CanvasExtent = canvas_extent(doc);
   const blocks: CanvasImageBlock[] = canvas_grid(extent);
   const files: CanvasLocalFile[] = [];
-  const requestId: string = util.generateRandomUUID(true).toLowerCase();
+  if (frozenId.length > 0 && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(frozenId)) { throw new Error('冻结轮次标识无效'); }
+  const requestId: string = frozenId.length > 0 ? frozenId : util.generateRandomUUID(true).toLowerCase();
   let totalBytes: number = 0; let totalPixels: number = extent.width * extent.height;
   for (let i: number = 0; i < doc.questionLayout.rasterBlocks.length; i++) {
     const block: CanvasImageBlock = doc.questionLayout.rasterBlocks[i];

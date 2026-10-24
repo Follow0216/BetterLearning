@@ -14,6 +14,7 @@ export class CanvasWorkspaceState {
 }
 
 export interface CanvasWorkspaceActions {
+  cancelTutorFreeze?: (questionId: string, turnId: string) => void;
   freezeAtPenUp?: (questionId: string, turnId: string) => Promise<AuthResult<FrozenTutorAnswer>>;
   sendFrozenTutorAnswer?: (frozen: FrozenTutorAnswer) => Promise<AuthResult<TutorTurn>>;
   save: () => Promise<AuthResult<SolutionDetail>>;
@@ -29,6 +30,7 @@ export class TabletCanvasController {
   detach(actions: CanvasWorkspaceActions): void {
     if (this.actions === actions) { this.actions = null; }
   }
+  cancelTutorFreeze(questionId: string, turnId: string): void { this.actions?.cancelTutorFreeze?.(questionId,turnId); }
   async freezeAtPenUp(questionId: string, turnId: string): Promise<AuthResult<FrozenTutorAnswer>> {
     const action: ((questionId: string, turnId: string) => Promise<AuthResult<FrozenTutorAnswer>>) | undefined = this.actions?.freezeAtPenUp;
     return action === undefined ? AuthResult.failure<FrozenTutorAnswer>(

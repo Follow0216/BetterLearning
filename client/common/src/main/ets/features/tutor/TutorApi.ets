@@ -102,10 +102,12 @@ export class TutorApi {
   async cancelTurn(token: string, questionId: string, turnId: string): Promise<AuthResult<TutorTurn>> {
     return this.turn_request(token,questionId,turnId,http.RequestMethod.POST,'/cancel','{}');
   }
-  async uploadFrozenAnswer(token: string, questionId: string, turnId: string, upload: FrozenAnswerUpload): Promise<AuthResult<TutorTurn>> {
+  async uploadFrozenAnswer(token: string, questionId: string, turnId: string, upload: FrozenAnswerUpload,
+    active: () => boolean = () => true): Promise<AuthResult<TutorTurn>> {
     if (!tutor_id_valid(questionId) || !tutor_uuid_valid(turnId)) {
       return AuthResult.failure<TutorTurn>(AuthError.local_validation('辅导轮次标识无效', {}));
     }
+    if (!active()) { return AuthResult.failure<TutorTurn>(AuthError.local_validation('求助发送已取消', {})); }
     try {
       const json: Uint8Array = canvas_utf8(upload.manifestJson);
       if (json.length > 8388608) { throw new Error('冻结文档过大'); }
@@ -123,12 +125,14 @@ export class TutorApi {
         names.add(block.partName);
         const png: Uint8Array = canvas_read(file.filePath); bytes += png.length;
         if (bytes > 67108864 || await canvas_sha256(png) !== block.sha256) { throw new Error('冻结原包校验失败'); }
+        if (!active()) { return AuthResult.failure<TutorTurn>(AuthError.local_validation('求助发送已取消', {})); }
       }
       const parts: http.MultiFormData[] = [{ name: 'manifest', contentType: 'application/json', remoteFileName: 'manifest.json', data: json.buffer as ArrayBuffer }];
       for (let i: number = 0; i < upload.files.length; i++) {
         const file: CanvasLocalFile = upload.files[i];
         parts.push({ name: file.partName, contentType: 'image/png', remoteFileName: file.partName + '.png', filePath: file.filePath });
       }
+      if (!active()) { return AuthResult.failure<TutorTurn>(AuthError.local_validation('求助发送已取消', {})); }
       const result: AuthResult<string> = await this.transport.request_multipart(turns_path(questionId) + '/' + turnId + '/answer',
         token,parts,MODEL_READ_TIMEOUT,'求助连接失败，请检查本轮状态后重试');
       if (!result.isSuccess || result.data === null) { return AuthResult.failure<TutorTurn>(request_error(result)); }
