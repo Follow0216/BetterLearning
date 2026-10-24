@@ -120,8 +120,10 @@ class QuestionAnswerIntegrationTests {
         assertThat(download(compositeUrl, alice).body()).isEqualTo(AnswerTestData.png(32));
         assertThat(download(rasterUrl, alice).body()).isEqualTo(AnswerTestData.png(16));
         http.assertErrorEnvelope(http.get(ROOT + question + "/answer", bob), 404, "A0606");
-        http.assertErrorEnvelope(http.get(compositeUrl, bob), 404, "A0606");
-        http.assertErrorEnvelope(http.get(rasterUrl, null), 401, "A0200");
+        assertPngError(compositeUrl, bob, 404, "A0606");
+        assertPngError(rasterUrl, bob, 404, "A0606");
+        assertPngError(rasterUrl, null, 401, "A0200");
+        assertPngError(compositeUrl + "bad", alice, 400, "A0400");
         assertThat(http.jsonBody(http.get(ROOT + question, alice))).containsEntry("answerState", "IN_PROGRESS");
         Map<String, Object> page = http.jsonBody(http.get("/api/v1/learning/questions", alice));
         assertThat(maps(page.get("items")).get(0)).containsEntry("answerState", "IN_PROGRESS");
@@ -171,7 +173,8 @@ class QuestionAnswerIntegrationTests {
         assertThat(FILE_ROOT.resolve("objects").resolve(ref)).doesNotExist();
         http.assertErrorEnvelope(save(token, question, first), 409, "A0451");
         http.assertErrorEnvelope(state(token, question, "COMPLETED", ref), 409, "A0451");
-        http.assertErrorEnvelope(http.get(ROOT + question + "/answer/files/" + ref + "/blocks/0", token), 404, "A0606");
+        assertPngError(ROOT + question + "/answer/files/" + ref + "/blocks/0", token, 404, "A0606");
+        assertPngError(ROOT + question + "/answer/files/" + ref + "/question-blocks/0", token, 404, "A0606");
         Map<String, Object> detail = http.jsonBody(http.get(ROOT + question + "/answer", token));
         assertThat(detail).containsEntry("fileRef", newer);
         assertThat(map(detail.get("manifest"))).containsEntry("saveRequestId", nextRequest)
@@ -221,9 +224,19 @@ class QuestionAnswerIntegrationTests {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(payload)));
     }
 
+    private void assertPngError(String path, String token, int expectedStatus, String code) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(http.uri(path)).header("Accept", "image/png").GET();
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        HttpResponse<String> response = http.send(request);
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("application/json");
+        http.assertErrorEnvelope(response, expectedStatus, code);
+    }
+
     private HttpResponse<byte[]> download(String path, String token) throws Exception {
         HttpResponse<byte[]> response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(http.uri(path))
-                .header("Authorization", "Bearer " + token).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+                .header("Authorization", "Bearer " + token).header("Accept", "image/png").GET().build(), HttpResponse.BodyHandlers.ofByteArray());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("Content-Type")).contains("image/png");
         assertThat(response.headers().firstValue("Cache-Control").orElse("")).contains("no-store");
