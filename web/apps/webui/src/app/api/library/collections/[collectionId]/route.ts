@@ -2,11 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { guardMutation } from "@/lib/api/auth-guard";
 import { errorNoStore, jsonNoStore, readSessionToken, webError } from "@/lib/api/auth-response";
-import {
-  hasUnknownFields,
-  libraryFailureResponse,
-  readJsonObject,
-} from "@/lib/api/library-bff";
+import { hasUnknownFields, libraryFailureResponse, readJsonObject } from "@/lib/api/library-bff";
 import { normalizeCollectionName } from "@/lib/api/library-contract";
 import { renameCollection } from "@/lib/api/library-server";
 
@@ -16,10 +12,7 @@ interface RenameRouteContext {
   params: Promise<{ collectionId: string }>;
 }
 
-export async function PATCH(
-  request: NextRequest,
-  context: RenameRouteContext,
-): Promise<Response> {
+export async function PATCH(request: NextRequest, context: RenameRouteContext): Promise<Response> {
   const blocked = guardMutation(request, { requireJson: true });
   if (blocked) {
     return errorNoStore(blocked.status, blocked.payload);

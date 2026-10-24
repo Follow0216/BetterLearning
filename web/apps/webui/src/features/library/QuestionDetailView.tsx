@@ -9,11 +9,7 @@ import {
   INBOX_COLLECTION_NAME,
   isValidQuestionId,
 } from "@/lib/api/library-contract";
-import {
-  getCollections,
-  getQuestionDetail,
-  type LibraryFailure,
-} from "@/lib/api/library-server";
+import { getCollections, getQuestionDetail, type LibraryFailure } from "@/lib/api/library-server";
 
 import { AnswerStateBadge } from "./AnswerStateBadge";
 import { formatQuestionTime } from "./library-params";
@@ -133,9 +129,7 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
         <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-[var(--auth-divider)] pt-4">
           <span className="text-xs text-[var(--auth-muted)]">归属</span>
           {question.collectionId === INBOX_COLLECTION_ID || collectionsResult.ok ? (
-            <span
-              className="inline-flex items-center rounded-full bg-[var(--auth-bg)] px-2.5 py-0.5 text-xs font-medium text-[var(--auth-text)]"
-            >
+            <span className="inline-flex items-center rounded-full bg-[var(--auth-bg)] px-2.5 py-0.5 text-xs font-medium text-[var(--auth-text)]">
               {collectionName}
             </span>
           ) : null}

@@ -6,8 +6,7 @@ import { clearSessionCookie, errorNoStore, webError } from "./auth-response";
 import type { LibraryFailure } from "./library-server";
 
 export type JsonObjectResult =
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; response: NextResponse };
+  { ok: true; value: Record<string, unknown> } | { ok: false; response: NextResponse };
 
 export async function readJsonObject(request: Request): Promise<JsonObjectResult> {
   let body: unknown;

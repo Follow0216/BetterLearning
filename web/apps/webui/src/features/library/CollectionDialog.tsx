@@ -34,9 +34,7 @@ function errorMessage(code: unknown, message: unknown): string {
   if (code === "A0450") {
     return "同层级已存在同名题集，请换一个名称";
   }
-  return typeof message === "string" && message.length > 0
-    ? message
-    : "操作失败，请稍后重试";
+  return typeof message === "string" && message.length > 0 ? message : "操作失败，请稍后重试";
 }
 
 export function CollectionDialog({
@@ -101,7 +99,7 @@ export function CollectionDialog({
       });
 
       if (response.status === 401) {
-        window.location.assign("/");
+        router.replace("/");
         return;
       }
 

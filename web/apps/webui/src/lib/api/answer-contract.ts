@@ -114,11 +114,7 @@ function parseManifest(value: unknown): AnswerManifest {
   const canvasHeight = readCanvasSize(canvas, "height");
 
   const rawBlocks = value.blocks;
-  if (
-    !Array.isArray(rawBlocks) ||
-    rawBlocks.length === 0 ||
-    rawBlocks.length > MAX_ANSWER_BLOCKS
-  ) {
+  if (!Array.isArray(rawBlocks) || rawBlocks.length === 0 || rawBlocks.length > MAX_ANSWER_BLOCKS) {
     throw new LibraryContractError("作答图块数量不合法");
   }
   const blocks = rawBlocks.map(parseBlock).sort((left, right) => left.index - right.index);
