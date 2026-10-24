@@ -109,19 +109,28 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheSixBusinessOperations() throws Exception {
+    void documentsExactlyTheElevenM1BusinessOperations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
 
-        assertThat(paths.keySet()).containsExactlyInAnyOrder(
-                "/api/v1/users",
-                "/api/v1/sessions",
-                "/api/v1/sessions/current",
-                "/api/v1/users/me",
-                "/api/v1/users/me/password");
-        assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/admin")
-                || path.startsWith("/api/v1/test"));
+        Map<String, List<String>> expectedOperations = Map.of(
+                "/api/v1/users", List.of("post"),
+                "/api/v1/sessions", List.of("post"),
+                "/api/v1/sessions/current", List.of("delete"),
+                "/api/v1/users/me", List.of("get", "patch"),
+                "/api/v1/users/me/password", List.of("patch"),
+                "/api/v1/learning/questions", List.of("get", "post"),
+                "/api/v1/learning/questions/{questionId}", List.of("get"),
+                "/api/v1/learning/collections", List.of("get"),
+                "/api/v1/admin/session", List.of("get"));
+        assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
+        assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/test")
+                || (path.startsWith("/api/v1/admin") && !path.equals("/api/v1/admin/session")));
+        for (Map.Entry<String, List<String>> expected : expectedOperations.entrySet()) {
+            assertThat(asMap(paths.get(expected.getKey())).keySet())
+                    .containsExactlyInAnyOrderElementsOf(expected.getValue());
+        }
 
         assertOperation(docs, "/api/v1/users", "post", "201");
         assertOperation(docs, "/api/v1/sessions", "post", "201");
@@ -129,6 +138,17 @@ class ApiDocumentationEnabledIntegrationTests {
         assertOperation(docs, "/api/v1/users/me", "get", "200");
         assertOperation(docs, "/api/v1/users/me", "patch", "200");
         assertOperation(docs, "/api/v1/users/me/password", "patch", "204");
+        for (String[] addedOperation : List.of(
+                new String[] {"/api/v1/learning/questions", "post", "201"},
+                new String[] {"/api/v1/learning/questions", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}", "get", "200"},
+                new String[] {"/api/v1/learning/collections", "get", "200"},
+                new String[] {"/api/v1/admin/session", "get", "200"})) {
+            Map<String, Object> responses = asMap(operation(docs, addedOperation[0], addedOperation[1])
+                    .get("responses"));
+            assertThat(responses).containsKey(addedOperation[2]);
+            assertThat(asMap(responses.get(addedOperation[2]))).containsKey("content");
+        }
     }
 
     @Test
@@ -151,7 +171,12 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/sessions/current", "delete"},
                 new String[] {"/api/v1/users/me", "get"},
                 new String[] {"/api/v1/users/me", "patch"},
-                new String[] {"/api/v1/users/me/password", "patch"})) {
+                new String[] {"/api/v1/users/me/password", "patch"},
+                new String[] {"/api/v1/learning/questions", "post"},
+                new String[] {"/api/v1/learning/questions", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}", "get"},
+                new String[] {"/api/v1/learning/collections", "get"},
+                new String[] {"/api/v1/admin/session", "get"})) {
             assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
                     .get("security")))
                     .anySatisfy(requirement ->
