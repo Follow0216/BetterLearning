@@ -74,3 +74,9 @@ export {
   CanvasQuestionLayout, CanvasEditableDocument, CanvasExtent, CanvasLocalFile, CanvasTool,
   CANVAS_TILE_SIZE, CANVAS_RENDERER_ID, CANVAS_CONTENT_WIDTH, CANVAS_FONT_SIZE
 } from './src/main/ets/features/canvas/CanvasModels';
+
+export { SolutionApi } from './src/main/ets/features/learning/SolutionApi';
+export { canvas_extent, canvas_grid, clone_canvas_document, world_point, zoom_canvas, fit_canvas,
+  valid_world_number, validate_canvas_document, validate_answer_manifest, stroke_hit } from './src/main/ets/features/canvas/CanvasGeometry';
+export { canvas_utf8, canvas_text, canvas_exists, canvas_mkdir, canvas_read, canvas_write, canvas_sha256 }
+  from './src/main/ets/features/canvas/CanvasFiles';

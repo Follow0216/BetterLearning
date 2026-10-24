@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { util } from '@kit.ArkTS';
 import {
   AuthError,
   AuthResult,
@@ -513,6 +514,51 @@ export class AuthApi {
     return AuthResult.success<boolean>(true);
   }
 
+  /** M2 单次完整 multipart 保存；保留原 manifest 字节，不自动重试。 */
+  async request_multipart(path: string, token: string, parts: http.MultiFormData[]): Promise<AuthResult<string>> {
+    if (token.length === 0) { return AuthResult.failure<string>(AuthError.local_validation('请重新登录', {})); }
+    const request: http.HttpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(this.baseUrl + path, {
+        method: http.RequestMethod.POST,
+        header: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'multipart/form-data' },
+        connectTimeout: REQUEST_TIMEOUT_MILLIS, readTimeout: 120000,
+        expectDataType: http.HttpDataType.STRING, maxLimit: 16777216, usingCache: false, multiFormDataList: parts
+      });
+      const body: string = typeof response.result === 'string' ? response.result : '';
+      if (response.responseCode !== STATUS_OK) {
+        return AuthResult.failure<string>(this.http_error(new RawHttpResponse(response.responseCode, body)));
+      }
+      return AuthResult.success<string>(body);
+    } catch (error) {
+      return AuthResult.failure<string>(AuthError.network_failure('作答保存连接失败，请保留原包重试', ''));
+    } finally { request.destroy(); }
+  }
+
+  /** 带 Bearer 的二进制读取；PNG 校验由领域文件缓存层完成。 */
+  async request_binary(path: string, token: string): Promise<AuthResult<ArrayBuffer>> {
+    if (token.length === 0) { return AuthResult.failure<ArrayBuffer>(AuthError.local_validation('请重新登录', {})); }
+    const request: http.HttpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(this.baseUrl + path, {
+        method: http.RequestMethod.GET, header: { 'Authorization': 'Bearer ' + token },
+        connectTimeout: REQUEST_TIMEOUT_MILLIS, readTimeout: 60000,
+        expectDataType: http.HttpDataType.ARRAY_BUFFER, maxLimit: 16777216, usingCache: false
+      });
+      if (!(response.result instanceof ArrayBuffer)) {
+        return AuthResult.failure<ArrayBuffer>(AuthError.protocol_failure('文件响应格式无效'));
+      }
+      if (response.responseCode !== STATUS_OK) {
+        let body: string = '';
+        try { body = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(response.result)); } catch (error) {}
+        return AuthResult.failure<ArrayBuffer>(this.http_error(new RawHttpResponse(response.responseCode, body)));
+      }
+      return AuthResult.success<ArrayBuffer>(response.result);
+    } catch (error) {
+      return AuthResult.failure<ArrayBuffer>(AuthError.network_failure('解答文件加载失败，请重试', ''));
+    } finally { request.destroy(); }
+  }
+
   /**
    * 共享的受保护资源请求。学习 API 复用认证栈的超时、Bearer、错误解析与资源释放。
    * 成功时返回响应文本，由领域 API 按各自 DTO 解析；不自动刷新、重试或修改会话。
@@ -559,6 +605,7 @@ export class AuthApi {
       connectTimeout: REQUEST_TIMEOUT_MILLIS,
       readTimeout: REQUEST_TIMEOUT_MILLIS,
       expectDataType: http.HttpDataType.STRING,
+      maxLimit: 16777216,
       usingCache: false
     };
     if (body.length > 0) {
