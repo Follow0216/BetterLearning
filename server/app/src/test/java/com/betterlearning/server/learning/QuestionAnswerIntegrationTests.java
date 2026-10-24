@@ -111,6 +111,7 @@ class QuestionAnswerIntegrationTests {
         Map<String, Object> detail = http.jsonBody(http.get(ROOT + question + "/answer", alice));
         assertThat(detail).containsEntry("fileRef", ref).containsEntry("state", "IN_PROGRESS");
         Map<String, Object> manifest = map(detail.get("manifest"));
+        assertThat(manifest).containsEntry("saveRequestId", saveRequestId).containsEntry("baseFileRef", null);
         assertThat(map(manifest.get("questionSnapshot"))).containsEntry("bodyMarkdown", AnswerTestData.BODY);
         assertThat(map(manifest.get("canvas"))).containsEntry("originX", -8.0);
         Map<String, Object> layout = map(map(manifest.get("document")).get("questionLayout"));
@@ -158,7 +159,8 @@ class QuestionAnswerIntegrationTests {
         assertThat(http.jsonBody(state(token, question, "COMPLETED", ref)).get("completedAt"))
                 .isEqualTo(completed.get("completedAt"));
         assertThat(http.jsonBody(save(token, question, first))).containsEntry("state", "COMPLETED");
-        byte[] next = multipart(AnswerTestData.manifest(UUID.randomUUID().toString(), ref), true);
+        String nextRequest = UUID.randomUUID().toString();
+        byte[] next = multipart(AnswerTestData.manifest(nextRequest, ref), true);
         http.assertErrorEnvelope(save(token, question, next), 409, "A0453");
         assertThat(http.jsonBody(state(token, question, "IN_PROGRESS", ref)))
                 .containsEntry("completedAt", null).containsEntry("fileRef", ref);
@@ -170,7 +172,10 @@ class QuestionAnswerIntegrationTests {
         http.assertErrorEnvelope(save(token, question, first), 409, "A0451");
         http.assertErrorEnvelope(state(token, question, "COMPLETED", ref), 409, "A0451");
         http.assertErrorEnvelope(http.get(ROOT + question + "/answer/files/" + ref + "/blocks/0", token), 404, "A0606");
-        assertThat(http.jsonBody(http.get(ROOT + question + "/answer", token))).containsEntry("fileRef", newer);
+        Map<String, Object> detail = http.jsonBody(http.get(ROOT + question + "/answer", token));
+        assertThat(detail).containsEntry("fileRef", newer);
+        assertThat(map(detail.get("manifest"))).containsEntry("saveRequestId", nextRequest)
+                .containsEntry("baseFileRef", ref);
     }
 
     private HttpResponse<String> state(String token, String question, String state, String ref) throws Exception {
