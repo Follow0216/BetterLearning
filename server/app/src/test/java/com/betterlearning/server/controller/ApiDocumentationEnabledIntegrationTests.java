@@ -109,7 +109,7 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheTwentyTwoM2Operations() throws Exception {
+    void documentsExactlyTheThirtyThreeM3M4Operations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
@@ -129,7 +129,16 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v1/learning/questions/{questionId}/answer", List.of("get", "post")),
                 Map.entry("/api/v1/learning/questions/{questionId}/answer-state", List.of("patch", "post")),
                 Map.entry("/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", List.of("get")),
-                Map.entry("/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")));
+                Map.entry("/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns", List.of("get", "post")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}", List.of("get")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/pending", List.of("get")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer", List.of("get", "post")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/retry", List.of("post")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", List.of("post")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", List.of("get")),
+                Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")),
+                Map.entry("/api/v1/learning/ocr", List.of("post")));
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
         assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/test")
                 || (path.startsWith("/api/v1/admin") && !path.equals("/api/v1/admin/session")));
@@ -160,7 +169,18 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "patch", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", "get", "200"},
-                new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get", "200"})) {
+                new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns", "post", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/pending", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer", "post", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/retry", "post", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", "post", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", "get", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", "get", "200"},
+                new String[] {"/api/v1/learning/ocr", "post", "200"})) {
             Map<String, Object> responses = asMap(operation(docs, addedOperation[0], addedOperation[1])
                     .get("responses"));
             assertThat(responses).containsKey(addedOperation[2]);
@@ -204,7 +224,18 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "patch"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", "get"},
-                new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get"})) {
+                new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns", "post"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/pending", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer", "post"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/retry", "post"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", "post"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", "get"},
+                new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", "get"},
+                new String[] {"/api/v1/learning/ocr", "post"})) {
             assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
                     .get("security")))
                     .anySatisfy(requirement ->
