@@ -200,7 +200,8 @@ export struct QuestionLibrary {
         this.scope_chip('待整理', SCOPE_INBOX, this.inboxCount, 0)
         ForEach(this.collectionRows, (row: CollectionRow) => {
           this.scope_chip(row.name, row.collectionId, row.questionCount, row.depth)
-        }, (row: CollectionRow) => row.collectionId)
+        }, (row: CollectionRow) => row.collectionId + '|' + row.name + '|' +
+          row.questionCount.toString() + '|' + row.depth.toString())
       }
       .padding({ left: 18, right: 18, bottom: 6 })
     }
