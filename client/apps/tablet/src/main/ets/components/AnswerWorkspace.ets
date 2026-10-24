@@ -94,10 +94,46 @@ export struct AnswerWorkspace {
 
       Row({ space: 10 }) {
         Blank()
-        this.action_button(this.save_label(), 'save', this.can_save, true)
-        this.action_button(this.complete_label(), 'complete', this.can_complete, false)
+        Button(this.pending_action === 'save' ? '保存中…' : '保存')
+          .type(ButtonType.Normal)
+          .fontSize(14)
+          .fontColor(TABLET_COLOR_CARD)
+          .height(TABLET_CONTROL_SIZE)
+          .padding({ left: 22, right: 22 })
+          .backgroundColor(TABLET_COLOR_PRIMARY)
+          .borderRadius(TABLET_RADIUS_SMALL)
+          .enabled(this.can_save)
+          .opacity(this.can_save ? 1 : 0.4)
+          .onClick(() => {
+            this.dispatch('save');
+          })
+        Button(this.pending_action === 'complete' ? '完成中…' : '完成')
+          .type(ButtonType.Normal)
+          .fontSize(14)
+          .fontColor(TABLET_COLOR_PRIMARY)
+          .height(TABLET_CONTROL_SIZE)
+          .padding({ left: 22, right: 22 })
+          .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
+          .borderRadius(TABLET_RADIUS_SMALL)
+          .enabled(this.can_complete)
+          .opacity(this.can_complete ? 1 : 0.4)
+          .onClick(() => {
+            this.dispatch('complete');
+          })
         if (this.show_continue) {
-          this.action_button(this.continue_label(), 'continue', this.can_continue, false)
+          Button(this.pending_action === 'continue' ? '恢复中…' : '继续作答')
+            .type(ButtonType.Normal)
+            .fontSize(14)
+            .fontColor(TABLET_COLOR_PRIMARY)
+            .height(TABLET_CONTROL_SIZE)
+            .padding({ left: 22, right: 22 })
+            .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
+            .borderRadius(TABLET_RADIUS_SMALL)
+            .enabled(this.can_continue)
+            .opacity(this.can_continue ? 1 : 0.4)
+            .onClick(() => {
+              this.dispatch('continue');
+            })
         }
       }
       .width('100%')
@@ -106,23 +142,6 @@ export struct AnswerWorkspace {
     .padding({ left: 20, right: 20, top: 12, bottom: 16 })
     .backgroundColor(TABLET_COLOR_CARD)
     .border({ width: { top: 1 }, color: TABLET_COLOR_BORDER })
-  }
-
-  @Builder
-  action_button(label: string, action: string, enabled: boolean, primary: boolean) {
-    Button(label)
-      .type(ButtonType.Normal)
-      .fontSize(14)
-      .fontColor(primary ? TABLET_COLOR_CARD : TABLET_COLOR_PRIMARY)
-      .height(TABLET_CONTROL_SIZE)
-      .padding({ left: 22, right: 22 })
-      .backgroundColor(primary ? TABLET_COLOR_PRIMARY : TABLET_COLOR_PRIMARY_SOFT)
-      .borderRadius(TABLET_RADIUS_SMALL)
-      .enabled(enabled)
-      .opacity(enabled ? 1 : 0.4)
-      .onClick(() => {
-        this.dispatch(action);
-      })
   }
 
   private dispatch(action: string): void {
@@ -137,15 +156,4 @@ export struct AnswerWorkspace {
     this.on_continue();
   }
 
-  private save_label(): string {
-    return this.pending_action === 'save' ? '保存中…' : '保存';
-  }
-
-  private complete_label(): string {
-    return this.pending_action === 'complete' ? '完成中…' : '完成';
-  }
-
-  private continue_label(): string {
-    return this.pending_action === 'continue' ? '恢复中…' : '继续作答';
-  }
 }
