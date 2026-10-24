@@ -171,6 +171,19 @@ function parse_collections(body: string): QuestionCollection[] | null {
   return items;
 }
 
+function parse_collection(body: string): QuestionCollection | null {
+  const record: Record<string, Object> | null = parse_record(body);
+  if (record === null) { return null; }
+  const id: string | null = read_string(record,'collectionId');
+  const name: string | null = read_string(record,'name');
+  const count: number | null = read_integer(record,'questionCount');
+  const system: Object | undefined = record['system'];
+  const parent: Object | null | undefined = record['parentCollectionId'];
+  if (id === null || !is_collection_id(id) || name === null || count === null || typeof system !== 'boolean' ||
+    (parent !== null && parent !== undefined && (typeof parent !== 'string' || !is_id(parent as string)))) { return null; }
+  return new QuestionCollection(id,name,system as boolean,count,typeof parent === 'string' ? parent as string : null);
+}
+
 function failure_error(result: AuthResult<string>): AuthError {
   return result.error === null ? AuthError.protocol_failure('未收到服务端响应') : result.error;
 }
@@ -189,6 +202,48 @@ export class LearningApi {
 
   static create_default(): LearningApi {
     return new LearningApi(DEFAULT_DEV_BASE_URL);
+  }
+
+  async createCollection(token: string, name: string, parentCollectionId: string | null = null): Promise<AuthResult<QuestionCollection>> {
+    const trimmed: string = name.trim();
+    if (trimmed.length < 1 || trimmed.length > 64 || (parentCollectionId !== null && !is_id(parentCollectionId))) {
+      return AuthResult.failure<QuestionCollection>(AuthError.local_validation('题集名称或父题集无效', {}));
+    }
+    const payload: Record<string, string | null> = { name: trimmed, parentCollectionId: parentCollectionId };
+    return this.write_collection(token,http.RequestMethod.POST,COLLECTIONS_PATH,JSON.stringify(payload),201);
+  }
+
+  async renameCollection(token: string, collectionId: string, name: string): Promise<AuthResult<QuestionCollection>> {
+    const trimmed: string = name.trim();
+    if (!is_id(collectionId) || trimmed.length < 1 || trimmed.length > 64) {
+      return AuthResult.failure<QuestionCollection>(AuthError.local_validation('题集名称或ID无效', {}));
+    }
+    const payload: Record<string, string> = { name: trimmed };
+    return this.write_collection(token,http.RequestMethod.PATCH,COLLECTIONS_PATH + '/' + collectionId,JSON.stringify(payload),200);
+  }
+
+  async moveQuestion(token: string, questionId: string, collectionId: string): Promise<AuthResult<QuestionDetail>> {
+    if (!is_id(questionId) || !is_collection_id(collectionId)) {
+      return AuthResult.failure<QuestionDetail>(AuthError.local_validation('题目或目标题集无效', {}));
+    }
+    const payload: Record<string, string> = { collectionId: collectionId };
+    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.PATCH,
+      QUESTIONS_PATH + '/' + questionId + '/collection',token,JSON.stringify(payload));
+    if (!result.isSuccess || result.data === null) { return AuthResult.failure<QuestionDetail>(failure_error(result)); }
+    const detail: QuestionDetail | null = parse_detail(result.data);
+    if (detail === null || detail.questionId !== questionId || detail.collectionId !== collectionId) {
+      return AuthResult.failure<QuestionDetail>(AuthError.protocol_failure('题目移动响应无效'));
+    }
+    return AuthResult.success<QuestionDetail>(detail);
+  }
+
+  private async write_collection(token: string, method: http.RequestMethod, path: string, body: string,
+    status: number): Promise<AuthResult<QuestionCollection>> {
+    const result: AuthResult<string> = await this.transport.request_resource(method,path,token,body,status);
+    if (!result.isSuccess || result.data === null) { return AuthResult.failure<QuestionCollection>(failure_error(result)); }
+    const item: QuestionCollection | null = parse_collection(result.data);
+    return item === null ? AuthResult.failure<QuestionCollection>(AuthError.protocol_failure('题集响应无效')) :
+      AuthResult.success<QuestionCollection>(item);
   }
 
   async listCollections(token: string): Promise<AuthResult<QuestionCollection[]>> {
