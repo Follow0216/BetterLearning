@@ -293,7 +293,8 @@ export struct CanvasSurface {
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(16)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
     .shadow({ radius: 18, color: '#18246BFF', offsetY: 6 })
-    .align(Alignment.Bottom).margin({ bottom: 16 })
+    // align 控制 Scroll 内部内容；layoutGravity 才定位它在外层 Stack 中的位置。
+    .layoutGravity(LocalizedAlignment.BOTTOM).margin({ bottom: 16 })
   }
   @Builder
   zoom_card() {
@@ -322,7 +323,7 @@ export struct CanvasSurface {
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(14)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
     .shadow({ radius: 12, color: '#10246BFF', offsetY: 4 })
-    .align(Alignment.BottomEnd).margin({ right: 16, bottom: this.chromeWidthVp < 720 ? 88 : 16 })
+    .layoutGravity(LocalizedAlignment.BOTTOM_END).margin({ right: 16, bottom: this.chromeWidthVp < 720 ? 88 : 16 })
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
