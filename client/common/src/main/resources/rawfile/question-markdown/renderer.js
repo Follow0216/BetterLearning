@@ -33,13 +33,39 @@
     return '<section class="math-block' + (number ? ' has-number' : '') + '">' + html + number + '</section>';
   }
 
+  function bracketBlock(rule) {
+    var parse = window.texmath.block(rule);
+    return function (state, startLine, endLine, silent) {
+      // 段落探测也会经过此处；不要把缩进代码或相邻列表项/引用里的闭符吞进公式。
+      if (state.sCount[startLine] - state.blkIndent >= 4) { return false; }
+      var pos = state.bMarks[startLine] + state.tShift[startLine];
+      if (!state.src.startsWith(rule.tag, pos)) { return false; }
+      rule.rex.lastIndex = pos;
+      if (!rule.rex.exec(state.src)) { return false; }
+      var last = rule.rex.lastIndex - 1;
+      for (var line = startLine; line < endLine; line++) {
+        if (!state.isEmpty(line) && state.sCount[line] < state.blkIndent) { return false; }
+        if (last <= state.eMarks[line]) { return parse(state, startLine, endLine, silent); }
+      }
+      return false;
+    };
+  }
+
   function createParser() {
     if (typeof window.markdownit !== 'function' || typeof window.texmath !== 'function' ||
         !window.katex || typeof window.katex.renderToString !== 'function') {
       return null;
     }
     var md = window.markdownit({ html: false, linkify: false, typographer: false, breaks: true });
-    md.use(window.texmath, { engine: window.katex, delimiters: ['dollars', 'brackets'] });
+    md.use(window.texmath, { engine: window.katex, delimiters: ['dollars'] });
+    // texmath 1.0.0 的块规则未声明 paragraph 中断；紧接文字的块公式会被当成普通段落。
+    // 单独注册 brackets，避免与 dollars 的同名规则冲突，token 名仍沿用现有 renderer。
+    window.texmath.rules.brackets.inline.forEach(function (rule) {
+      md.inline.ruler.before('escape', 'brackets_' + rule.name, window.texmath.inline(rule));
+    });
+    window.texmath.rules.brackets.block.forEach(function (rule) {
+      md.block.ruler.before('fence', 'brackets_' + rule.name, bracketBlock(rule), { alt: ['paragraph'] });
+    });
     // texmath 负责识别定界符；此处将错误公式显示为明确提示，避免把原 LaTeX 当渲染结果。
     md.renderer.rules.math_inline = function (tokens, index) { return renderMath(tokens, index, false, false, true); };
     md.renderer.rules.math_inline_double = function (tokens, index) { return renderMath(tokens, index, true, false, true); };
