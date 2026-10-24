@@ -78,6 +78,20 @@ export class AuthSession {
     return this.expiresAtMillis;
   }
 
+  /** 判断异步请求是否仍属于当前会话；即使令牌已本地到期也可识别其归属。 */
+  matches_access_token(token: string): boolean {
+    return token.length > 0 && this.accessToken === token;
+  }
+
+  /** 只清除发出请求时的会话，防止旧请求的迟到 401 清除新登录。 */
+  clear_session_if_token(token: string): boolean {
+    if (!this.matches_access_token(token)) {
+      return false;
+    }
+    this.clear_session();
+    return true;
+  }
+
   /**
    * 清除内存中的令牌、用户与到期时刻。
    */
