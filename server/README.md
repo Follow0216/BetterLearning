@@ -323,3 +323,18 @@ HTTP 契约以根目录 `docs/design/mvp-m1-contract.md` 为准。接口均要�
 题集现支持 POST `/api/v1/learning/collections`（name、可空 parentCollectionId）、PATCH `/api/v1/learning/collections/{collectionId}`（仅 name）和 PATCH `/api/v1/learning/questions/{questionId}/collection`（collectionId，inbox 可移回待整理）。题集 GET 节点增加 parentCollectionId；计数只含直接归属，父级不可更改，固定待整理不可改名或作为父级。同级重名为 409 A0450，其他账号资源为 404。
 
 V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动题集或题干编辑。字段以 `docs/design/mvp-m2-contract.md` 题集章节为准。完整作答／文件接口另行固定并交付，本题集提交不提供模拟作答。
+
+
+## 10. M2 当前完整作答
+
+契约位于 `docs/design/mvp-m2-contract.md`，接收与验证说明见 `server/M2-ANSWER-HANDOFF.md`。
+
+- GET/POST `/api/v1/learning/questions/{questionId}/answer` 读取／multipart 保存最新作答。JSON part 为 manifest，完整合成 PNG 为 chunk_0000 等，干净题面 PNG 为 question_0000 等；全部文件校验并落盘、数据库提交后才返回 fileRef。
+- PATCH `/api/v1/learning/questions/{questionId}/answer-state` 使用当前 fileRef 标记 COMPLETED 或继续 IN_PROGRESS。必须先保存才能完成；已完成须先继续才能保存新内容。
+- 两组文件分别从 `/answer/files/{fileRef}/blocks/{index}`、`/question-blocks/{index}` 读取，均要求 Bearer、账号／题号／当前引用匹配。题目列表和详情增加 answerState。无当前作答时状态 NOT_STARTED。
+
+必须设置 `APP_FILES_ROOT` 为可写绝对持久目录；启动脚本检查必填，应用校验目录和原子 rename 所需的同文件系统条件。固定单 part 16MB、整请求80MB、257 parts；协议本身限制 manifest8MiB、单 PNG16MiB、两组合计64MiB、256 PNG块和64M像素。V4 增当前作答表，不改既有 V1–V3 与依赖配置。
+
+正常覆盖提交成功后清理被替代文件；请求失败／重复包清理本次多余候选。提交结果未知时保留可能已提交候选；崩溃或清理失败的不可见孤儿为已知空间限制，无启动扫描、定时回收或历史版本功能。备份必须同时保留 PostgreSQL 当前记录与文件根目录。
+
+测试源码包含 AnswerManifestValidatorTests、AnswerFileStoreTests 与 QuestionAnswerIntegrationTests，尚未在开发树执行。测试 classpath 的 config/application.properties 仅为测试设置 APP_TEST_FILES_ROOT；C4 应指向自己的临时目录并在结束后清理。新集成类自行创建／清理独有目录，重新创建存储对象的单元测试不代表已完成真实进程重启验收。

@@ -30,6 +30,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 /**
  * MVC 全局异常处理器。
@@ -295,6 +298,19 @@ public class GlobalExceptionHandler {
             HttpMediaTypeNotSupportedException exception, HttpServletRequest request) {
         return respond(ErrorCode.UNSUPPORTED_MEDIA_TYPE,
                 ErrorCode.UNSUPPORTED_MEDIA_TYPE.getMessage(), null, request);
+    }
+
+    /** multipart 总体超限，不回传容器错误或文件路径。 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorVO> handleUploadLimit(MaxUploadSizeExceededException exception,
+            HttpServletRequest request) {
+        return respond(ErrorCode.UPLOAD_TOO_LARGE, ErrorCode.UPLOAD_TOO_LARGE.getMessage(), null, request);
+    }
+
+    /** 缺少／无法解析 multipart part 为请求错误。 */
+    @ExceptionHandler({MissingServletRequestPartException.class, MultipartException.class})
+    public ResponseEntity<ApiErrorVO> handleMultipart(Exception exception, HttpServletRequest request) {
+        return respond(ErrorCode.INVALID_PARAM, ErrorCode.INVALID_PARAM.getMessage(), null, request);
     }
 
     /**

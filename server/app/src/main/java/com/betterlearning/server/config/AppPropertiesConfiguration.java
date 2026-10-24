@@ -1,5 +1,7 @@
 package com.betterlearning.server.config;
 
+import com.betterlearning.server.learning.config.AppFilesProperties;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
@@ -17,7 +19,8 @@ import org.springframework.context.annotation.Configuration;
         AppJwtProperties.class,
         AppAuthProperties.class,
         AppCorsProperties.class,
-        DataSourcePasswordProperties.class
+        DataSourcePasswordProperties.class,
+        AppFilesProperties.class
 })
 public class AppPropertiesConfiguration {
 }
