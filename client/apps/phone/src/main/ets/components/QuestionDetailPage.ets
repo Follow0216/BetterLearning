@@ -44,6 +44,8 @@ export struct QuestionDetailPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
   onBack: () => void = () => {
   };
+  onOpenAnswer: (questionId: string) => void = () => {
+  };
   onUnauthorized: (token: string) => void = () => {
   };
 
@@ -190,6 +192,26 @@ export struct QuestionDetailPage {
         .lineHeight(26)
         .width('100%')
         .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+
+      Row() {
+        Text(this.answer_hint(detail.answerState))
+          .fontSize(12)
+          .fontColor(PHONE_COLOR_MUTED)
+          .layoutWeight(1)
+        Button('查看当前作答')
+          .height(34)
+          .fontSize(12)
+          .fontColor(PHONE_COLOR_WHITE)
+          .backgroundColor(PHONE_COLOR_PRIMARY)
+          .borderRadius(PHONE_RADIUS_CONTROL)
+          .accessibilityText('查看当前作答')
+          .onClick(() => {
+            this.onOpenAnswer(detail.questionId);
+          })
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, top: 2, bottom: 10 })
+      .alignItems(VerticalAlign.Center)
 
       Column() {
         Column() {
@@ -398,6 +420,13 @@ export struct QuestionDetailPage {
       return PHONE_COLOR_SOFT_STRONG;
     }
     return PHONE_COLOR_SOFT;
+  }
+
+  private answer_hint(state: AnswerState): string {
+    if (state === AnswerState.NOT_STARTED) {
+      return '尚未保存完整作答';
+    }
+    return '已保存完整作答，可只读查看';
   }
 
   private handle_unauthorized(token: string): void {
