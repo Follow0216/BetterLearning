@@ -22,8 +22,8 @@ enum TabletTab {
 /**
  * 平板主导航壳：顶栏切换“题库”与“我的”。
  *
- * <p>题库页保持挂载，切换 tab 不重置分页与滚动；任何子页确认会话失效后统一
- * 交给外层清理账号可见数据并回到登录。</p>
+ * <p>题库页与我的页都保持挂载，切换 tab 不重置分页、滚动或刚刷新到的账号资料；
+ * 任何子页确认会话失效后统一交给外层清理账号可见数据并回到登录。</p>
  */
 @Component
 export struct TabletShell {
@@ -43,13 +43,12 @@ export struct TabletShell {
         })
           .visibility(this.active_tab === TabletTab.LIBRARY ? Visibility.Visible : Visibility.None)
 
-        if (this.active_tab === TabletTab.ACCOUNT) {
-          AccountPane({
-            on_signed_out: () => {
-              this.on_signed_out();
-            }
-          })
-        }
+        AccountPane({
+          on_signed_out: () => {
+            this.on_signed_out();
+          }
+        })
+          .visibility(this.active_tab === TabletTab.ACCOUNT ? Visibility.Visible : Visibility.None)
       }
       .layoutWeight(1)
       .width('100%')
