@@ -193,6 +193,10 @@ function failure_error(result: AuthResult<string>): AuthError {
  * 不把网络/503/解析错误当成空数据。调用方以 token guard 处理异步回写及 401。
  * 协议来源：C1 docs/design/mvp-m1-contract.md（2026-10-24）。
  */
+interface CreateCollectionPayload { name: string; parentCollectionId: string | null; }
+interface RenameCollectionPayload { name: string; }
+interface MoveQuestionPayload { collectionId: string; }
+
 export class LearningApi {
   private readonly transport: AuthApi;
 
@@ -209,7 +213,7 @@ export class LearningApi {
     if (trimmed.length < 1 || trimmed.length > 64 || (parentCollectionId !== null && !is_id(parentCollectionId))) {
       return AuthResult.failure<QuestionCollection>(AuthError.local_validation('题集名称或父题集无效', {}));
     }
-    const payload: Record<string, string | null> = { name: trimmed, parentCollectionId: parentCollectionId };
+    const payload: CreateCollectionPayload = { name: trimmed, parentCollectionId: parentCollectionId };
     return this.write_collection(token,http.RequestMethod.POST,COLLECTIONS_PATH,JSON.stringify(payload),201);
   }
 
@@ -218,7 +222,7 @@ export class LearningApi {
     if (!is_id(collectionId) || trimmed.length < 1 || trimmed.length > 64) {
       return AuthResult.failure<QuestionCollection>(AuthError.local_validation('题集名称或ID无效', {}));
     }
-    const payload: Record<string, string> = { name: trimmed };
+    const payload: RenameCollectionPayload = { name: trimmed };
     return this.write_collection(token,http.RequestMethod.PATCH,COLLECTIONS_PATH + '/' + collectionId,JSON.stringify(payload),200);
   }
 
@@ -226,7 +230,7 @@ export class LearningApi {
     if (!is_id(questionId) || !is_collection_id(collectionId)) {
       return AuthResult.failure<QuestionDetail>(AuthError.local_validation('题目或目标题集无效', {}));
     }
-    const payload: Record<string, string> = { collectionId: collectionId };
+    const payload: MoveQuestionPayload = { collectionId: collectionId };
     const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.PATCH,
       QUESTIONS_PATH + '/' + questionId + '/collection',token,JSON.stringify(payload));
     if (!result.isSuccess || result.data === null) { return AuthResult.failure<QuestionDetail>(failure_error(result)); }
