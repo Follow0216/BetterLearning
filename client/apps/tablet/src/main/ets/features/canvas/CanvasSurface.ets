@@ -6,6 +6,11 @@ import {
   canvas_image, fit_canvas, stroke_hit, valid_world_number, world_point, zoom_canvas
 } from 'common';
 import { canvas_intersects, draw_canvas_stroke, stroke_bounds } from './CanvasPainter';
+import {
+  TABLET_COLOR_BACKGROUND, TABLET_COLOR_BORDER, TABLET_COLOR_CARD,
+  TABLET_COLOR_PRIMARY, TABLET_COLOR_PRIMARY_DEEP, TABLET_COLOR_PRIMARY_SOFT, TABLET_COLOR_TEXT,
+  TABLET_CONTROL_SIZE, TABLET_RADIUS_SMALL
+} from '../../theme/TabletTheme';
 
 /** 题面与笔迹共用一个世界坐标；缓存只保留当前视口题面，导出不读取该缓存。 */
 @Component
@@ -22,6 +27,7 @@ export struct CanvasSurface {
   @State private tool: CanvasTool = CanvasTool.PEN;
   @State private undoEnabled: boolean = false;
   @State private zoomText: string = '100%';
+  @State private chromeWidthVp: number = 0;
   private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private ready: boolean = false;
   private alive: boolean = true;
@@ -117,6 +123,7 @@ export struct CanvasSurface {
     const context: CanvasRenderingContext2D = this.context;
     context.resetTransform(); context.fillStyle = '#FFFFFF'; context.fillRect(0,0,this.canvasWidthVp,this.canvasHeightVp);
     if (this.backgroundMap !== null) { context.drawImage(this.backgroundMap,0,0,this.canvasWidthVp,this.canvasHeightVp); }
+    this.paint_paper(context);
     context.save(); context.scale(this.view.scale,this.view.scale); context.translate(-this.view.x,-this.view.y);
     const strokes: CanvasStroke[] = this.erased ?? this.document?.strokes ?? [];
     const visible: CanvasRect = { x: this.view.x, y: this.view.y, width: this.canvasWidthVp / this.view.scale, height: this.canvasHeightVp / this.view.scale };
@@ -125,6 +132,24 @@ export struct CanvasSurface {
     }
     if (this.liveStroke !== null) { draw_canvas_stroke(context,this.liveStroke); }
     context.restore();
+  }
+  /** 仅为屏幕纸面着色和绘制点阵，不修改固定题面 PNG 或导出画布。 */
+  private paint_paper(context: CanvasRenderingContext2D): void {
+    context.save();
+    context.globalAlpha = 0.045; context.fillStyle = TABLET_COLOR_PRIMARY;
+    context.fillRect(0,0,this.canvasWidthVp,this.canvasHeightVp);
+    context.globalAlpha = 1; context.fillStyle = '#D9E4F4';
+    const step: number = 24;
+    // 显示网格不参与世界坐标计算，平移时仅调整视觉相位。
+    const offsetX: number = ((-this.view.x * this.view.scale) % step + step) % step;
+    const offsetY: number = ((-this.view.y * this.view.scale) % step + step) % step;
+    context.beginPath();
+    for (let x: number = offsetX; x < this.canvasWidthVp; x += step) {
+      for (let y: number = offsetY; y < this.canvasHeightVp; y += step) {
+        context.moveTo(x + 0.7,y); context.arc(x,y,0.7,0,Math.PI * 2);
+      }
+    }
+    context.fill(); context.restore();
   }
   private commit(strokes: CanvasStroke[], before: CanvasStroke[]): void {
     if (this.document === null) { return; }
@@ -229,32 +254,91 @@ export struct CanvasSurface {
     }
     this.paint();
   }
+  private tool_selected(key: CanvasTool): boolean { return key === (this.readOnly ? CanvasTool.MOVE : this.tool); }
+  @Builder
+  tool_button(key: CanvasTool, icon: Resource, label: string) {
+    Button() {
+      Image(icon).width(20).height(20).objectFit(ImageFit.Contain)
+        .fillColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_DEEP : TABLET_COLOR_TEXT)
+        .opacity(this.readOnly && key !== CanvasTool.MOVE ? 0.35 : 1)
+    }
+    .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+    .backgroundColor(this.tool_selected(key) ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
+    .border({ width: 1, color: this.tool_selected(key) ? '#C5D7FC' : Color.Transparent })
+    .borderRadius(TABLET_RADIUS_SMALL)
+    .accessibilityText(label).accessibilityDescription(this.tool_selected(key) ? '已选中' : '选择' + label)
+    .enabled(!this.readOnly || key === CanvasTool.MOVE)
+    .onClick(() => { this.cancel_gesture(); this.tool = key; this.paint(); })
+  }
+  @Builder
+  tool_card() {
+    Scroll() {
+      Row({ space: 4 }) {
+        this.tool_button(CanvasTool.PEN,$r('app.media.bl_pen'),'笔')
+        this.tool_button(CanvasTool.ERASER,$r('app.media.bl_eraser'),'整笔擦除')
+        this.tool_button(CanvasTool.MOVE,$r('app.media.bl_move'),'移动')
+        Divider().vertical(true).height(24).color(TABLET_COLOR_BORDER).margin({ left: 4, right: 4 })
+        Button() {
+          Image($r('app.media.bl_undo')).width(20).height(20).objectFit(ImageFit.Contain)
+            .fillColor(TABLET_COLOR_TEXT).opacity(this.undoEnabled && !this.readOnly ? 1 : 0.3)
+        }
+        .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+        .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL)
+        .accessibilityText('撤销').accessibilityDescription('撤销上一次笔迹操作')
+        .onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
+      }.height(TABLET_CONTROL_SIZE)
+    }
+    .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
+    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(224,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
+    .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(16)
+    .border({ width: 1, color: TABLET_COLOR_BORDER })
+    .shadow({ radius: 18, color: '#18246BFF', offsetY: 6 })
+    .align(Alignment.Bottom).margin({ bottom: 16 })
+  }
+  @Builder
+  zoom_card() {
+    Scroll() {
+      Row() {
+        Button() { Image($r('app.media.bl_zoom_out')).width(18).height(18).objectFit(ImageFit.Contain) }
+          .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+          .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL).accessibilityText('缩小')
+          .onClick(() => { this.change_view(zoom_canvas(this.view,0.8,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
+        Text(this.zoomText).fontSize(13).fontColor(TABLET_COLOR_PRIMARY_DEEP).fontWeight(FontWeight.Medium)
+          .width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).textAlign(TextAlign.Center).maxLines(1)
+          .accessibilityText('当前缩放比例 ' + this.zoomText)
+        Button() { Image($r('app.media.bl_zoom_in')).width(18).height(18).objectFit(ImageFit.Contain) }
+          .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+          .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL).accessibilityText('放大')
+          .onClick(() => { this.change_view(zoom_canvas(this.view,1.25,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
+        Divider().vertical(true).height(24).color(TABLET_COLOR_BORDER).margin({ left: 6, right: 6 })
+        Button() { Image($r('app.media.bl_fit')).width(18).height(18).objectFit(ImageFit.Contain) }
+          .type(ButtonType.Normal).width(TABLET_CONTROL_SIZE).height(TABLET_CONTROL_SIZE).padding(0)
+          .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL).accessibilityText('查看全貌')
+          .onClick(() => { this.change_view(fit_canvas(this.bounds(),this.canvasWidthVp,this.canvasHeightVp),true); })
+      }.height(TABLET_CONTROL_SIZE)
+    }
+    .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
+    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(208,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
+    .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(14)
+    .border({ width: 1, color: TABLET_COLOR_BORDER })
+    .shadow({ radius: 12, color: '#10246BFF', offsetY: 4 })
+    .align(Alignment.BottomEnd).margin({ right: 16, bottom: this.chromeWidthVp < 720 ? 88 : 16 })
+  }
   build() {
-    Column() {
-      Row({ space: 8 }) {
-        Button('笔').onClick(() => { this.cancel_gesture(); this.tool = CanvasTool.PEN; this.paint(); }).enabled(!this.readOnly)
-          .backgroundColor(this.tool === CanvasTool.PEN ? '#246BFD' : '#64748B')
-        Button('整笔擦除').onClick(() => { this.cancel_gesture(); this.tool = CanvasTool.ERASER; this.paint(); }).enabled(!this.readOnly)
-          .backgroundColor(this.tool === CanvasTool.ERASER ? '#246BFD' : '#64748B')
-        Button('移动').onClick(() => { this.cancel_gesture(); this.tool = CanvasTool.MOVE; this.paint(); })
-          .backgroundColor(this.tool === CanvasTool.MOVE ? '#246BFD' : '#64748B')
-        Button('撤销').onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
-        Blank()
-        Button('−').onClick(() => { this.change_view(zoom_canvas(this.view,0.8,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
-        Text(this.zoomText).fontSize(12).width(44).textAlign(TextAlign.Center)
-        Button('＋').onClick(() => { this.change_view(zoom_canvas(this.view,1.25,this.canvasWidthVp / 2,this.canvasHeightVp / 2),true); })
-        Button('全览').onClick(() => { this.change_view(fit_canvas(this.bounds(),this.canvasWidthVp,this.canvasHeightVp),true); })
-      }.width('100%').padding(8)
-      Canvas(this.context).width('100%').layoutWeight(1)
+    Stack({ alignContent: Alignment.Bottom }) {
+      Canvas(this.context).width('100%').height('100%')
         .onReady(() => { this.ready = true; this.configure_view(); })
         .onAreaChange((_old: Area, area: Area) => {
           const width: number = typeof area.width === 'number' ? area.width : parseFloat(area.width.toString());
           const height: number = typeof area.height === 'number' ? area.height : parseFloat(area.height.toString());
           if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+            this.chromeWidthVp = width;
             this.canvasWidthVp = width; this.canvasHeightVp = height; this.configure_view();
           }
         })
         .onTouch((event: TouchEvent) => { this.touch(event); })
-    }.width('100%').height('100%').backgroundColor('#FFFFFF')
+      this.tool_card()
+      this.zoom_card()
+    }.width('100%').height('100%').backgroundColor(TABLET_COLOR_BACKGROUND)
   }
 }
