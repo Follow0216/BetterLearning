@@ -1,0 +1,8 @@
+html, body { margin: 0; padding: 0; overflow: hidden; background: #fff; }
+#raster-frame { position: relative; width: 1024px; height: 1024px; overflow: hidden; }
+#question-content { position: absolute; left: 0; top: 0; box-sizing: border-box; padding: 16px; width: 720px; transform-origin: 0 0; }
+#question-content eq, #question-content .math-block, #question-content pre, #question-content table {
+  overflow: visible; max-width: none;
+}
+#question-content .math-block { width: max-content; min-width: 100%; }
+#question-content table { display: table; }

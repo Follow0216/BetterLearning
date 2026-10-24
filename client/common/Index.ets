@@ -80,3 +80,6 @@ export { canvas_extent, canvas_grid, clone_canvas_document, world_point, zoom_ca
   valid_world_number, validate_canvas_document, validate_answer_manifest, stroke_hit } from './src/main/ets/features/canvas/CanvasGeometry';
 export { canvas_utf8, canvas_text, canvas_exists, canvas_mkdir, canvas_read, canvas_write, canvas_sha256 }
   from './src/main/ets/features/canvas/CanvasFiles';
+
+export { canvas_png, canvas_image, canvas_image_bytes } from './src/main/ets/features/canvas/CanvasImages';
+export { QuestionRasterHost, QuestionRasterResult } from './src/main/ets/features/canvas/QuestionRasterHost';
