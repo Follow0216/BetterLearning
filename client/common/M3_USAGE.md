@@ -1,6 +1,6 @@
 # M3/M4 共享 HAR 接线
 
-契约来源 C3 `db7c9f2b`，C1 冻结存储 `a97b47ba`。本提交提供真实 HTTP API、DTO 与控制器边界；画布的抬笔冻结/顺序发送实现随后提交。未挂载或未实现时控制器明确失败，不伪造成功。C2 开发树未构建/运行设备，正式验证由 C4 执行。
+契约来源 C3 `db7c9f2b`，C1 冻结存储 `a97b47ba`。本轮提供真实 HTTP API、DTO、抬笔冻结和顺序发送实现。未挂载或未就绪时控制器明确失败，不伪造成功。C2 开发树未构建/运行设备，正式验证由 C4 执行。
 
 从 `common` 导入 `TutorApi`、`TutorTurnStatus`、`TutorTurn`、`TutorPending`、`FrozenTutorAnswer`、`OcrApi`、`OcrResult`。`new TutorApi(baseUrl)` 或 `TutorApi.create_default()`。
 
@@ -28,9 +28,13 @@ freezeAtPenUp(questionId: string, turnId: string): Promise<AuthResult<FrozenTuto
 sendFrozenTutorAnswer(frozen: FrozenTutorAnswer): Promise<AuthResult<TutorTurn>>
 ```
 
-`FrozenTutorAnswer = {questionId,turnId,upload:{manifestJson,files:[{partName,filePath}]}}`。freeze入口实现未交付前明确失败。最终实现会在真实抬笔后同步捕获，冻结后可继续书写；普通保存与求助串行发送。冻结 manifest 固定 saveRequestId=turnId、baseFileRef=null，包含完整题面/全部笔迹/负坐标与屏外范围。重复同轮冻结返回原包；重复上传不重新导出、不改JSON原始字节。冻结上传不调用M2保存、不修改当前作答引用。
+`FrozenTutorAnswer = {questionId,turnId,upload:{manifestJson,files:[{partName,filePath}]}}`。freeze入口在真实抬笔后同步捕获，无在途笔迹时当场捕获，冻结后可继续书写；普通保存与求助串行发送。冻结 manifest 固定 saveRequestId=turnId、baseFileRef=null，包含完整题面/全部笔迹/负坐标与屏外范围。重复同轮冻结返回原包；重复上传不重新导出、不改JSON原始字节。冻结上传不调用M2保存、不修改当前作答引用。
 
 独立 `TabletTutorBridge` 由C3负责前台当前题轮询/start/stop/dispose/状态接线。Bridge不复制模型/API，不写Canvas/Workspace/common；每个新轮调用冻结入口，模型retry只调用TutorApi.retryTurn。冻结等待中取消/切题/退出由控制器返回明确失败，旧异步结果不得进入新页面。
+
+`controller.cancelTutorFreeze(questionId,turnId): void` 仅取消匹配轮次的本机等待/导出/待发送，供 Bridge.stop/dispose 使用；不调用服务端 cancel、不删除原包、不取消用户正在写的笔。已发出的 HTTP 无法撤回，迟到回执忽略。相同轮次重新进入时只复用旧捕获/完整原包，取消的旧异步上下文不会复活。
+
+普通保存和求助导出/上传使用同一进程内单发送槽，没有持久队列。普通保存已在发送时仍先抬笔捕获，再等发送槽；求助导出/上传不切换 Surface.readOnly，后续笔迹不会进入副本。本机目录 `filesDir/m2-canvas/{accountId}/{questionId}/tutor/{turnId}/uploads/{turnId}`，manifest最后原子发布。再次请求已知轮次只读同目录完整包；不启动扫描/后台恢复，文件损坏明确失败，不静默重导。M2 pendingUpload/baseFileRef/完成状态均不由求助流程更新。
 
 ## OCR
 

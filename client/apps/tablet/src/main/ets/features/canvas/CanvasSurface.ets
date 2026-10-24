@@ -2,8 +2,8 @@ import { image } from '@kit.ImageKit';
 import { LengthMetricsUnit } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import {
-  CanvasEditableDocument, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView,
-  canvas_image, fit_canvas, stroke_hit, valid_world_number, world_point, zoom_canvas
+  AuthError, AuthResult, CanvasEditableDocument, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView,
+  canvas_image, clone_canvas_document, fit_canvas, stroke_hit, valid_world_number, world_point, zoom_canvas
 } from 'common';
 import { canvas_intersects, draw_canvas_stroke, stroke_bounds } from './CanvasPainter';
 import {
@@ -11,6 +11,11 @@ import {
   TABLET_COLOR_PRIMARY, TABLET_COLOR_PRIMARY_DEEP, TABLET_COLOR_PRIMARY_SOFT, TABLET_COLOR_TEXT,
   TABLET_CONTROL_SIZE, TABLET_RADIUS_SMALL
 } from '../../theme/TabletTheme';
+
+export interface CanvasFreezeHandle {
+  captureAtPenUp: () => Promise<AuthResult<CanvasEditableDocument>>;
+  cancel: () => void;
+}
 
 /** 题面与笔迹共用一个世界坐标；缓存只保留当前视口题面，导出不读取该缓存。 */
 @Component
@@ -24,6 +29,12 @@ export struct CanvasSurface {
   onViewChange: (view: CanvasView) => void = () => {};
   onUndoChange: (canUndo: boolean) => void = () => {};
   onFailure: (message: string) => void = () => {};
+  onFreezeHandle: (handle: CanvasFreezeHandle, attached: boolean) => void = () => {};
+  private committedDocument: CanvasEditableDocument | null = null;
+  private waitingFreeze: ((result: AuthResult<CanvasEditableDocument>) => void) | null = null;
+  private freezeHandle: CanvasFreezeHandle = {
+    captureAtPenUp: () => this.capture_at_pen_up(), cancel: () => this.cancel_freeze()
+  };
   @State private tool: CanvasTool = CanvasTool.PEN;
   @State private undoEnabled: boolean = false;
   @State private zoomText: string = '100%';
@@ -52,28 +63,34 @@ export struct CanvasSurface {
   private undoHistory: CanvasStroke[][] = [];
   private pointBudget: number = 0;
 
-  aboutToAppear(): void { this.alive = true; }
+  aboutToAppear(): void {
+    this.alive = true; this.committedDocument = this.document; this.onFreezeHandle(this.freezeHandle,true);
+  }
   aboutToDisappear(): void {
-    this.alive = false; this.paintGeneration++; this.cancel_gesture();
+    this.alive = false; this.paintGeneration++; this.cancel_gesture(); this.onFreezeHandle(this.freezeHandle,false);
     if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
   }
   private reset(): void {
-    this.cancel_gesture(); this.undoHistory = []; this.update_undo(); this.viewSet = false;
+    this.cancel_gesture(); this.committedDocument = this.document; this.undoHistory = []; this.update_undo(); this.viewSet = false;
     this.paintGeneration++;
     if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
     this.configure_view();
   }
-  private document_changed(): void { this.paint(); }
+  private document_changed(): void {
+    // 同一挂载中的 Prop 是父层提交回声；编辑基底以同步提交副本为准，避免连续笔回流滞后。
+    if (this.committedDocument === null) { this.committedDocument = this.document; }
+    this.paint();
+  }
   private read_only_changed(): void { this.cancel_gesture(); this.paint(); }
   private update_undo(): void {
     this.undoEnabled = this.undoHistory.length > 0; this.onUndoChange(this.undoEnabled);
   }
   private bounds(): CanvasRect {
-    if (this.document === null) { return { x: 0, y: 0, width: 720, height: 1024 }; }
-    const q: CanvasRect = this.document.questionLayout.bounds;
+    if (this.committedDocument === null) { return { x: 0, y: 0, width: 720, height: 1024 }; }
+    const q: CanvasRect = this.committedDocument.questionLayout.bounds;
     let x: number = q.x; let y: number = q.y; let right: number = x + q.width; let bottom: number = y + q.height;
-    for (let i: number = 0; i < this.document.strokes.length; i++) {
-      const rect: CanvasRect = stroke_bounds(this.document.strokes[i]);
+    for (let i: number = 0; i < this.committedDocument.strokes.length; i++) {
+      const rect: CanvasRect = stroke_bounds(this.committedDocument.strokes[i]);
       x = Math.min(x,rect.x); y = Math.min(y,rect.y); right = Math.max(right,rect.x + rect.width); bottom = Math.max(bottom,rect.y + rect.height);
     }
     return { x: x, y: y, width: right - x, height: bottom - y };
@@ -89,9 +106,9 @@ export struct CanvasSurface {
     this.rebuild_background();
   }
   private async rebuild_background(): Promise<void> {
-    if (!this.ready || this.document === null || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
+    if (!this.ready || this.committedDocument === null || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
     const generation: number = ++this.paintGeneration;
-    const doc: CanvasEditableDocument = this.document;
+    const doc: CanvasEditableDocument = this.committedDocument;
     const view: CanvasView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
     const files: CanvasLocalFile[] = this.rasterFiles.slice();
     const width: number = Math.ceil(this.canvasWidthVp); const height: number = Math.ceil(this.canvasHeightVp);
@@ -128,7 +145,7 @@ export struct CanvasSurface {
     if (this.backgroundMap !== null) { context.drawImage(this.backgroundMap,0,0,this.canvasWidthVp,this.canvasHeightVp); }
     this.paint_paper(context);
     context.save(); context.scale(this.view.scale,this.view.scale); context.translate(-this.view.x,-this.view.y);
-    const strokes: CanvasStroke[] = this.erased ?? this.document?.strokes ?? [];
+    const strokes: CanvasStroke[] = this.erased ?? this.committedDocument?.strokes ?? [];
     const visible: CanvasRect = { x: this.view.x, y: this.view.y, width: this.canvasWidthVp / this.view.scale, height: this.canvasHeightVp / this.view.scale };
     for (let i: number = 0; i < strokes.length; i++) {
       if (canvas_intersects(visible,stroke_bounds(strokes[i]))) { draw_canvas_stroke(context,strokes[i]); }
@@ -155,18 +172,53 @@ export struct CanvasSurface {
     context.fill(); context.restore();
   }
   private commit(strokes: CanvasStroke[], before: CanvasStroke[]): void {
-    if (this.document === null) { return; }
+    if (this.committedDocument === null) { return; }
     this.undoHistory.push(before); if (this.undoHistory.length > 50) { this.undoHistory.shift(); }
     this.update_undo();
-    this.onDocumentChange({ schemaVersion: 1, questionLayout: this.document.questionLayout, strokes: strokes });
+    const next: CanvasEditableDocument = { schemaVersion: 1, questionLayout: this.committedDocument.questionLayout, strokes: strokes };
+    this.committedDocument = next; this.onDocumentChange(next);
   }
   private undo(): void {
-    if (this.readOnly || this.document === null || this.undoHistory.length === 0) { return; }
+    if (this.readOnly || this.committedDocument === null || this.undoHistory.length === 0) { return; }
     this.cancel_gesture();
     const strokes: CanvasStroke[] = this.undoHistory.pop() as CanvasStroke[];
-    this.update_undo(); this.onDocumentChange({ schemaVersion: 1, questionLayout: this.document.questionLayout, strokes: strokes });
+    this.update_undo();
+    const next: CanvasEditableDocument = { schemaVersion: 1, questionLayout: this.committedDocument.questionLayout, strokes: strokes };
+    this.committedDocument = next; this.onDocumentChange(next);
   }
-  private discard_edit(): void {
+  private capture_at_pen_up(): Promise<AuthResult<CanvasEditableDocument>> {
+    // Promise executor 在调用栈内执行：检查当前笔与登记等待之间没有 await/Prop 传播竞态。
+    return new Promise<AuthResult<CanvasEditableDocument>>((resolve: (result: AuthResult<CanvasEditableDocument>) => void) => {
+      if (!this.alive || this.committedDocument === null) {
+        resolve(AuthResult.failure<CanvasEditableDocument>(AuthError.local_validation('画布尚未准备完成', {}))); return;
+      }
+      if (this.waitingFreeze !== null) {
+        resolve(AuthResult.failure<CanvasEditableDocument>(AuthError.local_validation('正在等待当前笔结束', {}))); return;
+      }
+      const editing: boolean = this.editPointerId !== null && this.pointers.has(this.editPointerId) &&
+        this.pointerSources.get(this.editPointerId) === SourceTool.Pen && !this.suppress && !this.readOnly && this.tool !== CanvasTool.MOVE;
+      this.waitingFreeze = resolve;
+      if (!editing) { this.fulfill_freeze(); }
+    });
+  }
+  private fulfill_freeze(): void {
+    const resolve: ((result: AuthResult<CanvasEditableDocument>) => void) | null = this.waitingFreeze;
+    if (resolve === null) { return; }
+    this.waitingFreeze = null;
+    try {
+      if (this.committedDocument === null) { throw new Error('画布尚未准备完成'); }
+      resolve(AuthResult.success<CanvasEditableDocument>(clone_canvas_document(this.committedDocument)));
+    } catch (error) {
+      resolve(AuthResult.failure<CanvasEditableDocument>(AuthError.local_validation('画布冻结失败，请重试', {})));
+    }
+  }
+  private cancel_freeze(): void {
+    const resolve: ((result: AuthResult<CanvasEditableDocument>) => void) | null = this.waitingFreeze;
+    this.waitingFreeze = null;
+    if (resolve !== null) { resolve(AuthResult.failure<CanvasEditableDocument>(AuthError.local_validation('本笔已取消，请重新请求冻结', {}))); }
+  }
+  private discard_edit(cancelFreeze: boolean = true): void {
+    if (cancelFreeze) { this.cancel_freeze(); }
     this.liveStroke = null; this.eraseBefore = null; this.erased = null;
   }
   private cancel_gesture(): void {
@@ -249,27 +301,27 @@ export struct CanvasSurface {
       this.navigationKey = ''; this.pinchView = null; this.pinchMid = null;
       if (event.type === TouchType.Down) {
         this.last = point;
-        if (this.tool === CanvasTool.PEN && this.document !== null) {
+        if (this.tool === CanvasTool.PEN && this.committedDocument !== null) {
           const world: CanvasPoint | null = this.point(point);
-          let count: number = 0; this.document.strokes.forEach((stroke: CanvasStroke) => { count += stroke.points.length; });
+          let count: number = 0; this.committedDocument.strokes.forEach((stroke: CanvasStroke) => { count += stroke.points.length; });
           this.pointBudget = 200000 - count;
-          if (world !== null && this.document.strokes.length < 20000 && this.pointBudget > 0) {
+          if (world !== null && this.committedDocument.strokes.length < 20000 && this.pointBudget > 0) {
             this.liveStroke = { strokeId: util.generateRandomUUID(true).toLowerCase(), color: '#152744', width: 2.5, points: [world] };
           } else { this.onFailure('笔迹已达到范围或数量上限，请减少后再写'); }
-        } else if (this.tool === CanvasTool.ERASER && this.document !== null) {
-          this.eraseBefore = this.document.strokes; this.erased = this.document.strokes.slice(); this.erase(point);
+        } else if (this.tool === CanvasTool.ERASER && this.committedDocument !== null) {
+          this.eraseBefore = this.committedDocument.strokes; this.erased = this.committedDocument.strokes.slice(); this.erase(point);
         }
       } else if (event.type === TouchType.Move) {
         if (this.liveStroke !== null) { this.append_point(point); }
         else { this.erase_path(point); }
         this.last = point;
-      } else if (event.type === TouchType.Up && this.document !== null) {
+      } else if (event.type === TouchType.Up && this.committedDocument !== null) {
         this.append_point(point); this.erase_path(point);
-        if (this.liveStroke !== null) { this.commit(this.document.strokes.concat([this.liveStroke]),this.document.strokes); }
+        if (this.liveStroke !== null) { this.commit(this.committedDocument.strokes.concat([this.liveStroke]),this.committedDocument.strokes); }
         if (this.erased !== null && this.eraseBefore !== null && this.erased.length !== this.eraseBefore.length) {
           this.commit(this.erased,this.eraseBefore);
         }
-        this.discard_edit(); this.last = null;
+        this.discard_edit(false); this.last = null; this.fulfill_freeze();
       }
     } else {
       this.discard_edit();

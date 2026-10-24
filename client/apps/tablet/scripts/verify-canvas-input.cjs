@@ -22,10 +22,11 @@ function parse(file, source) {
 const surface = parse(surfacePath, surfaceText);
 const component = surface.statements.find(s => s.name?.text === 'CanvasSurface');
 const methods = new Set(['touch', 'cancel_gesture', 'discard_edit', 'control_touch', 'point', 'append_point',
-  'erase_path', 'erase', 'commit', 'undo', 'update_undo', 'read_only_changed']);
+  'erase_path', 'erase', 'commit', 'undo', 'update_undo', 'read_only_changed',
+  'capture_at_pen_up', 'fulfill_freeze', 'cancel_freeze', 'document_changed']);
 const fields = new Set(['tool', 'readOnly', 'document', 'undoEnabled', 'pointers', 'pointerSources', 'editPointerId',
   'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
-  'erased', 'undoHistory', 'pointBudget', 'view']);
+  'erased', 'undoHistory', 'pointBudget', 'view', 'alive', 'committedDocument', 'waitingFreeze']);
 const extracted = [];
 for (const member of component.members) {
   const name = member.name?.getText(surface);
@@ -38,7 +39,7 @@ assert.equal(methods.size + fields.size, 0, 'Missing actual source members');
 
 const geometryPath = path.join(root, 'client/common/src/main/ets/features/canvas/CanvasGeometry.ets');
 const geometry = parse(geometryPath, fs.readFileSync(geometryPath, 'utf8'));
-const geometryNames = new Set(['world_point', 'zoom_canvas', 'valid_world_number', 'segment_distance', 'stroke_hit']);
+const geometryNames = new Set(['world_point', 'zoom_canvas', 'valid_world_number', 'segment_distance', 'stroke_hit', 'clone_canvas_document']);
 const geometryCode = geometry.statements.filter(s => ts.isFunctionDeclaration(s) && geometryNames.has(s.name.text))
   .map(s => s.getText(geometry).replace(/^export\s+/, '')).join('\n');
 const modelPath = path.join(root, 'client/common/src/main/ets/features/canvas/CanvasModels.ets');
@@ -56,13 +57,19 @@ for (const name of ['common.d.ts', 'enums.d.ts']) {
   }
 }
 assert.equal(enumNames.size, 0, 'Missing SDK enums');
-const code = enumCode.join('\n') + '\n' + canvasTool + '\n' + geometryCode + `
+const authPath = path.join(root, 'client/common/src/main/ets/features/auth/AuthModels.ets');
+const auth = parse(authPath, fs.readFileSync(authPath, 'utf8'));
+const authNames = new Set(['AuthFailureKind', 'AuthError', 'AuthResult']);
+const authCode = auth.statements.filter(s => s.name && authNames.has(s.name.text))
+  .map(s => s.getText(auth).replace(/^export\s+/, '')).join('\n');
+const code = authCode + '\n' + enumCode.join('\n') + '\n' + canvasTool + '\n' + geometryCode + `
 class InputHarness {
   ${extracted.join('\n')}
   constructor() {
     this.view = { x: 0, y: 0, scale: 1 };
     this.document = { schemaVersion: 1, questionLayout: { bounds: { x: 0, y: 0, width: 720, height: 1024 } },
       strokes: [{ strokeId: 'existing', color: '#152744', width: 2.5, points: [{ x: 10, y: 10 }, { x: 30, y: 30 }] }] };
+    this.committedDocument = this.document; this.alive = true;
     this.changes = []; this.savedViews = []; this.failures = [];
     this.onDocumentChange = doc => { this.document = doc; this.changes.push(JSON.stringify(doc)); };
     this.onViewChange = view => this.savedViews.push(JSON.stringify(view));
@@ -289,5 +296,80 @@ check('control touch cancels ink without changing document', () => {
   assert.equal((surfaceText.match(/\.hitTestBehavior\(HitTestMode.Default\)/g) || []).length, 2);
   assert.equal((surfaceText.match(/\.onTouch\(\(event: TouchEvent\) => \{ this.control_touch\(event\); \}\)/g) || []).length, 2);
 });
-console.log(JSON.stringify({ scenarios, result: 'PASS', source: 'actual CanvasSurface input methods + existing geometry',
-  boundary: 'synthetic events; native rendering, hit testing, filesystem, network and real stylus not exercised' }));
+async function freezeChecks() {
+  async function checkAsync(name, run) {
+    try { await run(); scenarios++; }
+    catch (error) { throw new Error(name + ': ' + error.message, { cause: error }); }
+  }
+  await checkAsync('idle freeze is a deep isolated document', async () => {
+    const h = new InputHarness();
+    const result = await h.capture_at_pen_up();
+    assert.equal(result.isSuccess, true); const frozen = json(result.data);
+    drag(h, Source.Pen);
+    assert.equal(json(result.data), frozen); assert.equal(result.data.strokes.length, 1);
+    result.data.strokes[0].points[0].x = -999;
+    assert.equal(h.committedDocument.strokes[0].points[0].x, 10);
+  });
+  await checkAsync('freeze waits for actual pen up and excludes the next pen', async () => {
+    const h = new InputHarness();
+    event(h, Phase.Down, Source.Pen, [pt(1, 40, 40)]);
+    const pending = h.capture_at_pen_up(); let settled = false;
+    pending.then(() => { settled = true; }); await Promise.resolve(); assert.equal(settled, false);
+    event(h, Phase.Move, Source.Pen, [pt(1, 50, 50)]);
+    event(h, Phase.Up, Source.Pen, [pt(1, 60, 70)]);
+    // 故意在 Promise continuation 前提交下一笔，检查捕获发生于 Up 同步栈。
+    drag(h, Source.Pen, 2);
+    const result = await pending;
+    assert.equal(result.isSuccess, true); assert.equal(result.data.strokes.length, 2);
+    assert.equal(h.committedDocument.strokes.length, 3);
+    const points = result.data.strokes[1].points;
+    assert.equal(points[points.length - 1].x, 60); assert.equal(points[points.length - 1].y, 70);
+  });
+  await checkAsync('eraser freeze includes the whole-stroke removal only after up', async () => {
+    const h = new InputHarness(); h.tool = Tool.ERASER;
+    event(h, Phase.Down, Source.Pen, [pt(1, 10, 10)]);
+    const pending = h.capture_at_pen_up();
+    assert.equal(h.committedDocument.strokes.length, 1);
+    event(h, Phase.Up, Source.Pen, [pt(1, 20, 20)]);
+    const result = await pending; assert.equal(result.isSuccess, true); assert.equal(result.data.strokes.length, 0);
+  });
+  await checkAsync('finger navigation does not delay or alter ink capture', async () => {
+    const h = new InputHarness(); event(h, Phase.Down, Source.Finger, [pt(1, 10, 10)]);
+    const result = await h.capture_at_pen_up(); assert.equal(result.isSuccess, true);
+    assert.equal(result.data.strokes.length, 1); assert.equal(h.waitingFreeze, null);
+  });
+  await checkAsync('source conflict fails pending capture', async () => {
+    const h = new InputHarness(); event(h, Phase.Down, Source.Pen, [pt(1, 10, 10)]);
+    const pending = h.capture_at_pen_up();
+    event(h, Phase.Move, Source.Finger, [pt(1, 30, 30)]);
+    const result = await pending; assert.equal(result.isSuccess, false); assert.equal(h.committedDocument.strokes.length, 1);
+  });
+  await checkAsync('local freeze cancellation preserves the user active pen', async () => {
+    const h = new InputHarness(); event(h, Phase.Down, Source.Pen, [pt(1, 40, 40)]);
+    const pending = h.capture_at_pen_up(); h.cancel_freeze();
+    assert.equal((await pending).isSuccess, false); assert.notEqual(h.liveStroke, null);
+    event(h, Phase.Up, Source.Pen, [pt(1, 50, 50)]); assert.equal(h.committedDocument.strokes.length, 2);
+  });
+  await checkAsync('rapid pens survive delayed and stale parent prop echoes', async () => {
+    const h = new InputHarness();
+    h.onDocumentChange = doc => { h.changes.push(json(doc)); };
+    drag(h, Source.Pen); drag(h, Source.Pen, 2);
+    assert.equal(h.document.strokes.length, 1, 'parent Prop intentionally remains stale');
+    h.document_changed();
+    const result = await h.capture_at_pen_up(); assert.equal(result.isSuccess, true); assert.equal(result.data.strokes.length, 3);
+  });
+  await checkAsync('read-only cancellation fails pending capture without committing preview', async () => {
+    const h = new InputHarness(); event(h, Phase.Down, Source.Pen, [pt(1, 40, 40)]);
+    const pending = h.capture_at_pen_up(); h.readOnly = true; h.read_only_changed();
+    assert.equal((await pending).isSuccess, false); assert.equal(h.committedDocument.strokes.length, 1);
+  });
+  await checkAsync('second pending capture cannot replace the first waiter', async () => {
+    const h = new InputHarness(); event(h, Phase.Down, Source.Pen, [pt(1, 40, 40)]);
+    const first = h.capture_at_pen_up(); const second = await h.capture_at_pen_up();
+    assert.equal(second.isSuccess, false);
+    event(h, Phase.Up, Source.Pen, [pt(1, 50, 50)]); assert.equal((await first).isSuccess, true);
+  });
+  console.log(JSON.stringify({ scenarios, result: 'PASS', source: 'actual CanvasSurface input/freeze methods + existing geometry/AuthResult',
+    boundary: 'synthetic events; native rendering, hit testing, filesystem, network and real stylus not exercised' }));
+}
+freezeChecks().catch(error => { console.error(error); process.exitCode = 1; });
