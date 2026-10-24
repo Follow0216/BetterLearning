@@ -2,8 +2,10 @@ import {
   AnswerState,
   authSession,
   AuthResult,
+  INBOX_COLLECTION_ID,
   LearningApi,
   learning_subject_label,
+  QuestionCollection,
   QuestionDetail,
   QuestionMarkdownView
 } from 'common';
@@ -30,15 +32,15 @@ import {
 
 /**
  * 题目详情：按 questionId 读取完整正文并交给共享 Markdown 组件渲染，
- * 同时展示真实题集归属与当前作答状态。
+ * 同时按本次详情回显的 collectionId 展示真实题集归属与当前作答状态。
  *
- * <p>加载结果回写前校验令牌与请求序号；401 交由外层回到登录，其他失败
- * 保留重试入口，不把加载失败显示成空题面。</p>
+ * <p>详情与题集并行读取；题集失败只影响归属文案，不阻断题面。加载结果
+ * 回写前校验令牌与请求序号；401 交由外层回到登录，其他失败保留重试入口，
+ * 不把加载失败显示成空题面，也不复用列表快照中的旧归属名。</p>
  */
 @Component
 export struct QuestionDetailPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
-  @Prop collectionName: string = '';
   onBack: () => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
@@ -47,9 +49,13 @@ export struct QuestionDetailPage {
   @State detail: QuestionDetail | null = null;
   @State loading: boolean = true;
   @State errorText: string = '';
+  @State collections: QuestionCollection[] = [];
+  @State collectionsLoading: boolean = false;
+  @State collectionsFailed: boolean = false;
 
   private api: LearningApi = LearningApi.create_default();
   private requestSeq: number = 0;
+  private collectionSeq: number = 0;
 
   aboutToAppear(): void {
     this.load_detail();
@@ -127,16 +133,39 @@ export struct QuestionDetailPage {
           .padding({ left: 8, right: 8, top: 3, bottom: 3 })
           .backgroundColor(PHONE_COLOR_SOFT)
           .borderRadius(8)
-        if (this.collectionName.length > 0) {
-          Text(this.collectionName)
+        if (this.collection_name(detail.collectionId).length > 0) {
+          Text(this.collection_name(detail.collectionId))
             .fontSize(11)
             .fontColor(PHONE_COLOR_MUTED)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1)
             .margin({ left: 6 })
+        } else if (this.collectionsFailed) {
+          Text('归属加载失败 · 重试')
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_DANGER)
+            .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+            .backgroundColor(PHONE_COLOR_DANGER_SOFT)
+            .borderRadius(6)
+            .margin({ left: 6 })
+            .accessibilityText('重新加载题集归属')
+            .onClick(() => {
+              this.retry_collections();
+            })
+        } else if (this.collectionsLoading) {
+          Text('归属加载中…')
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_MUTED)
+            .margin({ left: 6 })
         } else {
-          Blank()
+          Text(detail.collectionId)
+            .fontSize(11)
+            .fontColor(PHONE_COLOR_MUTED)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .margin({ left: 6 })
         }
         Text(describe_answer_state(detail.answerState))
           .fontSize(11)
@@ -239,6 +268,9 @@ export struct QuestionDetailPage {
     const requestedId: string = this.questionId;
     this.loading = true;
     this.errorText = '';
+    this.collections = [];
+    this.collectionsFailed = false;
+    this.load_collections(token, ++this.collectionSeq);
     try {
       const result: AuthResult<QuestionDetail> = await this.api.getQuestion(token, requestedId);
       if (seq !== this.requestSeq || !authSession.matches_access_token(token) ||
@@ -277,6 +309,80 @@ export struct QuestionDetailPage {
         this.loading = false;
       }
     }
+  }
+
+  /**
+   * 读取题集树，用于按详情回显的 collectionId 解析归属名。
+   *
+   * @param token 访问令牌
+   * @param seq 本次题集请求序号
+   */
+  private async load_collections(token: string, seq: number): Promise<void> {
+    this.collectionsLoading = true;
+    this.collectionsFailed = false;
+    try {
+      const result: AuthResult<QuestionCollection[]> = await this.api.listCollections(token);
+      if (!this.is_current_collections_request(seq, token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      if (!result.isSuccess || result.data === null) {
+        if (result.error !== null && result.error.is_unauthorized()) {
+          this.handle_unauthorized(token);
+          return;
+        }
+        this.collectionsFailed = true;
+        return;
+      }
+      this.collections = result.data;
+    } catch (error) {
+      if (!this.is_current_collections_request(seq, token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      this.collectionsFailed = true;
+    } finally {
+      if (seq === this.collectionSeq) {
+        this.collectionsLoading = false;
+      }
+    }
+  }
+
+  /**
+   * 仅重试题集归属，不重新加载题面。
+   */
+  private retry_collections(): void {
+    if (this.collectionsLoading) {
+      return;
+    }
+    const token: string | null = authSession.read_access_token();
+    if (token === null) {
+      this.onUnauthorized('');
+      return;
+    }
+    this.load_collections(token, ++this.collectionSeq);
+  }
+
+  private collection_name(collectionId: string): string {
+    if (collectionId === INBOX_COLLECTION_ID) {
+      return '待整理';
+    }
+    for (let index: number = 0; index < this.collections.length; index++) {
+      if (this.collections[index].collectionId === collectionId) {
+        return this.collections[index].name;
+      }
+    }
+    return '';
+  }
+
+  private is_current_collections_request(seq: number, token: string): boolean {
+    return seq === this.collectionSeq && authSession.matches_access_token(token);
   }
 
   private answer_state_foreground(state: AnswerState): string {
