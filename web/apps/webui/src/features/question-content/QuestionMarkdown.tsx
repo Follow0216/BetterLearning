@@ -1,35 +1,46 @@
+import "katex/dist/katex.min.css";
+import "markdown-it-texmath/css/texmath.css";
+
+import { renderQuestionMarkdown } from "./question-markdown-renderer";
+import styles from "./question-markdown.module.css";
+
 export interface QuestionMarkdownProps {
   bodyMarkdown: string;
   className?: string;
   ariaLabel?: string;
 }
 
-/**
- * 题目正文渲染边界。
- *
- * 依赖审批完成前不引入 Markdown/公式库，也不自行实现解析器，仅按原文展示，
- * 并在界面中明确标记渲染接入尚未完成。
- */
+function joinClassNames(...values: Array<string | undefined>): string {
+  return values
+    .filter((value): value is string => value !== undefined && value.length > 0)
+    .join(" ");
+}
+
 export function QuestionMarkdown({
   bodyMarkdown,
   className,
   ariaLabel = "题目正文",
 }: QuestionMarkdownProps) {
+  const rendered = renderQuestionMarkdown(bodyMarkdown);
+  const rootClassName = joinClassNames(styles.content, className);
+
+  if (!rendered.ok) {
+    return (
+      <div className={rootClassName} aria-label={ariaLabel} data-render-state="error">
+        <p role="note" className={styles.failure}>
+          题面暂时无法显示，请稍后重试。
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`flex flex-col gap-3 ${className ?? ""}`}
+      className={rootClassName}
       aria-label={ariaLabel}
-      data-renderer="pending"
-    >
-      <p className="text-[15px] leading-7 break-words whitespace-pre-wrap text-[var(--auth-text)]">
-        {bodyMarkdown}
-      </p>
-      <p
-        role="note"
-        className="rounded-lg border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-3 py-2 text-[12px] leading-5 text-[var(--auth-muted)]"
-      >
-        Markdown 与公式渲染接入尚未完成，当前显示服务端返回的原文。
-      </p>
-    </div>
+      data-render-state="ready"
+      data-formula-errors={String(rendered.formulaErrors)}
+      dangerouslySetInnerHTML={{ __html: rendered.html }}
+    />
   );
 }
