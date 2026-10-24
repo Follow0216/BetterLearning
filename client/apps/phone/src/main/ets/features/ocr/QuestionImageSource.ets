@@ -31,7 +31,7 @@ function pathExists(path: string): boolean {
     if ((error as BusinessError).code === 13900002) {
       return false;
     }
-    throw error;
+    throw error as Error;
   }
 }
 
@@ -144,7 +144,7 @@ export async function loadPreview(uri: string): Promise<image.PixelMap> {
     if (preview !== undefined) {
       await preview.release();
     }
-    throw error;
+    throw error as Error;
   }
   if (preview === undefined) {
     throw new Error('图片解码失败');
@@ -222,6 +222,6 @@ export async function cropToFile(context: Context, preview: image.PixelMap, rect
     } catch (cleanupError) {
       throw new CroppedImageCleanupError(path);
     }
-    throw error;
+    throw error as Error;
   }
 }
