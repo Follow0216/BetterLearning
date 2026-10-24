@@ -36,3 +36,31 @@ C2 唯一维护共用 Canvas/Solution 类型与网络；页面不得复制另一
 纯查看器消费 canvas.width/height 和完整 blocks。合成块 x/y 非负，相对完整范围；
 canvas.originX/originY 保留编辑世界原点。Phone 图像源由鉴权下载的私有 file:// 缓存提供，
 documentKey 为 fileRef；不能将 Bearer 放 URL，不能从 strokes 重画或重新排题面。
+
+
+## 已实现的 common 网络与缓存
+
+以 C1 冻结契约 `3a9a72a24b2e3283312bc6f0d32ffc0ee78844df` 为准。
+`LearningApi` 新增（均第一个参数 token）：
+
+- `createCollection(token,name,parentCollectionId=null): Promise<AuthResult<QuestionCollection>>`
+- `renameCollection(token,collectionId,name): Promise<AuthResult<QuestionCollection>>`
+- `moveQuestion(token,questionId,collectionId): Promise<AuthResult<QuestionDetail>>`
+
+`SolutionApi.create_default()` 或 `new SolutionApi(baseUrl)`：
+
+- `getAnswer(token,questionId): Promise<AuthResult<SolutionDetail>>`
+- `saveAnswer(token,questionId,upload:FrozenAnswerUpload): Promise<AuthResult<SolutionDetail>>`
+- `setAnswerState(token,questionId,fileRef,state:AnswerState): Promise<AuthResult<SolutionDetail>>`
+- `downloadBlock(token,accountId,questionId,fileRef,block:CanvasImageBlock,filesDir,questionRaster=false): Promise<AuthResult<string>>`
+
+`downloadBlock` 返回已鉴权、SHA256校验并写入私有缓存的 `file://` 字符串，可直接给 native Image source。
+`filesDir` 取当前 UIAbilityContext.filesDir，不传用户输入路径；questionRaster=false 对应完整合成块，
+true 对应 questionLayout.rasterBlocks 的干净题面底图。缓存按账号/questionId/fileRef/index隔离。
+旧 fileRef 404 时重新拉 manifest，不把两份文档的图块混用。
+
+GET 已保存作答必须有 manifest；保存/状态的200回执允许不含manifest，统一补null，保留原fileRef/state/savedAt。
+保存包的 manifestJson 是冻结 UTF-8 文本，files 为 {partName,filePath}[]，包含两组PNG；不重新序列化重试包。
+每次 await 后仍必须检查原token/组件存活，真实401按现有条件清理会话；失败不当空作答。
+
+缓存命中仍会重新读取当前作答并校验 fileRef/图块摘要；不可离线复用旧云端引用。上传前逐文件复核冻结 manifest 的摘要，重试保留原 manifestJson 和文件。JSON 响应上限16MiB（含 manifest envelope），PNG 上限16MiB。
