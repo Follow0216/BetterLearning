@@ -3,10 +3,12 @@ import { camera, cameraPicker } from '@kit.CameraKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { canvas_write } from 'common';
 
 const MAX_IMAGE_BYTES: number = 16 * 1024 * 1024;
 const MAX_PIXELS: number = 16 * 1024 * 1024;
 const pendingPhotos: Map<string, string> = new Map<string, string>();
+const pendingCrops: Map<string, string> = new Map<string, string>();
 
 // Rect coordinates are integer pixels of the unscaled PixelMap returned by loadPreview.
 export interface PixelRect {
@@ -181,5 +183,45 @@ export async function crop(preview: image.PixelMap, rect: PixelRect): Promise<Ui
     }
   } finally {
     await copy.release();
+  }
+}
+
+// Only paths returned by cropToFile are accepted; the whole unique directory is ours.
+export function discardCroppedImage(path: string): void {
+  const directory: string | undefined = pendingCrops.get(path);
+  if (directory === undefined) {
+    return;
+  }
+  if (pathExists(directory)) {
+    fileIo.rmdirSync(directory);
+  }
+  pendingCrops.delete(path);
+}
+
+export class CroppedImageCleanupError extends Error {
+  readonly path: string;
+
+  constructor(path: string) {
+    super('裁剪图写入失败，临时文件待清理');
+    this.path = path;
+  }
+}
+
+// Keep this file until confirmed M1 handoff or explicit user/account abandonment.
+export async function cropToFile(context: Context, preview: image.PixelMap, rect: PixelRect): Promise<string> {
+  const png: Uint8Array = await crop(preview, rect);
+  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-crop-');
+  const path: string = directory + '/crop.png';
+  pendingCrops.set(path, directory);
+  try {
+    canvas_write(path, png);
+    return path;
+  } catch (error) {
+    try {
+      discardCroppedImage(path);
+    } catch (cleanupError) {
+      throw new CroppedImageCleanupError(path);
+    }
+    throw error;
   }
 }
