@@ -3,6 +3,16 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --admin-bg: #f5f8fe;
+  --admin-surface: #ffffff;
+  --admin-text: #152744;
+  --admin-muted: #71829b;
+  --admin-primary: #246bff;
+  --admin-primary-hover: #1b57d6;
+  --admin-primary-soft: #e8f0ff;
+  --admin-border: #e2eaf5;
+  --admin-divider: #eef2f8;
+  --admin-danger: #c62f3b;
 }
 
 @theme inline {
