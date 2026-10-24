@@ -175,6 +175,7 @@ export struct LibraryPane {
       }
       .layoutWeight(1)
       .width('100%')
+      .align(Alignment.TopStart)
       .scrollBar(BarState.Auto)
       .edgeEffect(EdgeEffect.Spring)
 
@@ -422,6 +423,7 @@ export struct LibraryPane {
     }
     .layoutWeight(1)
     .width('100%')
+    .align(Alignment.TopStart)
     .scrollBar(BarState.Auto)
     .edgeEffect(EdgeEffect.Spring)
   }
