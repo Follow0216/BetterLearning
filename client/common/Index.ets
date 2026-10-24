@@ -64,3 +64,5 @@ export {
 } from './src/main/ets/features/learning/LearningModels';
 
 export { LearningApi } from './src/main/ets/features/learning/LearningApi';
+
+export { QuestionMarkdownView } from './src/main/ets/features/learning/QuestionMarkdownView';

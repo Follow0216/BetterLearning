@@ -82,5 +82,14 @@ API 不持有令牌、不自动刷新、不自动重试确认，也不修改会�
 
 C2 开发树不运行构建、测试、服务或 HDC。共享接口经只读协议/差异复核及
 `git diff --check` 检查；真实 Phone/Tablet 构建和端到端行为由 C4 独立 TEST 验证。
-Markdown 题面组件及获批的本地资源将另作渲染提交，入口固定为
-`QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })`。
+Markdown 题面组件及获批的本地资源已作为独立渲染提交提供，入口为：
+
+```ts
+QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
+  .width('100%')
+  .height('100%')
+```
+
+父容器须给定可用高度，题面在 Web 内滚动；无需页面提供 controller 或资源路径。
+可选 `fontSize: number`（默认 16，范围 12–32）与 `onRenderError: () => void`（默认空）。
+依赖锁、资源哈希与 C4 验收边界见 `M1_RENDERER.md` 和 `renderer-assets.lock.json`。
