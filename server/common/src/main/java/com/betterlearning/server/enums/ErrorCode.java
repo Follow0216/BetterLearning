@@ -47,6 +47,9 @@ public enum ErrorCode {
     /** A0444：密码已变更导致改密冲突；本项目扩展，沿用 A0440 用户操作异常类别。 */
     PASSWORD_CHANGE_CONFLICT(HttpStatus.CONFLICT, "A0444", "密码已变更，请重新登录"),
 
+    /** A0445：确认动作 ID 已用于不同内容；本项目扩展。 */
+    CONFIRM_REQUEST_CONFLICT(HttpStatus.CONFLICT, "A0445", "确认请求已被其他内容使用"),
+
     /** A0501：请求次数超出限制（沿用《Java 开发手册》附 3）。 */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "A0501", "请求过于频繁"),
 

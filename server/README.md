@@ -10,7 +10,7 @@
 | --- | --- |
 | `common` | 公共错误响应、业务异常、traceId 与脱敏诊断契约 |
 | `user` | 用户/会话 API、注册登录、资料改密、JWT、安全认证、Redis 会话与限流、DAO/Mapper |
-| `learning` | 学习业务骨架，M0 不实现题库 |
+| `learning` | M1 当前账号题库与题集存储、确认去重及摘要 |
 | `agent` | 智能体能力骨架，M0 不调用模型、不引入 AI 运行依赖 |
 | `app` | 唯一启动入口、HTTP/安全装配、应用配置、统一 Flyway 迁移、跨模块测试 |
 
@@ -113,7 +113,17 @@ BETTERLEARNING_ENV_FILE="/path/with space/my.env" ./start-server.sh
 标准 `SPRING_SECURITY_USER_*` 仍可按 Boot relaxed binding 绑定到 `spring.security.user.*`，
 但业务账号由 dev 初始化器直接读取原始环境变量负责。业务登录始终使用数据库用户与 JWT，不启用 Basic。
 
+### 2.4 dev 管理员
+
+显式启用 `dev` profile 时，`DevAdminAccountInitializer` 默认创建 `admin/admin123` 管理员。可用 `APP_DEV_ADMIN_USERNAME` 与 `APP_DEV_ADMIN_PASSWORD` 覆盖（密码按字面读取，7–64 字符且 UTF-8 不超过 72 字节），或用 `APP_DEV_ADMIN_ENABLED=false` 禁用。非 dev 不创建管理员。既有普通 dev USER 初始化要求保持不变，其用户名不能与管理员相同。
+
+已有 ADMIN 密码匹配时不修改哈希、资料或 token_version；不匹配时启动失败而不重置，已有 USER 同名时失败而不提权。更改初始化配置不会撤销旧 ADMIN 账号；两个初始化器独立提交，失败时可能保留另一个已创建的 dev 账号。公共注册仍只能 USER，且仍要求密码至少 8 字符。
+
+管理员也用 `POST /api/v1/sessions` 登录，后台检查响应 `user.role=ADMIN`，并用 Bearer 令牌请求 `GET /api/v1/admin/session` 确认服务端权限。后者返回既有 UserVO；普通 USER 为 `403 A0300`。不提供第二套登录、角色管理或后台数据查询系统。
+
 ## 3. 数据库迁移
+
+M1 新增 V2 的 `question_collection`、`question` 两表；V1 保持不变。题目以 `(account_id, request_id)` 唯一键实现确认去重，账号/题集复合外键限定归属。待整理是 `collection_id=NULL` 的虚拟题集，无演示数据初始化。
 
 应用启动时由 Flyway 自动执行 `server/app/src/main/resources/db/migration` 下的迁移。请使用为本服务单独准备的数据库，不要把迁移指向共享库或生产库。
 
@@ -242,7 +252,7 @@ java -jar app/target/server.jar
 
 ### 5.6 管理员
 
-- 不提供默认管理员。
+- 非 dev 环境不提供默认管理员；dev profile 按第 2.4 节初始化默认管理员。
 - 没有公开的角色提升接口或管理界面。
 - 如确需受控提升，只能在数据库中按**指定用户名**执行，并先确认目标唯一：
 
@@ -294,3 +304,16 @@ cd server
 以上测试类覆盖六个接口的主要成功与失败路径。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
 
 本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。验收使用的临时容器与服务已清理，本仓库不保留任何测试服务或临时密钥。
+
+## 8. M1 真实题库
+
+HTTP 契约以根目录 `docs/design/mvp-m1-contract.md` 为准。接口均要求既有 Bearer 登录，owner 取实时认证 principal：
+
+- `POST /api/v1/learning/questions`：人工确认 Markdown，携带 requestId、subject、bodyMarkdown；入待整理，重试相同请求返回原题目，不同内容重复使用 requestId 为 `409 A0445`。
+- `GET /api/v1/learning/questions`：page/pageSize 分页，可按 collectionId 浏览。
+- `GET /api/v1/learning/questions/{questionId}`：当前账号详情与原始 Markdown。
+- `GET /api/v1/learning/collections`：当前账号题集，固定待整理第一项。
+
+没有独立标题；summary 由服务端生成约 50 字符预览。M1 科目代码仅 `HIGHER_MATHEMATICS`、`OTHER`。不提供题目编辑、题集写操作、搜索、作答、AI 或文件系统。
+
+新增 `LearningIntegrationTests` 与 `DevAdminAccountIntegrationTests` 使用原 Testcontainers PostgreSQL/Redis 基础设施；开发交付不运行构建或测试，具体结果由独立 TEST 记录。

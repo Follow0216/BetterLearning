@@ -77,13 +77,13 @@ class UserPersistenceIntegrationTests {
 
     @BeforeEach
     void cleanTable() {
-        jdbcTemplate.update("TRUNCATE TABLE app_user RESTART IDENTITY");
+        jdbcTemplate.update("TRUNCATE TABLE question, question_collection, app_user RESTART IDENTITY");
     }
 
     @Test
     void migratesEmptyDatabaseWithExpectedSchema() {
         assertThat(migrateResult.success).isTrue();
-        assertThat(migrateResult.migrationsExecuted).isEqualTo(1);
+        assertThat(migrateResult.migrationsExecuted).isEqualTo(2);
 
         List<String> columns = jdbcTemplate.queryForList(
                 "SELECT column_name FROM information_schema.columns "

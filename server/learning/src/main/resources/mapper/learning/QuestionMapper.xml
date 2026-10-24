@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.learning.mapper.QuestionMapper">
+    <resultMap id="question" type="com.betterlearning.server.learning.model.dataobject.QuestionDO">
+        <id column="question_id" property="questionId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="collection_id" property="collectionId"/>
+        <result column="request_id" property="requestId"/>
+        <result column="subject" property="subject"/>
+        <result column="body_markdown" property="bodyMarkdown"/>
+        <result column="summary" property="summary"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+    <sql id="columns">
+        question_id, account_id, collection_id, request_id, subject, body_markdown, summary, created_at
+    </sql>
+    <select id="insertIfAbsent" resultType="java.lang.Long"
+            affectData="true" flushCache="true" useCache="false">
+        INSERT INTO question (account_id, request_id, subject, body_markdown, summary)
+        VALUES (#{question.accountId}, #{question.requestId}, #{question.subject},
+                #{question.bodyMarkdown}, #{question.summary})
+        ON CONFLICT ON CONSTRAINT uk_question_account_request DO NOTHING
+        RETURNING question_id
+    </select>
+    <select id="findByRequestId" resultMap="question">
+        SELECT <include refid="columns"/> FROM question
+        WHERE account_id = #{accountId} AND request_id = #{requestId}
+    </select>
+    <select id="findById" resultMap="question">
+        SELECT <include refid="columns"/> FROM question
+        WHERE account_id = #{accountId} AND question_id = #{questionId}
+    </select>
+    <sql id="accountAndCollection">
+        account_id = #{accountId}
+        <if test="filtered">
+            <choose>
+                <when test="collectionId != null">AND collection_id = #{collectionId}</when>
+                <otherwise>AND collection_id IS NULL</otherwise>
+            </choose>
+        </if>
+    </sql>
+    <select id="findPage" resultMap="question">
+        SELECT question_id, collection_id, subject, summary, created_at FROM question
+        WHERE <include refid="accountAndCollection"/>
+        ORDER BY created_at DESC, question_id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM question WHERE <include refid="accountAndCollection"/>
+    </select>
+</mapper>

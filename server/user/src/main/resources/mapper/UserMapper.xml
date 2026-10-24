@@ -10,6 +10,13 @@
         RETURNING account_id
     </select>
 
+    <select id="insertAdminReturningAccountId" resultType="java.lang.Long"
+            affectData="true" flushCache="true" useCache="false">
+        INSERT INTO app_user (username, password_hash, role)
+        VALUES (#{username}, #{passwordHash}, 'ADMIN')
+        RETURNING account_id
+    </select>
+
     <update id="updateContactInfo">
         UPDATE app_user
         SET updated_at = CURRENT_TIMESTAMP

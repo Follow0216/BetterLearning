@@ -70,6 +70,7 @@ class DevUserAccountInitializerNonDevIntegrationTests {
     @Test
     void doesNotRegisterInitializerOrCreateBusinessAccount() {
         assertThat(applicationContext.getBeansOfType(DevUserAccountInitializer.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(DevAdminAccountInitializer.class)).isEmpty();
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM app_user",
                 Integer.class);
         assertThat(count).isZero();

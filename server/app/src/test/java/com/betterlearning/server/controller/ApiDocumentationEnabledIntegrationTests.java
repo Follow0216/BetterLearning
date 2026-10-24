@@ -203,7 +203,7 @@ class ApiDocumentationEnabledIntegrationTests {
         assertThat(codeSchema.get("example")).isEqualTo("A0400");
         assertThat(asList(codeSchema.get("enum"))).containsExactly(
                 "A0400", "A0427", "A0200", "A0300", "A0606", "A0507", "A0428",
-                "A0111", "A0154", "A0155", "A0444", "A0501", "C0001", "B0001");
+                "A0111", "A0154", "A0155", "A0444", "A0445", "A0501", "C0001", "B0001");
         assertThat(description(codeSchema)).contains("5 位").contains("HTTP 状态码无关");
 
         Map<String, Object> registrationResponses = asMap(operation(docs, "/api/v1/users", "post")

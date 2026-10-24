@@ -1,4 +1,4 @@
 /**
- * 学习业务模块预留边界；M0 不注册组件或提供业务行为。
+ * 当前账号的最小真实题库与题集存储；M1 不提供编辑、整理、作答或 AI 能力。
  */
 package com.betterlearning.server.learning;

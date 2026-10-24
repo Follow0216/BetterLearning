@@ -26,6 +26,10 @@ public interface UserMapper extends BaseMapper<UserDO> {
     Long insertReturningAccountId(@Param("username") String username,
             @Param("passwordHash") String passwordHash);
 
+    /** 仅供 dev 管理员初始化使用，角色由固定 SQL 指定，不接受角色参数。 */
+    Long insertAdminReturningAccountId(@Param("username") String username,
+            @Param("passwordHash") String passwordHash);
+
     /**
      * 按提供标志更新联系方式。
      *
