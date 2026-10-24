@@ -42,8 +42,8 @@ public final class AnswerModels {
     }
     public record ReadDocument(Integer schemaVersion, ReadLayout questionLayout, List<Stroke> strokes) {
     }
-    public record ReadManifest(Integer schemaVersion, Canvas canvas, ReadDocument document,
-            List<ReadBlock> blocks, QuestionSnapshot questionSnapshot) {
+    public record ReadManifest(Integer schemaVersion, String saveRequestId, String baseFileRef,
+            Canvas canvas, ReadDocument document, List<ReadBlock> blocks, QuestionSnapshot questionSnapshot) {
     }
     public record SaveResult(String questionId, String state, String fileRef,
             OffsetDateTime savedAt, OffsetDateTime completedAt) {

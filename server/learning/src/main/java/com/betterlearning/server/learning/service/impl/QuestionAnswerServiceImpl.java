@@ -89,7 +89,8 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
         AnswerModels.ReadLayout readLayout = new AnswerModels.ReadLayout(layout.questionBodySha256(),
                 layout.contentWidth(), layout.fontSize(), layout.rendererId(), layout.bounds(), layout.blocks(),
                 readBlocks(layout.rasterBlocks(), base + "/question-blocks/"));
-        AnswerModels.ReadManifest manifest = new AnswerModels.ReadManifest(source.schemaVersion(), source.canvas(),
+        AnswerModels.ReadManifest manifest = new AnswerModels.ReadManifest(source.schemaVersion(),
+                source.saveRequestId(), source.baseFileRef(), source.canvas(),
                 new AnswerModels.ReadDocument(source.document().schemaVersion(), readLayout, source.document().strokes()),
                 readBlocks(source.blocks(), base + "/blocks/"), stored.questionSnapshot());
         return new AnswerModels.Detail(questionId, answer.getState(), answer.getFileRef(),
