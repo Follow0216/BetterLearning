@@ -32,6 +32,7 @@ class LearningServiceTests {
     @Test
     void retryReturnsOriginalRecordAndUsesAuthenticatedOwner() {
         QuestionDO row = row();
+        when(dao.insertIfAbsent(any(QuestionDO.class))).thenReturn(null);
         when(dao.findByRequestId(7L, REQUEST_ID)).thenReturn(Optional.of(row));
         assertThat(service.confirm(7L, new ConfirmQuestionDTO(REQUEST_ID, "OTHER", "body"))
                 .questionId()).isEqualTo("91");
@@ -43,9 +44,19 @@ class LearningServiceTests {
 
     @Test
     void reusedRequestWithDifferentContentIsConflict() {
+        when(dao.insertIfAbsent(any(QuestionDO.class))).thenReturn(null);
         when(dao.findByRequestId(7L, REQUEST_ID)).thenReturn(Optional.of(row()));
         assertThatThrownBy(() -> service.confirm(7L,
                 new ConfirmQuestionDTO(REQUEST_ID, "OTHER", "different")))
+                .isInstanceOfSatisfying(BusinessException.class, failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.CONFIRM_REQUEST_CONFLICT));
+    }
+
+    @Test
+    void reusedRequestWithDifferentSubjectIsConflict() {
+        when(dao.insertIfAbsent(any(QuestionDO.class))).thenReturn(null);
+        when(dao.findByRequestId(7L, REQUEST_ID)).thenReturn(Optional.of(row()));
+        assertThatThrownBy(() -> service.confirm(7L,
+                new ConfirmQuestionDTO(REQUEST_ID, "HIGHER_MATHEMATICS", "body")))
                 .isInstanceOfSatisfying(BusinessException.class, failure -> assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.CONFIRM_REQUEST_CONFLICT));
     }
 
