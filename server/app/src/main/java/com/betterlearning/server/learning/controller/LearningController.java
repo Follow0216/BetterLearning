@@ -2,6 +2,10 @@ package com.betterlearning.server.learning.controller;
 
 import com.betterlearning.server.config.OpenApiConfiguration;
 import com.betterlearning.server.learning.model.dto.ConfirmQuestionDTO;
+import com.betterlearning.server.learning.model.dto.CreateQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.RenameQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.MoveQuestionDTO;
+import com.betterlearning.server.learning.model.vo.QuestionCollectionVO;
 import com.betterlearning.server.learning.model.vo.QuestionCollectionsVO;
 import com.betterlearning.server.learning.model.vo.QuestionPageVO;
 import com.betterlearning.server.learning.model.vo.QuestionVO;
@@ -18,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -60,6 +65,28 @@ public class LearningController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         return learningService.page(account.accountId(), collectionId, page, pageSize);
+    }
+
+    @PostMapping("/collections")
+    @ResponseStatus(HttpStatus.CREATED)
+    public QuestionCollectionVO createCollection(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
+            @Valid @RequestBody CreateQuestionCollectionDTO request) {
+        return learningService.createCollection(account.accountId(), request);
+    }
+
+    @PatchMapping("/collections/{collectionId}")
+    public QuestionCollectionVO renameCollection(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
+            @PathVariable String collectionId, @Valid @RequestBody RenameQuestionCollectionDTO request) {
+        return learningService.renameCollection(account.accountId(), collectionId, request);
+    }
+
+    @PatchMapping("/questions/{questionId}/collection")
+    public QuestionVO moveQuestion(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
+            @PathVariable String questionId, @Valid @RequestBody MoveQuestionDTO request) {
+        return learningService.moveQuestion(account.accountId(), questionId, request);
     }
 
     @GetMapping("/collections")

@@ -109,21 +109,23 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheElevenM1BusinessOperations() throws Exception {
+    void documentsExactlyTheFourteenM2CollectionOperations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
 
-        Map<String, List<String>> expectedOperations = Map.of(
-                "/api/v1/users", List.of("post"),
-                "/api/v1/sessions", List.of("post"),
-                "/api/v1/sessions/current", List.of("delete"),
-                "/api/v1/users/me", List.of("get", "patch"),
-                "/api/v1/users/me/password", List.of("patch"),
-                "/api/v1/learning/questions", List.of("get", "post"),
-                "/api/v1/learning/questions/{questionId}", List.of("get"),
-                "/api/v1/learning/collections", List.of("get"),
-                "/api/v1/admin/session", List.of("get"));
+        Map<String, List<String>> expectedOperations = Map.ofEntries(
+                Map.entry("/api/v1/users", List.of("post")),
+                Map.entry("/api/v1/sessions", List.of("post")),
+                Map.entry("/api/v1/sessions/current", List.of("delete")),
+                Map.entry("/api/v1/users/me", List.of("get", "patch")),
+                Map.entry("/api/v1/users/me/password", List.of("patch")),
+                Map.entry("/api/v1/learning/questions", List.of("get", "post")),
+                Map.entry("/api/v1/learning/questions/{questionId}", List.of("get")),
+                Map.entry("/api/v1/learning/collections", List.of("get", "post")),
+                Map.entry("/api/v1/admin/session", List.of("get")),
+                Map.entry("/api/v1/learning/collections/{collectionId}", List.of("patch")),
+                Map.entry("/api/v1/learning/questions/{questionId}/collection", List.of("patch")));
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
         assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/test")
                 || (path.startsWith("/api/v1/admin") && !path.equals("/api/v1/admin/session")));
@@ -143,7 +145,10 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions", "get", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}", "get", "200"},
                 new String[] {"/api/v1/learning/collections", "get", "200"},
-                new String[] {"/api/v1/admin/session", "get", "200"})) {
+                new String[] {"/api/v1/admin/session", "get", "200"},
+                new String[] {"/api/v1/learning/collections", "post", "201"},
+                new String[] {"/api/v1/learning/collections/{collectionId}", "patch", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/collection", "patch", "200"})) {
             Map<String, Object> responses = asMap(operation(docs, addedOperation[0], addedOperation[1])
                     .get("responses"));
             assertThat(responses).containsKey(addedOperation[2]);
@@ -176,7 +181,10 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions", "get"},
                 new String[] {"/api/v1/learning/questions/{questionId}", "get"},
                 new String[] {"/api/v1/learning/collections", "get"},
-                new String[] {"/api/v1/admin/session", "get"})) {
+                new String[] {"/api/v1/admin/session", "get"},
+                new String[] {"/api/v1/learning/collections", "post"},
+                new String[] {"/api/v1/learning/collections/{collectionId}", "patch"},
+                new String[] {"/api/v1/learning/questions/{questionId}/collection", "patch"})) {
             assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
                     .get("security")))
                     .anySatisfy(requirement ->
@@ -228,7 +236,7 @@ class ApiDocumentationEnabledIntegrationTests {
         assertThat(codeSchema.get("example")).isEqualTo("A0400");
         assertThat(asList(codeSchema.get("enum"))).containsExactly(
                 "A0400", "A0427", "A0200", "A0300", "A0606", "A0507", "A0428",
-                "A0111", "A0154", "A0155", "A0444", "A0445", "A0501", "C0001", "B0001");
+                "A0111", "A0154", "A0155", "A0444", "A0445", "A0450", "A0501", "C0001", "B0001");
         assertThat(description(codeSchema)).contains("5 位").contains("HTTP 状态码无关");
 
         Map<String, Object> registrationResponses = asMap(operation(docs, "/api/v1/users", "post")

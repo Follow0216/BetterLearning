@@ -21,6 +21,9 @@ public interface QuestionMapper {
             @Param("filtered") boolean filtered, @Param("collectionId") Long collectionId,
             @Param("offset") long offset, @Param("limit") int limit);
 
+    int move(@Param("accountId") long accountId, @Param("questionId") long questionId,
+            @Param("collectionId") Long collectionId);
+
     long count(@Param("accountId") long accountId,
             @Param("filtered") boolean filtered, @Param("collectionId") Long collectionId);
 }

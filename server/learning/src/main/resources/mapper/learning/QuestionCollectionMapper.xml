@@ -6,16 +6,35 @@
         <id column="collection_id" property="collectionId"/>
         <result column="account_id" property="accountId"/>
         <result column="name" property="name"/>
+        <result column="parent_collection_id" property="parentCollectionId"/>
         <result column="question_count" property="questionCount"/>
     </resultMap>
-    <select id="findAll" resultMap="collection">
-        SELECT c.collection_id, c.account_id, c.name,
+    <sql id="projection">
+        SELECT c.collection_id, c.account_id, c.name, c.parent_collection_id,
                (SELECT COUNT(*) FROM question q
                 WHERE q.account_id = c.account_id AND q.collection_id = c.collection_id) AS question_count
         FROM question_collection c
+    </sql>
+    <select id="findAll" resultMap="collection">
+        <include refid="projection"/>
         WHERE c.account_id = #{accountId}
         ORDER BY c.collection_id
     </select>
+    <select id="findById" resultMap="collection">
+        <include refid="projection"/>
+        WHERE c.account_id = #{accountId} AND c.collection_id = #{collectionId}
+    </select>
+    <select id="insertReturningId" resultType="java.lang.Long"
+            affectData="true" flushCache="true" useCache="false">
+        INSERT INTO question_collection(account_id, name, parent_collection_id)
+        VALUES (#{accountId}, #{name}, #{parentCollectionId,jdbcType=BIGINT})
+        ON CONFLICT (account_id, (COALESCE(parent_collection_id, 0)), name) DO NOTHING
+        RETURNING collection_id
+    </select>
+    <update id="rename">
+        UPDATE question_collection SET name = #{name}
+        WHERE account_id = #{accountId} AND collection_id = #{collectionId}
+    </update>
     <select id="exists" resultType="boolean">
         SELECT EXISTS (SELECT 1 FROM question_collection
                        WHERE account_id = #{accountId} AND collection_id = #{collectionId})
