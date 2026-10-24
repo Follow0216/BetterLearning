@@ -53,16 +53,17 @@ export struct QuestionLibrary {
   @State loading: boolean = true;
   @State hasLoaded: boolean = false;
   @State errorText: string = '';
+  @State failedPage: number = 0;
 
   private api: LearningApi = LearningApi.create_default();
   private requestSeq: number = 0;
 
   aboutToAppear(): void {
-    this.load_questions(true);
+    this.reload_from_first_page();
   }
 
   on_refresh_token_changed(): void {
-    this.load_questions(true);
+    this.reload_from_first_page();
   }
 
   build() {
@@ -140,7 +141,7 @@ export struct QuestionLibrary {
       .accessibilityText('刷新题库')
       .onClick(() => {
         if (!this.loading) {
-          this.load_questions(true);
+          this.reload_from_first_page();
         }
       })
     }
@@ -208,11 +209,19 @@ export struct QuestionLibrary {
         Image($r('app.media.bl_warning'))
           .width(18)
           .height(18)
-        Text(this.errorText)
-          .fontSize(13)
-          .fontColor(PHONE_COLOR_DANGER)
-          .layoutWeight(1)
-          .margin({ left: 8 })
+        Column() {
+          Text(this.failedPage > 0 ? '第 ' + this.failedPage.toString() + ' 页加载失败' : '题库加载失败')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(PHONE_COLOR_DANGER)
+          Text(this.errorText)
+            .fontSize(12)
+            .fontColor(PHONE_COLOR_DANGER)
+            .margin({ top: 3 })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        .margin({ left: 8 })
       }
       .width('100%')
       .alignItems(VerticalAlign.Top)
@@ -227,9 +236,7 @@ export struct QuestionLibrary {
           .enabled(!this.loading)
           .opacity(this.loading ? 0.5 : 1)
           .onClick(() => {
-            if (!this.loading) {
-              this.load_questions(false);
-            }
+            this.retry_failed();
           })
       }
       .width('100%')
@@ -288,7 +295,7 @@ export struct QuestionLibrary {
         .borderRadius(12)
         .margin({ top: 12 })
         .onClick(() => {
-          this.load_questions(true);
+          this.reload_from_first_page();
         })
     }
     .width('100%')
@@ -380,29 +387,44 @@ export struct QuestionLibrary {
   }
 
   /**
-   * 按当前范围与页码加载题目，再补充待整理题数。
-   *
-   * @param resetPage 是否回到第一页
+   * 回到第一页并清空旧列表，供刷新、范围切换与账号刷新使用。
    */
-  private async load_questions(resetPage: boolean): Promise<void> {
+  private reload_from_first_page(): void {
+    this.page = 1;
+    this.items = [];
+    this.total = 0;
+    this.hasLoaded = false;
+    this.failedPage = 0;
+    this.load_page(1);
+  }
+
+  /**
+   * 按目标页加载题目，再补充待整理题数。
+   *
+   * <p>请求期间不修改 {@code page}；只有成功后才提交服务端回显的页码，
+   * 失败时保留 {@code failedPage} 供重试对应目标页，避免页码与旧条目错配。</p>
+   *
+   * @param targetPage 目标页码
+   */
+  private async load_page(targetPage: number): Promise<void> {
     const token: string | null = authSession.read_access_token();
     if (token === null) {
       this.onUnauthorized('');
       return;
     }
     const seq: number = ++this.requestSeq;
-    if (resetPage) {
-      this.page = 1;
-    }
-    const requestedPage: number = this.page;
     const requestedScope: string = this.scope;
     this.loading = true;
     this.errorText = '';
     try {
       const collectionId: string | null = requestedScope === SCOPE_INBOX ? INBOX_COLLECTION_ID : null;
       const result: AuthResult<QuestionPage> = await this.api.listQuestions(token,
-        new QuestionListQuery(requestedPage, PAGE_SIZE, collectionId));
-      if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+        new QuestionListQuery(targetPage, PAGE_SIZE, collectionId));
+      if (!this.is_current_request(seq, token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
         return;
       }
       if (!result.isSuccess || result.data === null) {
@@ -411,6 +433,7 @@ export struct QuestionLibrary {
           return;
         }
         this.errorText = describe_learning_error(result.error);
+        this.failedPage = targetPage;
         this.hasLoaded = true;
         return;
       }
@@ -418,14 +441,20 @@ export struct QuestionLibrary {
       this.items = page.items;
       this.page = page.page;
       this.total = page.total;
+      this.failedPage = 0;
       this.hasLoaded = true;
       this.errorText = '';
       await this.load_collections(token, seq);
     } catch (error) {
-      if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+      if (!this.is_current_request(seq, token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
         return;
       }
       this.errorText = '题库加载异常，请稍后重试';
+      this.failedPage = targetPage;
       this.hasLoaded = true;
     } finally {
       if (seq === this.requestSeq) {
@@ -443,7 +472,11 @@ export struct QuestionLibrary {
   private async load_collections(token: string, seq: number): Promise<void> {
     try {
       const result: AuthResult<QuestionCollection[]> = await this.api.listCollections(token);
-      if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+      if (!this.is_current_request(seq, token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
         return;
       }
       if (result.isSuccess && result.data !== null) {
@@ -462,9 +495,14 @@ export struct QuestionLibrary {
         this.handle_unauthorized(token);
       }
     } catch (error) {
-      if (seq === this.requestSeq && authSession.matches_access_token(token)) {
-        this.inboxCount = -1;
+      if (!this.is_current_request(seq, token)) {
+        return;
       }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
+      this.inboxCount = -1;
     }
   }
 
@@ -473,11 +511,7 @@ export struct QuestionLibrary {
       return;
     }
     this.scope = nextScope;
-    this.page = 1;
-    this.items = [];
-    this.total = 0;
-    this.hasLoaded = false;
-    this.load_questions(true);
+    this.reload_from_first_page();
   }
 
   private go_page(delta: number): void {
@@ -488,8 +522,23 @@ export struct QuestionLibrary {
     if (target < 1 || target > this.page_count()) {
       return;
     }
-    this.page = target;
-    this.load_questions(false);
+    this.items = [];
+    this.total = 0;
+    this.hasLoaded = false;
+    this.failedPage = 0;
+    this.load_page(target);
+  }
+
+  /**
+   * 重试失败的目标页；无失败页时重试当前页。
+   */
+  private retry_failed(): void {
+    if (this.loading) {
+      return;
+    }
+    const target: number = this.failedPage > 0 ? this.failedPage : this.page;
+    this.hasLoaded = false;
+    this.load_page(target);
   }
 
   private page_count(): number {
@@ -497,6 +546,10 @@ export struct QuestionLibrary {
       return 1;
     }
     return Math.ceil(this.total / PAGE_SIZE);
+  }
+
+  private is_current_request(seq: number, token: string): boolean {
+    return seq === this.requestSeq && authSession.matches_access_token(token);
   }
 
   private handle_unauthorized(token: string): void {

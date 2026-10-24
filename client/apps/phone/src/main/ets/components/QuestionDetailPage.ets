@@ -220,6 +220,10 @@ export struct QuestionDetailPage {
         requestedId !== this.questionId) {
         return;
       }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.is_unauthorized()) {
           this.handle_unauthorized(token);
@@ -234,7 +238,12 @@ export struct QuestionDetailPage {
       }
       this.detail = result.data;
     } catch (error) {
-      if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+      if (seq !== this.requestSeq || !authSession.matches_access_token(token) ||
+        requestedId !== this.questionId) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
         return;
       }
       this.errorText = '题目加载异常，请稍后重试';

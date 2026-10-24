@@ -211,6 +211,11 @@ export struct AccountPage {
       if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
         return;
       }
+      if (!authSession.has_valid_session()) {
+        authSession.clear_session_if_token(token);
+        this.onSignedOut(token);
+        return;
+      }
       if (result.isSuccess || (result.error !== null && result.error.is_unauthorized())) {
         authSession.clear_session_if_token(token);
         this.onSignedOut(token);
@@ -219,6 +224,11 @@ export struct AccountPage {
       this.errorText = '无法确认退出结果，请重试';
     } catch (error) {
       if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        authSession.clear_session_if_token(token);
+        this.onSignedOut(token);
         return;
       }
       this.errorText = '无法确认退出结果，请重试';
