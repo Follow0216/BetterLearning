@@ -62,11 +62,7 @@ function FailurePanel({ failure, retryHref }: { failure: LibraryFailure; retryHr
   );
 }
 
-export async function QuestionDetailView({
-  params,
-}: {
-  params: Promise<{ questionId: string }>;
-}) {
+export async function QuestionDetailView({ params }: { params: Promise<{ questionId: string }> }) {
   const { questionId } = await params;
   const retryHref = `/workspace/questions/${encodeURIComponent(questionId)}`;
 

@@ -129,9 +129,7 @@ export async function WorkspaceView({
           <QuestionList items={data.items} />
         ) : data.total > 0 ? (
           <div className="rounded-2xl border border-[var(--auth-border)] bg-white px-6 py-12 text-center">
-            <p className="text-sm text-[var(--auth-muted)]">
-              当前页没有题目，数据可能已更新。
-            </p>
+            <p className="text-sm text-[var(--auth-muted)]">当前页没有题目，数据可能已更新。</p>
             <Link
               href={buildWorkspaceHref(view, 1)}
               className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-3 text-sm font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)]"

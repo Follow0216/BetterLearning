@@ -13,7 +13,7 @@ export function QuestionList({ items }: { items: QuestionSummary[] }) {
         <li key={question.questionId}>
           <Link
             href={buildQuestionHref(question.questionId)}
-            className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--auth-hover)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-inset focus-visible:outline-none"
+            className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--auth-hover)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none focus-visible:ring-inset"
           >
             <SubjectBadge subject={question.subject} />
             <span className="min-w-0 flex-1 text-sm leading-6 break-words text-[var(--auth-text)]">
