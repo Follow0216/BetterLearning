@@ -9,6 +9,8 @@ import { CanvasWorkspaceActions, CanvasWorkspaceState, TabletCanvasController } 
 import { CanvasDraftStore, LocalCanvasDraft } from './CanvasDraftStore';
 import { CanvasSurface } from './CanvasSurface';
 import { export_canvas } from './CanvasExporter';
+import { TABLET_COLOR_BACKGROUND, TABLET_COLOR_BORDER, TABLET_COLOR_CARD, TABLET_COLOR_DANGER,
+  TABLET_COLOR_PRIMARY, TABLET_COLOR_TEXT, TABLET_RADIUS } from '../../theme/TabletTheme';
 
 export { CanvasWorkspaceState, TabletCanvasController } from './CanvasWorkspaceController';
 interface RasterRequest { key: string; generation: number; accountId: string; questionId: string; body: string; directory: string; }
@@ -323,15 +325,21 @@ export struct TabletCanvasWorkspace {
         }, (request: RasterRequest) => request.key)
       }
       if (this.loading || this.rasterizing) {
-        Column({ space: 12 }) { LoadingProgress().width(32).height(32); Text('正在准备完整画布…').fontSize(14) }
+        Column({ space: 12 }) {
+          LoadingProgress().width(28).height(28).color(TABLET_COLOR_PRIMARY)
+          Text('正在准备画布…').fontSize(14).fontColor(TABLET_COLOR_TEXT)
+        }.padding(20).backgroundColor(TABLET_COLOR_CARD).borderRadius(TABLET_RADIUS)
+          .border({ width: 1, color: TABLET_COLOR_BORDER })
+          .shadow({ radius: 16, color: '#14246BFF', offsetY: 4 })
       }
       if (this.message.length > 0) {
         Column({ space: 8 }) {
-          Text(this.message).fontSize(14).fontColor('#B42318')
+          Text(this.message).fontSize(14).fontColor(TABLET_COLOR_DANGER)
           if (this.needsRefresh) { Button('刷新当前云端作答').onClick(() => this.refresh()).enabled(!this.busy) }
           else if (this.document === null && !this.loading && !this.rasterizing) { Button('重试').onClick(() => this.initialize(false)) }
-        }.padding(12).backgroundColor('#FFF4ED').align(Alignment.Top)
+        }.padding(12).backgroundColor(TABLET_COLOR_CARD).borderRadius(TABLET_RADIUS)
+          .border({ width: 1, color: TABLET_COLOR_BORDER }).width('90%').margin({ top: 16 }).align(Alignment.Top)
       }
-    }.width('100%').height('100%').backgroundColor('#FFFFFF')
+    }.width('100%').height('100%').backgroundColor(TABLET_COLOR_BACKGROUND)
   }
 }
