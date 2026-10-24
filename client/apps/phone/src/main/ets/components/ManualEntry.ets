@@ -527,17 +527,30 @@ export struct ManualEntry {
       !authSession.matches_access_token(token);
   }
 
-  private release_preview(): void {
-    const preview: image.PixelMap | null = this.preview;
+  private detach_preview(): void {
     this.preview = null;
     if (this.alive) {
       this.previewWidth = 0;
       this.previewHeight = 0;
       this.cropKey = this.cropKey + 1;
     }
-    if (preview !== null) {
-      preview.release();
+  }
+
+  private async release_map(map: image.PixelMap | null): Promise<void> {
+    if (map === null) {
+      return;
     }
+    try {
+      await map.release();
+    } catch (error) {
+      // PixelMap 已释放时忽略重复释放错误，不阻断后续流程。
+    }
+  }
+
+  private release_preview(): void {
+    const preview: image.PixelMap | null = this.preview;
+    this.detach_preview();
+    this.release_map(preview);
   }
 
   private drop_crop_file(): void {
@@ -550,7 +563,7 @@ export struct ManualEntry {
 
   /**
    * 切页、退出会话或销毁时取消采集/裁剪等待；正文与学科保持不变。
-   * cropToFile 在途时不在此释放 preview，由该异步流程结束后释放。
+   * 裁剪在途时只解除页面对该 PixelMap 的引用，释放由 confirm_crop 的局部引用负责。
    */
   private abandon_capture(): void {
     const cropping: boolean = this.cropBusy;
@@ -563,7 +576,9 @@ export struct ManualEntry {
     this.ocrNotice = '';
     this.pendingOcrText = '';
     this.drop_crop_file();
-    if (!cropping) {
+    if (cropping) {
+      this.detach_preview();
+    } else {
       this.release_preview();
     }
   }
@@ -626,9 +641,7 @@ export struct ManualEntry {
         this.imageError = from_camera ? '无法打开相机或读取照片，请重试' : '无法读取所选图片，请重试';
       }
     } finally {
-      if (loaded !== null) {
-        await loaded.release();
-      }
+      await this.release_map(loaded);
       if (generation === this.imageGeneration) {
         this.imageLoading = false;
         if (this.imageStage === EntryImageStage.LOADING) {
@@ -654,6 +667,7 @@ export struct ManualEntry {
     this.imageError = '';
     this.ocrNotice = '';
     let createdPath: string = '';
+    let keepPreview: boolean = false;
     try {
       createdPath = await cropToFile(context, preview, rect);
       if (this.image_stale(generation, token)) {
@@ -678,13 +692,17 @@ export struct ManualEntry {
         } else {
           this.imageError = '裁剪失败，请调整选区后重试';
         }
+        keepPreview = this.imageStage === EntryImageStage.CROP && this.preview === preview;
       }
     } finally {
       if (generation === this.imageGeneration) {
         this.cropBusy = false;
       }
-      if (this.imageStage === EntryImageStage.READY || this.image_stale(generation, token)) {
-        this.release_preview();
+      if (!keepPreview) {
+        if (this.preview === preview) {
+          this.detach_preview();
+        }
+        await this.release_map(preview);
       }
     }
   }
