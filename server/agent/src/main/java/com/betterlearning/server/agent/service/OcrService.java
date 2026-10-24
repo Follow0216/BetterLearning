@@ -38,7 +38,7 @@ public class OcrService {
             throw new AgentModelException(Failure.MODEL_EMPTY_RESPONSE);
         }
         if (markdown.length() > 20000) {
-            throw new AgentModelException(Failure.MODEL_INPUT_TOO_LARGE);
+            throw new AgentModelException(Failure.MODEL_RESPONSE_TOO_LARGE);
         }
         return new TutorModels.OcrResult(markdown);
     }

@@ -2,7 +2,7 @@ package com.betterlearning.server.agent.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** 两套独立模型配置；C1在app注册并映射环境变量，密钥无内置默认值。 */
+/** 两套独立模型配置；本模块注册，C1在app映射环境变量，密钥无内置默认值。 */
 @ConfigurationProperties("app.agent")
 public class AgentProperties {
     private final Provider ocr = new Provider();

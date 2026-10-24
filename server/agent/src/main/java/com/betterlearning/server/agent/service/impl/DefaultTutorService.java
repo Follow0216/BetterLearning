@@ -58,9 +58,12 @@ public class DefaultTutorService implements TutorService {
         if (current.status() == TutorModels.Status.GENERATING || current.status() == TutorModels.Status.SUCCEEDED) {
             return current;
         }
+        if (current.fileRef() == null) {
+            throw new BusinessException(ErrorCode.ANSWER_NOT_SAVED);
+        }
         // 先读取完整冻结包再领取，普通文件/DB读取失败不会把状态留在GENERATING。
         TutorModels.FrozenAnswer frozen = store.frozenAnswer(accountId, questionId, turnId);
-        if (current.fileRef() == null || !current.fileRef().equals(frozen.fileRef()) || frozen.images().isEmpty()) {
+        if (!current.fileRef().equals(frozen.fileRef()) || frozen.images().isEmpty()) {
             throw new BusinessException(ErrorCode.ANSWER_NOT_SAVED);
         }
         TutorModels.GenerationClaim claim = store.claimGeneration(accountId, questionId, turnId, retry);
