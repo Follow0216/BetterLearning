@@ -66,3 +66,11 @@ export {
 export { LearningApi } from './src/main/ets/features/learning/LearningApi';
 
 export { QuestionMarkdownView } from './src/main/ets/features/learning/QuestionMarkdownView';
+
+export { AnswerState, AnswerManifest, AnswerQuestionSnapshot, SolutionDetail, FrozenAnswerUpload }
+  from './src/main/ets/features/learning/SolutionModels';
+export {
+  CanvasPoint, CanvasView, CanvasRect, CanvasStroke, CanvasTextBlock, CanvasImageBlock,
+  CanvasQuestionLayout, CanvasEditableDocument, CanvasExtent, CanvasLocalFile, CanvasTool,
+  CANVAS_TILE_SIZE, CANVAS_RENDERER_ID, CANVAS_CONTENT_WIDTH, CANVAS_FONT_SIZE
+} from './src/main/ets/features/canvas/CanvasModels';

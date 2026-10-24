@@ -1,4 +1,5 @@
 import { util } from '@kit.ArkTS';
+import { AnswerState } from './SolutionModels';
 
 /** M1 正式学科值；不可传中文名称或演示数据 ID。 */
 export enum LearningSubject {
@@ -20,14 +21,16 @@ export class QuestionSummary {
   readonly subject: LearningSubject;
   readonly summary: string;
   readonly createdAt: string;
+  readonly answerState: AnswerState;
 
   constructor(questionId: string, collectionId: string, subject: LearningSubject,
-    summary: string, createdAt: string) {
+    summary: string, createdAt: string, answerState: AnswerState = AnswerState.NOT_STARTED) {
     this.questionId = questionId;
     this.collectionId = collectionId;
     this.subject = subject;
     this.summary = summary;
     this.createdAt = createdAt;
+    this.answerState = answerState;
   }
 }
 
@@ -36,8 +39,8 @@ export class QuestionDetail extends QuestionSummary {
   readonly bodyMarkdown: string;
 
   constructor(questionId: string, collectionId: string, subject: LearningSubject,
-    summary: string, createdAt: string, bodyMarkdown: string) {
-    super(questionId, collectionId, subject, summary, createdAt);
+    summary: string, createdAt: string, bodyMarkdown: string, answerState: AnswerState = AnswerState.NOT_STARTED) {
+    super(questionId, collectionId, subject, summary, createdAt, answerState);
     this.bodyMarkdown = bodyMarkdown;
   }
 }
@@ -61,12 +64,14 @@ export class QuestionCollection {
   readonly name: string;
   readonly system: boolean;
   readonly questionCount: number;
+  readonly parentCollectionId: string | null;
 
-  constructor(collectionId: string, name: string, system: boolean, questionCount: number) {
+  constructor(collectionId: string, name: string, system: boolean, questionCount: number, parentCollectionId: string | null = null) {
     this.collectionId = collectionId;
     this.name = name;
     this.system = system;
     this.questionCount = questionCount;
+    this.parentCollectionId = parentCollectionId;
   }
 }
 
