@@ -1,4 +1,5 @@
 import {
+  AnswerState,
   AuthError,
   AuthFailureKind,
   AuthResult,
@@ -8,9 +9,9 @@ import {
   QuestionCollection,
   QuestionDetail,
   QuestionListQuery,
-  QuestionMarkdownView,
   QuestionPage,
   QuestionSummary,
+  SolutionDetail,
   authSession,
   learning_subject_label
 } from 'common';
@@ -31,8 +32,27 @@ import {
   TABLET_SIDEBAR_WIDTH
 } from '../theme/TabletTheme';
 import { format_created_at } from '../utils/DateTimeText';
+import { AnswerWorkspace } from './AnswerWorkspace';
+import { CanvasWorkspaceState, TabletCanvasController } from '../features/canvas/TabletCanvasWorkspace';
 
 const PAGE_SIZE: number = 20;
+const ROOT_COLLECTION_KEY: string = '';
+const ANSWER_DONE_FOREGROUND: string = '#2E7D5B';
+const ANSWER_DONE_BACKGROUND: string = '#E8F6EE';
+const ANSWER_IDLE_BACKGROUND: string = '#F0F3F9';
+
+/** 侧栏题集树的扁平可见节点，避免在构建函数里递归渲染。 */
+class CollectionNode {
+  readonly collection: QuestionCollection;
+  readonly depth: number;
+  readonly has_children: boolean;
+
+  constructor(collection: QuestionCollection, depth: number, has_children: boolean) {
+    this.collection = collection;
+    this.depth = depth;
+    this.has_children = has_children;
+  }
+}
 
 @Component
 export struct LibraryPane {
@@ -44,6 +64,8 @@ export struct LibraryPane {
   @State total: number = 0;
   @State items: QuestionSummary[] = [];
   @State inbox_count: number = -1;
+  @State collection_nodes: CollectionNode[] = [];
+  @State collapsed_ids: string[] = [];
   @State collections_error: string = '';
   @State loading: boolean = false;
   @State loaded_once: boolean = false;
@@ -53,7 +75,17 @@ export struct LibraryPane {
   @State detail: QuestionDetail | null = null;
   @State detail_loading: boolean = false;
   @State detail_error: string = '';
+  @State canvas_ready: boolean = false;
+  @State canvas_busy: boolean = false;
+  @State canvas_can_complete: boolean = false;
+  @State canvas_completed: boolean = false;
+  @State pending_action: string = '';
+  @State feedback_text: string = '';
+  @State feedback_error: boolean = false;
+  @State closing: boolean = false;
   private api: LearningApi = LearningApi.create_default();
+  private collections: QuestionCollection[] = [];
+  private canvas_controller: TabletCanvasController = new TabletCanvasController();
   private list_seq: number = 0;
   private detail_seq: number = 0;
   private alive: boolean = false;
@@ -110,7 +142,29 @@ export struct LibraryPane {
       }
       .width('100%')
 
-      Blank()
+      if (this.collection_nodes.length > 0) {
+        Text('题集')
+          .fontSize(11)
+          .fontColor(TABLET_COLOR_MUTED)
+          .width('100%')
+          .padding({ left: 12, top: 16, bottom: 6 })
+
+        Scroll() {
+          Column({ space: 2 }) {
+            ForEach(this.collection_nodes, (node: CollectionNode) => {
+              this.collection_row(node)
+            }, (node: CollectionNode): string => node.collection.collectionId)
+          }
+          .width('100%')
+          .padding({ bottom: 12 })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring)
+      } else {
+        Blank()
+      }
 
       if (this.collections_error.length > 0) {
         Row() {
@@ -187,6 +241,59 @@ export struct LibraryPane {
       TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .onClick(() => {
       this.change_scope(INBOX_COLLECTION_ID);
+    })
+  }
+
+  @Builder
+  collection_row(node: CollectionNode) {
+    Row() {
+      if (node.has_children) {
+        Row() {
+          Image($r('app.media.bl_chevron_right'))
+            .width(14)
+            .height(14)
+            .objectFit(ImageFit.Contain)
+            .rotate({ angle: this.is_collapsed(node.collection.collectionId) ? 0 : 90 })
+        }
+        .width(22)
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.toggle_collection(node.collection.collectionId);
+        })
+      } else {
+        Text('')
+          .width(22)
+          .height(1)
+      }
+
+      Row() {
+        Text(node.collection.name)
+          .fontSize(14)
+          .fontWeight(this.scope_collection_id === node.collection.collectionId ?
+            FontWeight.Medium : FontWeight.Normal)
+          .fontColor(this.scope_collection_id === node.collection.collectionId ?
+            TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text(`${node.collection.questionCount}`)
+          .fontSize(11)
+          .fontColor(TABLET_COLOR_MUTED)
+          .margin({ left: 6 })
+      }
+      .layoutWeight(1)
+      .height('100%')
+      .padding({ left: 4, right: 8 })
+    }
+    .width('100%')
+    .height(38)
+    .padding({ left: 6 + Math.min(node.depth, 4) * 14, right: 6 })
+    .borderRadius(TABLET_RADIUS_SMALL)
+    .backgroundColor(this.scope_collection_id === node.collection.collectionId ?
+      TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
+    .onClick(() => {
+      this.change_scope(node.collection.collectionId);
     })
   }
 
@@ -298,11 +405,18 @@ export struct LibraryPane {
             Text('待整理')
               .fontSize(11)
               .fontColor(TABLET_COLOR_MUTED)
-              .backgroundColor('#F0F3F9')
+              .backgroundColor(ANSWER_IDLE_BACKGROUND)
               .borderRadius(6)
               .padding({ left: 7, right: 7, top: 2, bottom: 2 })
               .margin({ left: 6 })
           }
+          Text(this.answer_state_label(item.answerState))
+            .fontSize(11)
+            .fontColor(this.answer_state_foreground(item.answerState))
+            .backgroundColor(this.answer_state_background(item.answerState))
+            .borderRadius(6)
+            .padding({ left: 7, right: 7, top: 2, bottom: 2 })
+            .margin({ left: 6 })
           Text(format_created_at(item.createdAt))
             .fontSize(11)
             .fontColor(TABLET_COLOR_MUTED)
@@ -489,14 +603,34 @@ export struct LibraryPane {
       } else if (this.detail_error.length > 0) {
         this.detail_failure_state()
       } else if (this.detail !== null) {
-        Column() {
-          QuestionMarkdownView({ bodyMarkdown: this.detail_body() })
-            .width('100%')
-            .height('100%')
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .padding({ left: TABLET_PAGE_PADDING, right: TABLET_PAGE_PADDING, top: 12, bottom: 16 })
+        AnswerWorkspace({
+          question: this.detail,
+          can_save: this.save_enabled(),
+          can_complete: this.complete_enabled(),
+          can_continue: this.continue_enabled(),
+          show_continue: this.canvas_completed,
+          pending_action: this.pending_action,
+          feedback_text: this.feedback_text,
+          feedback_error: this.feedback_error,
+          controller: this.canvas_controller,
+          on_state_change: (state: CanvasWorkspaceState) => {
+            this.apply_canvas_state(state);
+          },
+          on_session_expired: () => {
+            this.expire_session();
+          },
+          on_save: () => {
+            this.run_answer_action('save');
+          },
+          on_complete: () => {
+            this.run_answer_action('complete');
+          },
+          on_continue: () => {
+            this.run_answer_action('continue');
+          }
+        })
+          .width('100%')
+          .layoutWeight(1)
       }
     }
     .width('100%')
@@ -524,8 +658,10 @@ export struct LibraryPane {
       .padding({ left: 10, right: 14 })
       .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
       .borderRadius(TABLET_RADIUS_SMALL)
+      .enabled(!this.closing)
+      .opacity(this.closing ? 0.5 : 1)
       .onClick(() => {
-        this.close_detail();
+        this.request_close_detail();
       })
 
       Column() {
@@ -544,6 +680,13 @@ export struct LibraryPane {
               .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
               .borderRadius(6)
               .padding({ left: 7, right: 7, top: 2, bottom: 2 })
+            Text(this.answer_state_label(this.detail_answer_state()))
+              .fontSize(11)
+              .fontColor(this.answer_state_foreground(this.detail_answer_state()))
+              .backgroundColor(this.answer_state_background(this.detail_answer_state()))
+              .borderRadius(6)
+              .padding({ left: 7, right: 7, top: 2, bottom: 2 })
+              .margin({ left: 6 })
             Text(format_created_at(this.detail_created_at()))
               .fontSize(11)
               .fontColor(TABLET_COLOR_MUTED)
@@ -617,7 +760,7 @@ export struct LibraryPane {
           .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
           .borderRadius(TABLET_RADIUS_SMALL)
           .onClick(() => {
-            this.close_detail();
+            this.request_close_detail();
           })
       }
       .margin({ top: 4 })
@@ -628,8 +771,32 @@ export struct LibraryPane {
     .padding(24)
   }
 
+  private save_enabled(): boolean {
+    return this.canvas_ready && !this.canvas_busy && !this.canvas_completed &&
+      this.pending_action.length === 0;
+  }
+
+  private complete_enabled(): boolean {
+    return this.canvas_can_complete && !this.canvas_busy && this.pending_action.length === 0;
+  }
+
+  private continue_enabled(): boolean {
+    return this.canvas_completed && !this.canvas_busy && this.pending_action.length === 0;
+  }
+
   private scope_title(): string {
-    return this.scope_collection_id === INBOX_COLLECTION_ID ? '待整理' : '全部题目';
+    if (this.scope_collection_id === null) {
+      return '全部题目';
+    }
+    if (this.scope_collection_id === INBOX_COLLECTION_ID) {
+      return '待整理';
+    }
+    for (let index: number = 0; index < this.collections.length; index++) {
+      if (this.collections[index].collectionId === this.scope_collection_id) {
+        return this.collections[index].name;
+      }
+    }
+    return '题集';
   }
 
   private scope_meta(): string {
@@ -646,11 +813,6 @@ export struct LibraryPane {
     return Math.ceil(this.total / this.page_size);
   }
 
-  private detail_body(): string {
-    const detail: QuestionDetail | null = this.detail;
-    return detail === null ? '' : detail.bodyMarkdown;
-  }
-
   private detail_subject(): LearningSubject {
     const detail: QuestionDetail | null = this.detail;
     if (detail === null) {
@@ -662,6 +824,82 @@ export struct LibraryPane {
   private detail_created_at(): string {
     const detail: QuestionDetail | null = this.detail;
     return detail === null ? '' : detail.createdAt;
+  }
+
+  private detail_answer_state(): AnswerState {
+    const detail: QuestionDetail | null = this.detail;
+    return detail === null ? AnswerState.NOT_STARTED : detail.answerState;
+  }
+
+  private is_collapsed(collection_id: string): boolean {
+    return this.collapsed_ids.includes(collection_id);
+  }
+
+  private toggle_collection(collection_id: string): void {
+    const next: string[] = [];
+    let found: boolean = false;
+    for (let index: number = 0; index < this.collapsed_ids.length; index++) {
+      if (this.collapsed_ids[index] === collection_id) {
+        found = true;
+      } else {
+        next.push(this.collapsed_ids[index]);
+      }
+    }
+    if (!found) {
+      next.push(collection_id);
+    }
+    this.collapsed_ids = next;
+    this.rebuild_collection_nodes();
+  }
+
+  private rebuild_collection_nodes(): void {
+    const known_ids: Set<string> = new Set<string>();
+    for (let index: number = 0; index < this.collections.length; index++) {
+      known_ids.add(this.collections[index].collectionId);
+    }
+    const by_parent: Map<string, QuestionCollection[]> = new Map<string, QuestionCollection[]>();
+    for (let index: number = 0; index < this.collections.length; index++) {
+      const collection: QuestionCollection = this.collections[index];
+      if (collection.collectionId === INBOX_COLLECTION_ID) {
+        continue;
+      }
+      let parent_key: string = ROOT_COLLECTION_KEY;
+      const parent_id: string | null = collection.parentCollectionId;
+      if (parent_id !== null && parent_id !== INBOX_COLLECTION_ID &&
+        known_ids.has(parent_id) && parent_id !== collection.collectionId) {
+        parent_key = parent_id;
+      }
+      const bucket: QuestionCollection[] | undefined = by_parent.get(parent_key);
+      if (bucket === undefined) {
+        by_parent.set(parent_key, [collection]);
+      } else {
+        bucket.push(collection);
+      }
+    }
+    const nodes: CollectionNode[] = [];
+    this.append_collection_nodes(nodes, by_parent, ROOT_COLLECTION_KEY, 0, new Set<string>());
+    this.collection_nodes = nodes;
+  }
+
+  private append_collection_nodes(out: CollectionNode[], by_parent: Map<string, QuestionCollection[]>,
+    parent_key: string, depth: number, visited: Set<string>): void {
+    const children: QuestionCollection[] | undefined = by_parent.get(parent_key);
+    if (children === undefined) {
+      return;
+    }
+    for (let index: number = 0; index < children.length; index++) {
+      const collection: QuestionCollection = children[index];
+      if (visited.has(collection.collectionId)) {
+        continue;
+      }
+      visited.add(collection.collectionId);
+      const grand_children: QuestionCollection[] | undefined = by_parent.get(collection.collectionId);
+      const has_children: boolean = grand_children !== undefined && grand_children.length > 0;
+      out.push(new CollectionNode(collection, depth, has_children));
+      if (has_children && !this.is_collapsed(collection.collectionId)) {
+        this.append_collection_nodes(out, by_parent, collection.collectionId, depth + 1, visited);
+      }
+    }
   }
 
   private change_scope(next: string | null): void {
@@ -716,9 +954,10 @@ export struct LibraryPane {
         this.collections_error = this.failure_text(result.error);
         return;
       }
-      const collections: QuestionCollection[] = result.data;
+      this.collections = result.data;
       this.collections_error = '';
-      this.inbox_count = this.inbox_count_of(collections);
+      this.inbox_count = this.inbox_count_of(this.collections);
+      this.rebuild_collection_nodes();
     } catch (error) {
       if (!this.check_session(token, seq)) {
         return;
@@ -782,6 +1021,7 @@ export struct LibraryPane {
   }
 
   private open_detail(item: QuestionSummary): void {
+    this.reset_answer_view();
     this.open_question_id = item.questionId;
     this.open_summary = item.summary;
     this.detail = null;
@@ -795,11 +1035,44 @@ export struct LibraryPane {
     if (this.open_question_id.length === 0) {
       return;
     }
+    this.reset_answer_view();
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = true;
     this.detail_seq += 1;
     this.run_detail(this.open_question_id, this.detail_seq);
+  }
+
+  private request_close_detail(): void {
+    if (this.closing) {
+      return;
+    }
+    if (!this.canvas_ready) {
+      this.close_detail();
+      return;
+    }
+    this.closing = true;
+    this.flush_then_close();
+  }
+
+  private async flush_then_close(): Promise<void> {
+    let result: AuthResult<boolean> | null = null;
+    try {
+      result = await this.canvas_controller.flushLocal();
+    } catch (error) {
+      result = null;
+    }
+    this.closing = false;
+    if (!this.alive) {
+      return;
+    }
+    if (result === null || !result.isSuccess) {
+      this.feedback_text = result === null ? '本机草稿保存失败，请重试后再离开' :
+        this.answer_failure_text(result.error);
+      this.feedback_error = true;
+      return;
+    }
+    this.close_detail();
   }
 
   private close_detail(): void {
@@ -809,6 +1082,196 @@ export struct LibraryPane {
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = false;
+    this.reset_answer_view();
+  }
+
+  private reset_answer_view(): void {
+    this.canvas_ready = false;
+    this.canvas_busy = false;
+    this.canvas_can_complete = false;
+    this.canvas_completed = false;
+    this.pending_action = '';
+    this.feedback_text = '';
+    this.feedback_error = false;
+    this.closing = false;
+  }
+
+  private apply_canvas_state(state: CanvasWorkspaceState): void {
+    if (!this.alive) {
+      return;
+    }
+    this.canvas_ready = state.isReady;
+    this.canvas_busy = state.isBusy;
+    this.canvas_can_complete = state.canComplete;
+    this.canvas_completed = state.isCompleted;
+    if (state.errorMessage.length > 0 && this.pending_action.length === 0) {
+      this.feedback_text = state.errorMessage;
+      this.feedback_error = true;
+    }
+  }
+
+  private async run_answer_action(action: string): Promise<void> {
+    if (this.pending_action.length > 0 || this.detail === null || !this.alive) {
+      return;
+    }
+    const token: string | null = authSession.read_access_token();
+    if (token === null) {
+      this.expire_session();
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      if (authSession.clear_session_if_token(token)) {
+        this.expire_session();
+      }
+      return;
+    }
+    this.pending_action = action;
+    this.feedback_text = '';
+    this.feedback_error = false;
+    let result: AuthResult<SolutionDetail> | null = null;
+    try {
+      if (action === 'save') {
+        result = await this.canvas_controller.save();
+      } else if (action === 'complete') {
+        result = await this.canvas_controller.markCompleted();
+      } else {
+        result = await this.canvas_controller.continueWriting();
+      }
+    } catch (error) {
+      if (this.alive) {
+        this.pending_action = '';
+        this.feedback_text = '操作未完成，请重试';
+        this.feedback_error = true;
+      }
+      return;
+    }
+    this.pending_action = '';
+    if (!this.alive || !authSession.matches_access_token(token)) {
+      return;
+    }
+    if (!authSession.has_valid_session()) {
+      if (authSession.clear_session_if_token(token)) {
+        this.expire_session();
+      }
+      return;
+    }
+    if (result === null) {
+      this.feedback_text = '操作未完成，请重试';
+      this.feedback_error = true;
+      return;
+    }
+    if (result.error !== null && result.error.is_unauthorized()) {
+      if (authSession.clear_session_if_token(token)) {
+        this.expire_session();
+      }
+      return;
+    }
+    if (!result.isSuccess || result.data === null) {
+      this.feedback_text = this.answer_failure_text(result.error);
+      this.feedback_error = true;
+      return;
+    }
+    this.feedback_error = false;
+    this.feedback_text = this.success_text(action, result.data);
+    await this.refresh_answer_views(this.open_question_id);
+  }
+
+  private async refresh_answer_views(question_id: string): Promise<void> {
+    if (question_id.length === 0) {
+      return;
+    }
+    const token: string | null = authSession.read_access_token();
+    if (token === null || !this.alive) {
+      return;
+    }
+    this.detail_seq += 1;
+    const detail_seq: number = this.detail_seq;
+    try {
+      const result: AuthResult<QuestionDetail> = await this.api.getQuestion(token, question_id);
+      if (!this.check_detail_session(token, detail_seq)) {
+        return;
+      }
+      if (result.error !== null && result.error.is_unauthorized()) {
+        if (authSession.clear_session_if_token(token)) {
+          this.expire_session();
+        }
+        return;
+      }
+      if (result.isSuccess && result.data !== null) {
+        this.detail = result.data;
+      }
+    } catch (error) {
+      return;
+    }
+    if (!this.alive || !authSession.matches_access_token(token)) {
+      return;
+    }
+    this.list_seq += 1;
+    const list_seq: number = this.list_seq;
+    await this.load_questions(token, list_seq, this.page);
+  }
+
+  private success_text(action: string, solution: SolutionDetail): string {
+    if (action === 'complete') {
+      return '本题已完成。';
+    }
+    if (action === 'continue') {
+      return '已恢复作答，可以继续书写。';
+    }
+    const file_ref: string | null = solution.fileRef;
+    if (file_ref === null || file_ref.length === 0) {
+      return '已保存到本机草稿，稍后会自动同步。';
+    }
+    return '已保存。';
+  }
+
+  private answer_failure_text(error: AuthError | null): string {
+    if (error === null) {
+      return '操作未完成，请重试';
+    }
+    if (error.is_network()) {
+      return '网络连接失败，本机草稿已保留，请重试';
+    }
+    if (error.is_service_unavailable()) {
+      return '服务暂时不可用，请稍后重试';
+    }
+    if (error.httpStatus === 409) {
+      return '题目状态已变化，请刷新后重试';
+    }
+    if (error.message.length > 0) {
+      return error.message;
+    }
+    return '操作未完成，请重试';
+  }
+
+  private answer_state_label(state: AnswerState): string {
+    if (state === AnswerState.COMPLETED) {
+      return '已完成';
+    }
+    if (state === AnswerState.IN_PROGRESS) {
+      return '作答中';
+    }
+    return '未开始';
+  }
+
+  private answer_state_foreground(state: AnswerState): string {
+    if (state === AnswerState.COMPLETED) {
+      return ANSWER_DONE_FOREGROUND;
+    }
+    if (state === AnswerState.IN_PROGRESS) {
+      return TABLET_COLOR_PRIMARY;
+    }
+    return TABLET_COLOR_MUTED;
+  }
+
+  private answer_state_background(state: AnswerState): string {
+    if (state === AnswerState.COMPLETED) {
+      return ANSWER_DONE_BACKGROUND;
+    }
+    if (state === AnswerState.IN_PROGRESS) {
+      return TABLET_COLOR_PRIMARY_SOFT;
+    }
+    return ANSWER_IDLE_BACKGROUND;
   }
 
   private async run_detail(question_id: string, seq: number): Promise<void> {
@@ -877,11 +1340,15 @@ export struct LibraryPane {
     this.detail_seq += 1;
     this.items = [];
     this.total = 0;
+    this.collections = [];
+    this.collection_nodes = [];
+    this.inbox_count = -1;
     this.detail = null;
     this.open_question_id = '';
     this.open_summary = '';
     this.error_text = '';
     this.detail_error = '';
+    this.reset_answer_view();
     this.on_session_expired();
   }
 
@@ -932,4 +1399,3 @@ export struct LibraryPane {
     return error.message;
   }
 }
-
