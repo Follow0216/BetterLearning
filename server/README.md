@@ -239,6 +239,7 @@ java -jar app/target/server.jar
 | `403` | `A0300` | `FORBIDDEN` | 已认证但无权限，或 CORS origin 被拒绝 |
 | `404` | `A0606` | `NOT_FOUND` | 路径不存在，或文档端点未开启 |
 | `405` | `A0507` | `METHOD_NOT_ALLOWED` | 请求方法不支持 |
+| `406` | `A0429` | `NOT_ACCEPTABLE` | Accept 与响应格式不匹配 |
 | `415` | `A0428` | `UNSUPPORTED_MEDIA_TYPE` | 媒体类型不受支持 |
 | `409` | `A0111` | `USERNAME_EXISTS` | 用户名已存在 |
 | `409` | `A0154` | `PHONE_ALREADY_BOUND` | 手机号已绑定其他账号 |

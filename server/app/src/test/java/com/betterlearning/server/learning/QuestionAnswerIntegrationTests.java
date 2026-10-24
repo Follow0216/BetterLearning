@@ -119,6 +119,10 @@ class QuestionAnswerIntegrationTests {
         String rasterUrl = (String) maps(layout.get("rasterBlocks")).get(0).get("url");
         assertThat(download(compositeUrl, alice).body()).isEqualTo(AnswerTestData.png(32));
         assertThat(download(rasterUrl, alice).body()).isEqualTo(AnswerTestData.png(16));
+        HttpResponse<String> unacceptable = http.send(HttpRequest.newBuilder(http.uri(compositeUrl))
+                .header("Authorization", "Bearer " + alice).header("Accept", "application/json").GET());
+        http.assertErrorEnvelope(unacceptable, 406, "A0429");
+        assertThat(unacceptable.headers().firstValue("Content-Type").orElse("")).startsWith("application/json");
         http.assertErrorEnvelope(http.get(ROOT + question + "/answer", bob), 404, "A0606");
         assertPngError(compositeUrl, bob, 404, "A0606");
         assertPngError(rasterUrl, bob, 404, "A0606");
