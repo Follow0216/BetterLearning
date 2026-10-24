@@ -24,10 +24,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -79,21 +79,21 @@ public class LearningController {
         return learningService.createCollection(account.accountId(), request);
     }
 
-    @PatchMapping("/collections/{collectionId}")
+    @RequestMapping(value = "/collections/{collectionId}", method = {RequestMethod.PATCH, RequestMethod.POST})
     public QuestionCollectionVO renameCollection(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String collectionId, @Valid @RequestBody RenameQuestionCollectionDTO request) {
         return learningService.renameCollection(account.accountId(), collectionId, request);
     }
 
-    @PatchMapping("/questions/{questionId}/collection")
+    @RequestMapping(value = "/questions/{questionId}/collection", method = {RequestMethod.PATCH, RequestMethod.POST})
     public QuestionVO moveQuestion(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String questionId, @Valid @RequestBody MoveQuestionDTO request) {
         return learningService.moveQuestion(account.accountId(), questionId, request);
     }
 
-    @PatchMapping("/questions/{questionId}/answer-state")
+    @RequestMapping(value = "/questions/{questionId}/answer-state", method = {RequestMethod.PATCH, RequestMethod.POST})
     public AnswerModels.SaveResult answerState(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String questionId, @RequestBody AnswerModels.StateRequest request) {

@@ -109,7 +109,7 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheNineteenM2Operations() throws Exception {
+    void documentsExactlyTheTwentyTwoM2Operations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
@@ -124,10 +124,10 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v1/learning/questions/{questionId}", List.of("get")),
                 Map.entry("/api/v1/learning/collections", List.of("get", "post")),
                 Map.entry("/api/v1/admin/session", List.of("get")),
-                Map.entry("/api/v1/learning/collections/{collectionId}", List.of("patch")),
-                Map.entry("/api/v1/learning/questions/{questionId}/collection", List.of("patch")),
+                Map.entry("/api/v1/learning/collections/{collectionId}", List.of("patch", "post")),
+                Map.entry("/api/v1/learning/questions/{questionId}/collection", List.of("patch", "post")),
                 Map.entry("/api/v1/learning/questions/{questionId}/answer", List.of("get", "post")),
-                Map.entry("/api/v1/learning/questions/{questionId}/answer-state", List.of("patch")),
+                Map.entry("/api/v1/learning/questions/{questionId}/answer-state", List.of("patch", "post")),
                 Map.entry("/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", List.of("get")),
                 Map.entry("/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")));
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
@@ -152,10 +152,13 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/admin/session", "get", "200"},
                 new String[] {"/api/v1/learning/collections", "post", "201"},
                 new String[] {"/api/v1/learning/collections/{collectionId}", "patch", "200"},
+                new String[] {"/api/v1/learning/collections/{collectionId}", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/collection", "patch", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/collection", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer", "get", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "patch", "200"},
+                new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", "get", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get", "200"})) {
             Map<String, Object> responses = asMap(operation(docs, addedOperation[0], addedOperation[1])
@@ -193,10 +196,13 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/admin/session", "get"},
                 new String[] {"/api/v1/learning/collections", "post"},
                 new String[] {"/api/v1/learning/collections/{collectionId}", "patch"},
+                new String[] {"/api/v1/learning/collections/{collectionId}", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/collection", "patch"},
+                new String[] {"/api/v1/learning/questions/{questionId}/collection", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer", "get"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "patch"},
+                new String[] {"/api/v1/learning/questions/{questionId}/answer-state", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}", "get"},
                 new String[] {"/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}", "get"})) {
             assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
