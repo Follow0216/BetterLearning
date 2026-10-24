@@ -12,6 +12,8 @@
   --auth-primary-soft: #e8f0ff;
   --auth-border: #e2eaf5;
   --auth-danger: #c62f3b;
+  --auth-hover: #f0f5ff;
+  --auth-divider: #eef2f8;
 }
 
 @theme inline {
@@ -39,6 +41,20 @@ body {
     "Noto Sans SC",
     sans-serif;
 }
+.bl-icon {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask-image: var(--bl-icon-url);
+  mask-image: var(--bl-icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
 .auth-wordmark {
   font-size: 22px;
   line-height: 1.15;
