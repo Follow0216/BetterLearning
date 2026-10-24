@@ -1,4 +1,4 @@
-import { AuthError, AuthResult, SolutionDetail } from 'common';
+import { AuthError, AuthResult, FrozenTutorAnswer, SolutionDetail, TutorTurn } from 'common';
 
 /** A-T 仅消费该状态，不复制画布或服务端模型。 */
 export class CanvasWorkspaceState {
@@ -14,6 +14,8 @@ export class CanvasWorkspaceState {
 }
 
 export interface CanvasWorkspaceActions {
+  freezeAtPenUp?: (questionId: string, turnId: string) => Promise<AuthResult<FrozenTutorAnswer>>;
+  sendFrozenTutorAnswer?: (frozen: FrozenTutorAnswer) => Promise<AuthResult<TutorTurn>>;
   save: () => Promise<AuthResult<SolutionDetail>>;
   markCompleted: () => Promise<AuthResult<SolutionDetail>>;
   continueWriting: () => Promise<AuthResult<SolutionDetail>>;
@@ -26,6 +28,16 @@ export class TabletCanvasController {
   attach(actions: CanvasWorkspaceActions): void { this.actions = actions; }
   detach(actions: CanvasWorkspaceActions): void {
     if (this.actions === actions) { this.actions = null; }
+  }
+  async freezeAtPenUp(questionId: string, turnId: string): Promise<AuthResult<FrozenTutorAnswer>> {
+    const action: ((questionId: string, turnId: string) => Promise<AuthResult<FrozenTutorAnswer>>) | undefined = this.actions?.freezeAtPenUp;
+    return action === undefined ? AuthResult.failure<FrozenTutorAnswer>(
+      AuthError.local_validation('画布冻结尚未就绪', {})) : action(questionId,turnId);
+  }
+  async sendFrozenTutorAnswer(frozen: FrozenTutorAnswer): Promise<AuthResult<TutorTurn>> {
+    const action: ((frozen: FrozenTutorAnswer) => Promise<AuthResult<TutorTurn>>) | undefined = this.actions?.sendFrozenTutorAnswer;
+    return action === undefined ? AuthResult.failure<TutorTurn>(
+      AuthError.local_validation('画布求助发送尚未就绪', {})) : action(frozen);
   }
   async save(): Promise<AuthResult<SolutionDetail>> {
     return this.actions === null ? this.not_ready() : this.actions.save();

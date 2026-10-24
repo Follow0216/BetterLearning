@@ -515,14 +515,15 @@ export class AuthApi {
   }
 
   /** M2 单次完整 multipart 保存；保留原 manifest 字节，不自动重试。 */
-  async request_multipart(path: string, token: string, parts: http.MultiFormData[]): Promise<AuthResult<string>> {
+  async request_multipart(path: string, token: string, parts: http.MultiFormData[],
+    readTimeoutMillis: number = 120000, failureMessage: string = '作答保存连接失败，请保留原包重试'): Promise<AuthResult<string>> {
     if (token.length === 0) { return AuthResult.failure<string>(AuthError.local_validation('请重新登录', {})); }
     const request: http.HttpRequest = http.createHttp();
     try {
       const response: http.HttpResponse = await request.request(this.baseUrl + path, {
         method: http.RequestMethod.POST,
         header: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'multipart/form-data' },
-        connectTimeout: REQUEST_TIMEOUT_MILLIS, readTimeout: 120000,
+        connectTimeout: REQUEST_TIMEOUT_MILLIS, readTimeout: readTimeoutMillis,
         expectDataType: http.HttpDataType.STRING, maxLimit: 16777216, usingCache: false, multiFormDataList: parts
       });
       const body: string = typeof response.result === 'string' ? response.result : '';
@@ -531,7 +532,7 @@ export class AuthApi {
       }
       return AuthResult.success<string>(body);
     } catch (error) {
-      return AuthResult.failure<string>(AuthError.network_failure('作答保存连接失败，请保留原包重试', ''));
+      return AuthResult.failure<string>(AuthError.network_failure(failureMessage, ''));
     } finally { request.destroy(); }
   }
 
@@ -564,12 +565,13 @@ export class AuthApi {
    * 成功时返回响应文本，由领域 API 按各自 DTO 解析；不自动刷新、重试或修改会话。
    */
   async request_resource(method: http.RequestMethod, path: string, token: string,
-    body: string = '', expectedStatus: number = STATUS_OK): Promise<AuthResult<string>> {
+    body: string = '', expectedStatus: number = STATUS_OK,
+    readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS): Promise<AuthResult<string>> {
     if (token.length === 0) {
       return AuthResult.failure<string>(
         AuthError.local_validation('登录状态缺失，请重新登录', {}));
     }
-    const outcome: RequestOutcome = await this.send_request(method, path, token, body);
+    const outcome: RequestOutcome = await this.send_request(method, path, token, body, readTimeoutMillis);
     const transportError: AuthError | null = this.transport_error(outcome);
     if (transportError !== null) {
       return AuthResult.failure<string>(transportError);
@@ -592,7 +594,7 @@ export class AuthApi {
    * @return 响应或网络错误
    */
   private async send_request(method: http.RequestMethod, path: string, token: string,
-    body: string): Promise<RequestOutcome> {
+    body: string, readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS): Promise<RequestOutcome> {
     const header: Record<string, string> = {
       'Content-Type': JSON_CONTENT_TYPE
     };
@@ -603,7 +605,7 @@ export class AuthApi {
       method: method,
       header: header,
       connectTimeout: REQUEST_TIMEOUT_MILLIS,
-      readTimeout: REQUEST_TIMEOUT_MILLIS,
+      readTimeout: readTimeoutMillis,
       expectDataType: http.HttpDataType.STRING,
       maxLimit: 16777216,
       usingCache: false
