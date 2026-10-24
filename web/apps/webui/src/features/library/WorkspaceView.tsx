@@ -98,13 +98,22 @@ export async function WorkspaceView({
   ]);
 
   const collections = collectionsResult.ok ? collectionsResult.data.items : [];
+  const collectionsFailure = collectionsResult.ok ? undefined : collectionsResult.failure;
+
+  if (collectionsFailure?.kind === "unauthenticated") {
+    redirect("/");
+  }
 
   if (!pageResult.ok) {
     if (pageResult.failure.kind === "unauthenticated") {
       redirect("/");
     }
     return (
-      <WorkspaceFrame view={view} collections={collections}>
+      <WorkspaceFrame
+        view={view}
+        collections={collections}
+        collectionsFailure={collectionsFailure}
+      >
         <FailurePanel failure={pageResult.failure} retryHref={retryHref} />
       </WorkspaceFrame>
     );
@@ -132,7 +141,8 @@ export async function WorkspaceView({
       ? "待整理"
       : view.kind === "all"
         ? "全部题目"
-        : (currentCollection?.name ?? "题集");
+        : (currentCollection?.name ??
+          (collectionsFailure === undefined ? "题集" : `题集 #${view.collectionId}`));
   const description =
     view.kind === "inbox"
       ? "手机端确认入库的题目默认进入这里。"
@@ -144,6 +154,7 @@ export async function WorkspaceView({
     <WorkspaceFrame
       view={view}
       collections={collections}
+      collectionsFailure={collectionsFailure}
       inboxCount={inboxCount}
       allCount={allCount}
     >
