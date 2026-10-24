@@ -35,6 +35,9 @@ public enum ErrorCode {
     /** A0428：不支持的媒体类型；本项目扩展，沿用 A0400 用户请求参数错误类别。 */
     UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "A0428", "不支持的媒体类型"),
 
+    /** A0429：Accept 不支持当前响应格式；本项目扩展，沿用 A0400 用户请求参数错误类别。 */
+    NOT_ACCEPTABLE(HttpStatus.NOT_ACCEPTABLE, "A0429", "请求的响应格式不受支持"),
+
     /** A0111：用户名已存在（沿用《Java 开发手册》附 3）。 */
     USERNAME_EXISTS(HttpStatus.CONFLICT, "A0111", "用户名已存在"),
 

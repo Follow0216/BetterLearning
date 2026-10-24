@@ -22,6 +22,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -299,6 +300,13 @@ public class GlobalExceptionHandler {
             HttpMediaTypeNotSupportedException exception, HttpServletRequest request) {
         return respond(ErrorCode.UNSUPPORTED_MEDIA_TYPE,
                 ErrorCode.UNSUPPORTED_MEDIA_TYPE.getMessage(), null, request);
+    }
+
+    /** Accept 无法匹配路由响应格式时返回 406 A0429，错误体仍为 JSON。 */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ApiErrorVO> handleMediaTypeNotAcceptable(
+            HttpMediaTypeNotAcceptableException exception, HttpServletRequest request) {
+        return respond(ErrorCode.NOT_ACCEPTABLE, ErrorCode.NOT_ACCEPTABLE.getMessage(), null, request);
     }
 
     /** multipart 总体超限，不回传容器错误或文件路径。 */

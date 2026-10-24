@@ -25,6 +25,7 @@ class ErrorCodeContractTests {
                 entry("NOT_FOUND", "A0606", HttpStatus.NOT_FOUND),
                 entry("METHOD_NOT_ALLOWED", "A0507", HttpStatus.METHOD_NOT_ALLOWED),
                 entry("UNSUPPORTED_MEDIA_TYPE", "A0428", HttpStatus.UNSUPPORTED_MEDIA_TYPE),
+                entry("NOT_ACCEPTABLE", "A0429", HttpStatus.NOT_ACCEPTABLE),
                 entry("USERNAME_EXISTS", "A0111", HttpStatus.CONFLICT),
                 entry("PHONE_ALREADY_BOUND", "A0154", HttpStatus.CONFLICT),
                 entry("EMAIL_ALREADY_BOUND", "A0155", HttpStatus.CONFLICT),
@@ -43,7 +44,7 @@ class ErrorCodeContractTests {
         Map<String, ExpectedCode> actual = Arrays.stream(ErrorCode.values())
                 .collect(Collectors.toMap(ErrorCode::name, code -> new ExpectedCode(code.getCode(), code.getStatus())));
 
-        assertThat(ErrorCode.values()).hasSize(21);
+        assertThat(ErrorCode.values()).hasSize(22);
         assertThat(actual).isEqualTo(expected);
     }
 
@@ -53,7 +54,7 @@ class ErrorCodeContractTests {
                 .map(ErrorCode::getCode)
                 .toList();
 
-        assertThat(codes).doesNotHaveDuplicates().hasSize(21);
+        assertThat(codes).doesNotHaveDuplicates().hasSize(22);
         assertThat(codes).allMatch(code -> CODE_PATTERN.matcher(code).matches());
         assertThat(codes).allMatch(code -> code.length() == 5);
 

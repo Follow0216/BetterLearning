@@ -114,6 +114,15 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void returns406JsonWhenAcceptDoesNotMatchImageRoute() throws Exception {
+        mockMvc.perform(get("/test/image-not-found").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("A0429"))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
     void returnsServiceUnavailableForConnectionFailure() throws Exception {
         mockMvc.perform(get("/test/unavailable"))
                 .andExpect(status().isServiceUnavailable())
