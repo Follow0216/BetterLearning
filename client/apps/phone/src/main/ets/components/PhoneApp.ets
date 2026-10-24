@@ -10,6 +10,7 @@ import {
 import { AccountPage } from './AccountPage';
 import { ManualEntry } from './ManualEntry';
 import { PhoneAnswerPage } from './PhoneAnswerPage';
+import { PhoneTutorPage } from './PhoneTutorPage';
 import { QuestionDetailPage } from './QuestionDetailPage';
 import { QuestionLibrary } from './QuestionLibrary';
 
@@ -33,6 +34,8 @@ export struct PhoneApp {
   @State activeTab: PhoneTab = PhoneTab.LIBRARY;
   @State detailQuestionId: string = '';
   @State answerQuestionId: string = '';
+  @State answerTurnId: string = '';
+  @State tutorQuestionId: string = '';
   @State libraryRefreshToken: number = 0;
 
   aboutToAppear(): void {
@@ -47,11 +50,28 @@ export struct PhoneApp {
     Stack() {
       if (this.isAuthenticated) {
         this.main_shell()
+        if (this.tutorQuestionId.length > 0) {
+          PhoneTutorPage({
+            questionId: this.tutorQuestionId,
+            onBack: () => {
+              this.tutorQuestionId = '';
+            },
+            onOpenFrozenAnswer: (questionId: string, turnId: string) => {
+              this.answerTurnId = turnId;
+              this.answerQuestionId = questionId;
+            },
+            onUnauthorized: (token: string) => {
+              this.handle_signed_out(token);
+            }
+          })
+        }
         if (this.answerQuestionId.length > 0) {
           PhoneAnswerPage({
             questionId: this.answerQuestionId,
+            turnId: this.answerTurnId,
             onBack: () => {
               this.answerQuestionId = '';
+              this.answerTurnId = '';
             },
             onUnauthorized: (token: string) => {
               this.handle_signed_out(token);
@@ -82,6 +102,8 @@ export struct PhoneApp {
           refreshToken: this.libraryRefreshToken,
           onOpenQuestion: (questionId: string) => {
             this.answerQuestionId = '';
+            this.answerTurnId = '';
+            this.tutorQuestionId = '';
             this.detailQuestionId = questionId;
           },
           onUnauthorized: (token: string) => {
@@ -96,6 +118,8 @@ export struct PhoneApp {
             this.libraryRefreshToken = this.libraryRefreshToken + 1;
             this.activeTab = PhoneTab.LIBRARY;
             this.answerQuestionId = '';
+            this.answerTurnId = '';
+            this.tutorQuestionId = '';
             this.detailQuestionId = detail.questionId;
           },
           onUnauthorized: (token: string) => {
@@ -121,10 +145,16 @@ export struct PhoneApp {
             questionId: this.detailQuestionId,
             onBack: () => {
               this.answerQuestionId = '';
+              this.answerTurnId = '';
+              this.tutorQuestionId = '';
               this.detailQuestionId = '';
             },
             onOpenAnswer: (questionId: string) => {
+              this.answerTurnId = '';
               this.answerQuestionId = questionId;
+            },
+            onOpenTutor: (questionId: string) => {
+              this.tutorQuestionId = questionId;
             },
             onUnauthorized: (token: string) => {
               this.handle_signed_out(token);
@@ -174,6 +204,8 @@ export struct PhoneApp {
     .accessibilityText(label)
     .onClick(() => {
       this.answerQuestionId = '';
+      this.answerTurnId = '';
+      this.tutorQuestionId = '';
       this.detailQuestionId = '';
       this.activeTab = tab;
     })
@@ -195,6 +227,8 @@ export struct PhoneApp {
     this.isAuthenticated = true;
     this.activeTab = PhoneTab.LIBRARY;
     this.answerQuestionId = '';
+    this.answerTurnId = '';
+    this.tutorQuestionId = '';
     this.detailQuestionId = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
   }
@@ -219,6 +253,8 @@ export struct PhoneApp {
     this.isAuthenticated = false;
     this.activeTab = PhoneTab.LIBRARY;
     this.answerQuestionId = '';
+    this.answerTurnId = '';
+    this.tutorQuestionId = '';
     this.detailQuestionId = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
   }

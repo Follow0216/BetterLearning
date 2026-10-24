@@ -46,6 +46,8 @@ export struct QuestionDetailPage {
   };
   onOpenAnswer: (questionId: string) => void = () => {
   };
+  onOpenTutor: (questionId: string) => void = () => {
+  };
   onUnauthorized: (token: string) => void = () => {
   };
 
@@ -193,25 +195,41 @@ export struct QuestionDetailPage {
         .width('100%')
         .padding({ left: 18, right: 18, top: 12, bottom: 12 })
 
-      Row() {
+      Column() {
         Text(this.answer_hint(detail.answerState))
           .fontSize(12)
           .fontColor(PHONE_COLOR_MUTED)
-          .layoutWeight(1)
-        Button('查看当前作答')
-          .height(34)
-          .fontSize(12)
-          .fontColor(PHONE_COLOR_WHITE)
-          .backgroundColor(PHONE_COLOR_PRIMARY)
-          .borderRadius(PHONE_RADIUS_CONTROL)
-          .accessibilityText('查看当前作答')
-          .onClick(() => {
-            this.onOpenAnswer(detail.questionId);
-          })
+          .width('100%')
+        Row() {
+          Button('AI 辅导')
+            .height(34)
+            .fontSize(12)
+            .fontColor(PHONE_COLOR_WHITE)
+            .backgroundColor(PHONE_COLOR_PRIMARY)
+            .borderRadius(PHONE_RADIUS_CONTROL)
+            .accessibilityText('打开 AI 辅导')
+            .onClick(() => {
+              this.onOpenTutor(detail.questionId);
+            })
+          Button('查看当前作答')
+            .height(34)
+            .fontSize(12)
+            .fontColor(PHONE_COLOR_PRIMARY_DEEP)
+            .backgroundColor(PHONE_COLOR_SOFT)
+            .borderRadius(PHONE_RADIUS_CONTROL)
+            .margin({ left: 8 })
+            .accessibilityText('查看当前作答')
+            .onClick(() => {
+              this.onOpenAnswer(detail.questionId);
+            })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .margin({ top: 8 })
       }
       .width('100%')
       .padding({ left: 18, right: 18, top: 2, bottom: 10 })
-      .alignItems(VerticalAlign.Center)
+      .alignItems(HorizontalAlign.Start)
 
       Column() {
         Column() {
