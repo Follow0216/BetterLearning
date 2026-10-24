@@ -5,7 +5,6 @@ import {
   AuthResult,
   INBOX_COLLECTION_ID,
   LearningApi,
-  LearningSubject,
   QuestionCollection,
   QuestionDetail,
   QuestionListQuery,
@@ -16,6 +15,7 @@ import {
   learning_subject_label
 } from 'common';
 import {
+  TABLET_ANSWER_HEADER_HEIGHT,
   TABLET_COLOR_BACKGROUND,
   TABLET_COLOR_BORDER,
   TABLET_COLOR_CARD,
@@ -24,6 +24,9 @@ import {
   TABLET_COLOR_MUTED,
   TABLET_COLOR_PRIMARY,
   TABLET_COLOR_PRIMARY_SOFT,
+  TABLET_COLOR_SIDEBAR,
+  TABLET_COLOR_SUCCESS,
+  TABLET_COLOR_SUCCESS_SOFT,
   TABLET_COLOR_TEXT,
   TABLET_CONTROL_SIZE,
   TABLET_PAGE_PADDING,
@@ -37,8 +40,6 @@ import { CanvasWorkspaceState, TabletCanvasController } from '../features/canvas
 
 const PAGE_SIZE: number = 20;
 const ROOT_COLLECTION_KEY: string = '';
-const ANSWER_DONE_FOREGROUND: string = '#2E7D5B';
-const ANSWER_DONE_BACKGROUND: string = '#E8F6EE';
 const ANSWER_IDLE_BACKGROUND: string = '#F0F3F9';
 
 /** 侧栏题集树的扁平可见节点，避免在构建函数里递归渲染。 */
@@ -54,9 +55,18 @@ class CollectionNode {
   }
 }
 
+/**
+ * 平板题库：左侧层级题集树，右侧当前范围题目列表，点题进入沉浸式答题页。
+ *
+ * <p>答案状态、保存结果全部来自服务端与 C2 画布；本组件只做真实的加载、分页、
+ * 会话守卫与答题动作调度。进入答题时通过 on_answer_mode_changed 隐藏全局导航，
+ * 但本组件保持挂载，返回仍先经过 flushLocal 门禁。</p>
+ */
 @Component
 export struct LibraryPane {
   on_session_expired: () => void = () => {
+  };
+  on_answer_mode_changed: (active: boolean) => void = () => {
   };
   @State scope_collection_id: string | null = null;
   @State page: number = 1;
@@ -71,7 +81,6 @@ export struct LibraryPane {
   @State loaded_once: boolean = false;
   @State error_text: string = '';
   @State open_question_id: string = '';
-  @State open_summary: string = '';
   @State detail: QuestionDetail | null = null;
   @State detail_loading: boolean = false;
   @State detail_error: string = '';
@@ -124,48 +133,47 @@ export struct LibraryPane {
   sidebar() {
     Column() {
       Column() {
-        Text('题库')
-          .fontSize(20)
+        Text('我的习题集')
+          .fontSize(18)
           .fontWeight(FontWeight.Bold)
           .fontColor(TABLET_COLOR_TEXT)
-        Text('当前账号的真实题目')
+        Text(this.sidebar_caption())
           .fontSize(12)
           .fontColor(TABLET_COLOR_MUTED)
           .margin({ top: 4 })
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .padding({ left: 12, right: 12, top: 20, bottom: 14 })
+      .padding({ left: 20, right: 20, top: 20, bottom: 12 })
 
-      Column({ space: 4 }) {
-        this.scope_all_item()
-        this.scope_inbox_item()
-      }
-      .width('100%')
+      Scroll() {
+        Column({ space: 4 }) {
+          this.scope_all_item()
+          this.scope_inbox_item()
 
-      if (this.collection_nodes.length > 0) {
-        Text('题集')
-          .fontSize(11)
-          .fontColor(TABLET_COLOR_MUTED)
-          .width('100%')
-          .padding({ left: 12, top: 16, bottom: 6 })
+          if (this.collection_nodes.length > 0) {
+            Text('题集')
+              .fontSize(11)
+              .fontColor(TABLET_COLOR_MUTED)
+              .width('100%')
+              .padding({ left: 8, top: 12, bottom: 4 })
 
-        Scroll() {
-          Column({ space: 2 }) {
             ForEach(this.collection_nodes, (node: CollectionNode) => {
               this.collection_row(node)
-            }, (node: CollectionNode): string => node.collection.collectionId)
+            }, (node: CollectionNode): string => {
+              return `${node.collection.collectionId}:${node.collection.questionCount}:` +
+                `${node.depth}:${this.is_collapsed(node.collection.collectionId)}:` +
+                `${this.scope_collection_id === node.collection.collectionId}`;
+            })
           }
-          .width('100%')
-          .padding({ bottom: 12 })
         }
         .width('100%')
-        .layoutWeight(1)
-        .scrollBar(BarState.Auto)
-        .edgeEffect(EdgeEffect.Spring)
-      } else {
-        Blank()
+        .padding({ left: 8, right: 8, bottom: 12 })
       }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Auto)
+      .edgeEffect(EdgeEffect.Spring)
 
       if (this.collections_error.length > 0) {
         Row() {
@@ -179,33 +187,38 @@ export struct LibraryPane {
             .margin({ left: 6 })
         }
         .width('100%')
-        .padding({ left: 12, right: 12, bottom: 16 })
+        .padding({ left: 20, right: 16, top: 12, bottom: 16 })
+        .border({ width: { top: 1 }, color: TABLET_COLOR_BORDER })
       }
     }
     .width(TABLET_SIDEBAR_WIDTH)
     .height('100%')
-    .padding({ left: 8, right: 8 })
-    .backgroundColor(TABLET_COLOR_CARD)
+    .backgroundColor(TABLET_COLOR_SIDEBAR)
     .border({ width: { right: 1 }, color: TABLET_COLOR_BORDER })
   }
 
   @Builder
   scope_all_item() {
     Row() {
+      Blank()
+        .width(32)
+        .height(TABLET_CONTROL_SIZE)
       Image($r('app.media.bl_list'))
         .width(20)
         .height(20)
         .objectFit(ImageFit.Contain)
       Text('全部题目')
-        .fontSize(15)
+        .fontSize(14)
         .fontWeight(this.scope_collection_id === null ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.scope_collection_id === null ? TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .margin({ left: 10 })
+        .margin({ left: 8 })
     }
     .width('100%')
     .height(TABLET_CONTROL_SIZE)
-    .padding({ left: 12, right: 12 })
+    .padding({ left: 4, right: 4 })
     .borderRadius(TABLET_RADIUS_SMALL)
     .backgroundColor(this.scope_collection_id === null ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
     .onClick(() => {
@@ -216,27 +229,33 @@ export struct LibraryPane {
   @Builder
   scope_inbox_item() {
     Row() {
+      Blank()
+        .width(32)
+        .height(TABLET_CONTROL_SIZE)
       Image($r('app.media.bl_inbox'))
         .width(20)
         .height(20)
         .objectFit(ImageFit.Contain)
       Text('待整理')
-        .fontSize(15)
+        .fontSize(14)
         .fontWeight(this.scope_collection_id === INBOX_COLLECTION_ID ?
           FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.scope_collection_id === INBOX_COLLECTION_ID ?
           TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-        .margin({ left: 10 })
+        .margin({ left: 8 })
       if (this.inbox_count >= 0) {
         Text(`${this.inbox_count}`)
           .fontSize(12)
           .fontColor(TABLET_COLOR_MUTED)
+          .margin({ left: 6, right: 4 })
       }
     }
     .width('100%')
     .height(TABLET_CONTROL_SIZE)
-    .padding({ left: 12, right: 12 })
+    .padding({ left: 4, right: 4 })
     .borderRadius(TABLET_RADIUS_SMALL)
     .backgroundColor(this.scope_collection_id === INBOX_COLLECTION_ID ?
       TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
@@ -249,47 +268,51 @@ export struct LibraryPane {
   collection_row(node: CollectionNode) {
     Row() {
       if (node.has_children) {
-        Row() {
+        Button() {
           Image($r('app.media.bl_chevron_right'))
-            .width(14)
-            .height(14)
+            .width(16)
+            .height(16)
             .objectFit(ImageFit.Contain)
             .rotate({ angle: this.is_collapsed(node.collection.collectionId) ? 0 : 90 })
         }
-        .width(22)
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
+        .type(ButtonType.Normal)
+        .width(32)
+        .height(TABLET_CONTROL_SIZE)
+        .padding(0)
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
           this.toggle_collection(node.collection.collectionId);
         })
       } else {
-        Text('')
-          .width(22)
-          .height(1)
+        Blank()
+          .width(32)
+          .height(TABLET_CONTROL_SIZE)
       }
 
-      Row() {
-        Text(node.collection.name)
-          .fontSize(14)
-          .fontWeight(this.scope_collection_id === node.collection.collectionId ?
-            FontWeight.Medium : FontWeight.Normal)
-          .fontColor(this.scope_collection_id === node.collection.collectionId ?
-            TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        Text(`${node.collection.questionCount}`)
-          .fontSize(11)
-          .fontColor(TABLET_COLOR_MUTED)
-          .margin({ left: 6 })
-      }
-      .layoutWeight(1)
-      .height('100%')
-      .padding({ left: 4, right: 8 })
+      Image($r('app.media.bl_list'))
+        .width(20)
+        .height(20)
+        .objectFit(ImageFit.Contain)
+
+      Text(node.collection.name)
+        .fontSize(14)
+        .fontWeight(this.scope_collection_id === node.collection.collectionId ?
+          FontWeight.Medium : FontWeight.Normal)
+        .fontColor(this.scope_collection_id === node.collection.collectionId ?
+          TABLET_COLOR_PRIMARY : TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+        .margin({ left: 8 })
+
+      Text(`${node.collection.questionCount}`)
+        .fontSize(12)
+        .fontColor(TABLET_COLOR_MUTED)
+        .margin({ left: 6, right: 4 })
     }
     .width('100%')
-    .height(38)
-    .padding({ left: 6 + Math.min(node.depth, 4) * 14, right: 6 })
+    .height(TABLET_CONTROL_SIZE)
+    .padding({ left: 4 + Math.min(node.depth, 6) * 16, right: 4 })
     .borderRadius(TABLET_RADIUS_SMALL)
     .backgroundColor(this.scope_collection_id === node.collection.collectionId ?
       TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
@@ -315,7 +338,9 @@ export struct LibraryPane {
         } else {
           this.question_list()
         }
-        this.pager()
+        if (this.total_pages() > 1) {
+          this.pager()
+        }
       }
     }
     .layoutWeight(1)
@@ -331,6 +356,8 @@ export struct LibraryPane {
           .fontSize(26)
           .fontWeight(FontWeight.Bold)
           .fontColor(TABLET_COLOR_TEXT)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
         Text(this.scope_meta())
           .fontSize(12)
           .fontColor(TABLET_COLOR_MUTED)
@@ -364,19 +391,31 @@ export struct LibraryPane {
       })
     }
     .width('100%')
-    .margin({ bottom: 14 })
+    .margin({ top: 4, bottom: 14 })
   }
 
   @Builder
   question_list() {
     Scroll() {
-      Column({ space: 10 }) {
-        ForEach(this.items, (item: QuestionSummary) => {
-          this.question_row(item)
-        }, (item: QuestionSummary): string => item.questionId)
+      Column({ space: 12 }) {
+        Row() {
+          Text('题目')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(TABLET_COLOR_TEXT)
+          Blank()
+          Text('点击进入作答')
+            .fontSize(11)
+            .fontColor(TABLET_COLOR_MUTED)
+        }
+        .width('100%')
+
+        ForEach(this.items, (item: QuestionSummary, index: number) => {
+          this.question_row(item, index)
+        }, (item: QuestionSummary): string => `${item.questionId}:${item.answerState}`)
       }
       .width('100%')
-      .padding({ bottom: 16 })
+      .padding({ bottom: 24 })
     }
     .layoutWeight(1)
     .width('100%')
@@ -385,8 +424,14 @@ export struct LibraryPane {
   }
 
   @Builder
-  question_row(item: QuestionSummary) {
+  question_row(item: QuestionSummary, index: number) {
     Row() {
+      Text(this.ordinal_text(index))
+        .fontSize(18)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_MUTED)
+        .width(40)
+
       Column() {
         Text(item.summary)
           .fontSize(15)
@@ -431,15 +476,16 @@ export struct LibraryPane {
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
+      .margin({ left: 4 })
 
       Image($r('app.media.bl_chevron_right'))
         .width(18)
         .height(18)
         .objectFit(ImageFit.Contain)
-        .margin({ left: 8 })
+        .margin({ left: 10 })
     }
     .width('100%')
-    .padding({ left: 14, right: 14, top: 13, bottom: 13 })
+    .padding({ left: 16, right: 14, top: 14, bottom: 14 })
     .backgroundColor(TABLET_COLOR_CARD)
     .borderRadius(TABLET_RADIUS)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
@@ -457,12 +503,11 @@ export struct LibraryPane {
       Blank()
       Button('上一页')
         .type(ButtonType.Normal)
-        .fontSize(13)
+        .fontSize(12)
         .fontColor(TABLET_COLOR_PRIMARY)
-        .height(36)
-        .padding({ left: 16, right: 16 })
-        .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-        .borderRadius(TABLET_RADIUS_SMALL)
+        .height(32)
+        .padding({ left: 12, right: 12 })
+        .backgroundColor(Color.Transparent)
         .enabled(!this.loading && this.page > 1)
         .opacity(!this.loading && this.page > 1 ? 1 : 0.4)
         .onClick(() => {
@@ -470,13 +515,12 @@ export struct LibraryPane {
         })
       Button('下一页')
         .type(ButtonType.Normal)
-        .fontSize(13)
+        .fontSize(12)
         .fontColor(TABLET_COLOR_PRIMARY)
-        .height(36)
-        .padding({ left: 16, right: 16 })
-        .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-        .borderRadius(TABLET_RADIUS_SMALL)
-        .margin({ left: 8 })
+        .height(32)
+        .padding({ left: 12, right: 12 })
+        .backgroundColor(Color.Transparent)
+        .margin({ left: 4 })
         .enabled(!this.loading && this.page < this.total_pages())
         .opacity(!this.loading && this.page < this.total_pages() ? 1 : 0.4)
         .onClick(() => {
@@ -484,7 +528,7 @@ export struct LibraryPane {
         })
     }
     .width('100%')
-    .height(56)
+    .height(48)
   }
 
   @Builder
@@ -494,7 +538,7 @@ export struct LibraryPane {
         .width(36)
         .height(36)
         .color(TABLET_COLOR_PRIMARY)
-      Text('正在加载题库…')
+      Text('正在加载题目…')
         .fontSize(13)
         .fontColor(TABLET_COLOR_TEXT)
     }
@@ -510,7 +554,7 @@ export struct LibraryPane {
         .width(42)
         .height(42)
         .objectFit(ImageFit.Contain)
-      Text('题库加载失败')
+      Text('题目加载失败')
         .fontSize(18)
         .fontWeight(FontWeight.Medium)
         .fontColor(TABLET_COLOR_TEXT)
@@ -598,14 +642,20 @@ export struct LibraryPane {
   @Builder
   detail_panel() {
     Column() {
-      this.detail_header()
       if (this.detail_loading) {
+        this.detail_fallback_header()
         this.detail_loading_state()
       } else if (this.detail_error.length > 0) {
+        this.detail_fallback_header()
         this.detail_failure_state()
       } else if (this.detail !== null) {
         AnswerWorkspace({
           question: this.detail,
+          collection_name: this.scope_title(),
+          question_ordinal: this.detail_ordinal(),
+          answer_state: this.current_answer_state,
+          save_hint: this.save_hint(),
+          can_back: this.back_enabled(),
           can_save: this.save_enabled(),
           can_complete: this.complete_enabled(),
           can_continue: this.continue_enabled(),
@@ -619,6 +669,9 @@ export struct LibraryPane {
           },
           on_session_expired: () => {
             this.expire_session();
+          },
+          on_back: () => {
+            this.request_close_detail();
           },
           on_save: () => {
             this.run_answer_action('save');
@@ -640,69 +693,37 @@ export struct LibraryPane {
   }
 
   @Builder
-  detail_header() {
+  detail_fallback_header() {
     Row() {
       Button() {
-        Row() {
-          Image($r('app.media.bl_back'))
-            .width(18)
-            .height(18)
-            .objectFit(ImageFit.Contain)
-          Text('题库')
-            .fontSize(13)
-            .fontColor(TABLET_COLOR_TEXT)
-            .margin({ left: 4 })
-        }
+        Image($r('app.media.bl_back'))
+          .width(20)
+          .height(20)
+          .objectFit(ImageFit.Contain)
       }
       .type(ButtonType.Normal)
-      .height(TABLET_CONTROL_SIZE)
-      .padding({ left: 10, right: 14 })
-      .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-      .borderRadius(TABLET_RADIUS_SMALL)
-      .enabled(!this.closing && this.pending_action.length === 0 && !this.canvas_busy)
-      .opacity(!this.closing && this.pending_action.length === 0 && !this.canvas_busy ? 1 : 0.5)
+      .width(36)
+      .height(36)
+      .padding(0)
+      .backgroundColor(Color.Transparent)
+      .borderRadius(18)
+      .enabled(this.back_enabled())
+      .opacity(this.back_enabled() ? 1 : 0.4)
       .onClick(() => {
         this.request_close_detail();
       })
 
-      Column() {
-        Text(this.open_summary.length > 0 ? this.open_summary : '题目详情')
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(TABLET_COLOR_TEXT)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-        if (this.detail !== null) {
-          Row() {
-            Text(learning_subject_label(this.detail_subject()))
-              .fontSize(11)
-              .fontColor(TABLET_COLOR_PRIMARY)
-              .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-              .borderRadius(6)
-              .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-            Text(this.answer_state_label(this.detail_answer_state()))
-              .fontSize(11)
-              .fontColor(this.answer_state_foreground(this.detail_answer_state()))
-              .backgroundColor(this.answer_state_background(this.detail_answer_state()))
-              .borderRadius(6)
-              .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-              .margin({ left: 6 })
-            Text(format_created_at(this.detail_created_at()))
-              .fontSize(11)
-              .fontColor(TABLET_COLOR_MUTED)
-              .margin({ left: 8 })
-          }
-          .margin({ top: 3 })
-        }
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      .margin({ left: 12, right: 12 })
+      Text('题目详情')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_TEXT)
+        .margin({ left: 2, right: 12 })
+
+      Blank()
     }
     .width('100%')
-    .height(64)
-    .padding({ left: 20, right: 20 })
+    .height(TABLET_ANSWER_HEADER_HEIGHT)
+    .padding({ left: 16, right: 16 })
     .backgroundColor(TABLET_COLOR_CARD)
     .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
   }
@@ -787,6 +808,23 @@ export struct LibraryPane {
       !this.closing;
   }
 
+  private back_enabled(): boolean {
+    return !this.closing && this.pending_action.length === 0 && !this.canvas_busy;
+  }
+
+  private save_hint(): string {
+    if (this.pending_action.length > 0 || this.canvas_busy) {
+      return '正在同步…';
+    }
+    if (this.canvas_completed) {
+      return '已完成';
+    }
+    if (this.current_answer_state === AnswerState.IN_PROGRESS) {
+      return '已保存过作答';
+    }
+    return '';
+  }
+
   private scope_title(): string {
     if (this.scope_collection_id === null) {
       return '全部题目';
@@ -809,6 +847,23 @@ export struct LibraryPane {
     return `共 ${this.total} 题`;
   }
 
+  private sidebar_caption(): string {
+    if (this.collections_error.length > 0) {
+      return '题集列表暂不可用';
+    }
+    if (!this.loaded_once) {
+      return '正在读取…';
+    }
+    let count: number = this.collections.length;
+    for (let index: number = 0; index < this.collections.length; index++) {
+      if (this.collections[index].collectionId === INBOX_COLLECTION_ID) {
+        count -= 1;
+        break;
+      }
+    }
+    return `${count} 个题集`;
+  }
+
   private total_pages(): number {
     if (this.total <= 0) {
       return 1;
@@ -816,22 +871,23 @@ export struct LibraryPane {
     return Math.ceil(this.total / this.page_size);
   }
 
-  private detail_subject(): LearningSubject {
-    const detail: QuestionDetail | null = this.detail;
-    if (detail === null) {
-      return LearningSubject.OTHER;
+  private ordinal_text(index: number): string {
+    const ordinal: number = (this.page - 1) * this.page_size + index + 1;
+    if (ordinal < 10) {
+      return `0${ordinal}`;
     }
-    return detail.subject;
+    return `${ordinal}`;
   }
 
-  private detail_created_at(): string {
-    const detail: QuestionDetail | null = this.detail;
-    return detail === null ? '' : detail.createdAt;
+  private detail_ordinal(): string {
+    for (let index: number = 0; index < this.items.length; index++) {
+      if (this.items[index].questionId === this.open_question_id) {
+        return `第 ${(this.page - 1) * this.page_size + index + 1} 题`;
+      }
+    }
+    return '';
   }
 
-  private detail_answer_state(): AnswerState {
-    return this.current_answer_state;
-  }
 
   private is_collapsed(collection_id: string): boolean {
     return this.collapsed_ids.includes(collection_id);
@@ -1025,12 +1081,12 @@ export struct LibraryPane {
   private open_detail(item: QuestionSummary): void {
     this.reset_answer_view();
     this.open_question_id = item.questionId;
-    this.open_summary = item.summary;
     this.current_answer_state = item.answerState;
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = true;
     this.detail_seq += 1;
+    this.on_answer_mode_changed(true);
     this.run_detail(item.questionId, this.detail_seq);
   }
 
@@ -1052,7 +1108,7 @@ export struct LibraryPane {
     }
     if (this.pending_action.length > 0 || this.canvas_busy) {
       this.feedback_text = '正在保存，请稍候再离开。';
-      this.feedback_error = false;
+      this.feedback_error = true;
       return;
     }
     if (!this.canvas_ready) {
@@ -1098,11 +1154,11 @@ export struct LibraryPane {
   private close_detail(): void {
     this.detail_seq += 1;
     this.open_question_id = '';
-    this.open_summary = '';
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = false;
     this.reset_answer_view();
+    this.on_answer_mode_changed(false);
   }
 
   private reset_answer_view(): void {
@@ -1204,7 +1260,7 @@ export struct LibraryPane {
     }
     this.current_answer_state = result.data.state;
     this.feedback_error = false;
-    this.feedback_text = this.success_text(action);
+    this.feedback_text = '';
     await this.refresh_answer_views(question_id, seq, token);
   }
 
@@ -1262,16 +1318,6 @@ export struct LibraryPane {
     await this.load_questions(token, list_seq, this.page);
   }
 
-  private success_text(action: string): string {
-    if (action === 'complete') {
-      return '已完成并保存到云端。';
-    }
-    if (action === 'continue') {
-      return '已恢复作答。';
-    }
-    return '已保存到云端。';
-  }
-
   private answer_failure_text(error: AuthError | null): string {
     if (error === null) {
       return '操作未完成，请重试';
@@ -1303,7 +1349,7 @@ export struct LibraryPane {
 
   private answer_state_foreground(state: AnswerState): string {
     if (state === AnswerState.COMPLETED) {
-      return ANSWER_DONE_FOREGROUND;
+      return TABLET_COLOR_SUCCESS;
     }
     if (state === AnswerState.IN_PROGRESS) {
       return TABLET_COLOR_PRIMARY;
@@ -1313,7 +1359,7 @@ export struct LibraryPane {
 
   private answer_state_background(state: AnswerState): string {
     if (state === AnswerState.COMPLETED) {
-      return ANSWER_DONE_BACKGROUND;
+      return TABLET_COLOR_SUCCESS_SOFT;
     }
     if (state === AnswerState.IN_PROGRESS) {
       return TABLET_COLOR_PRIMARY_SOFT;
@@ -1393,10 +1439,10 @@ export struct LibraryPane {
     this.inbox_count = -1;
     this.detail = null;
     this.open_question_id = '';
-    this.open_summary = '';
     this.error_text = '';
     this.detail_error = '';
     this.reset_answer_view();
+    this.on_answer_mode_changed(false);
     this.on_session_expired();
   }
 

@@ -1,16 +1,11 @@
-
 import { AccountPane } from './AccountPane';
 import { LibraryPane } from './LibraryPane';
 import {
-  TABLET_COLOR_BACKGROUND,
   TABLET_COLOR_BORDER,
   TABLET_COLOR_CARD,
   TABLET_COLOR_MUTED,
   TABLET_COLOR_PRIMARY,
   TABLET_COLOR_PRIMARY_SOFT,
-  TABLET_COLOR_TEXT,
-  TABLET_CONTROL_SIZE,
-  TABLET_RADIUS_SMALL,
   TABLET_TOP_BAR_HEIGHT
 } from '../theme/TabletTheme';
 
@@ -23,6 +18,7 @@ enum TabletTab {
  * 平板主导航壳：顶栏切换“题库”与“我的”。
  *
  * <p>题库页与我的页都保持挂载，切换 tab 不重置分页、滚动或刚刷新到的账号资料；
+ * 进入答题后隐藏全局导航，但题库页本身不卸载，返回时画布与草稿状态仍在。
  * 任何子页确认会话失效后统一交给外层清理账号可见数据并回到登录。</p>
  */
 @Component
@@ -31,6 +27,7 @@ export struct TabletShell {
   on_signed_out: () => void = () => {
   };
   @State active_tab: TabletTab = TabletTab.LIBRARY;
+  @State answer_mode: boolean = false;
 
   build() {
     Column() {
@@ -39,6 +36,9 @@ export struct TabletShell {
         LibraryPane({
           on_session_expired: () => {
             this.on_signed_out();
+          },
+          on_answer_mode_changed: (active: boolean) => {
+            this.answer_mode = active;
           }
         })
           .visibility(this.active_tab === TabletTab.LIBRARY ? Visibility.Visible : Visibility.None)
@@ -52,78 +52,90 @@ export struct TabletShell {
       }
       .layoutWeight(1)
       .width('100%')
-      .backgroundColor(TABLET_COLOR_BACKGROUND)
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(TABLET_COLOR_BACKGROUND)
+    .backgroundColor(TABLET_COLOR_CARD)
   }
 
   @Builder
   top_bar() {
-    Row() {
-      Row() {
-        Text('Better')
-          .fontSize(19)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TABLET_COLOR_TEXT)
-        Text('Learning')
-          .fontSize(19)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(TABLET_COLOR_PRIMARY)
-      }
-
-      Row({ space: 4 }) {
-        this.nav_tab('题库', TabletTab.LIBRARY)
-        this.nav_tab('我的', TabletTab.ACCOUNT)
-      }
-      .margin({ left: 28 })
-
-      Blank()
-
+    Stack({ alignContent: Alignment.Center }) {
       Row() {
         Row() {
+          Text('Better')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(TABLET_COLOR_PRIMARY)
+          Text('Learning')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(TABLET_COLOR_PRIMARY)
+        }
+
+        Blank()
+
+        Row() {
           Image($r('app.media.bl_user'))
-            .width(18)
-            .height(18)
+            .width(20)
+            .height(20)
             .objectFit(ImageFit.Contain)
         }
-        .width(36)
-        .height(36)
+        .width(40)
+        .height(40)
         .justifyContent(FlexAlign.Center)
         .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-        .borderRadius(18)
-
-        Text(this.display_name.length > 0 ? this.display_name : '已登录')
-          .fontSize(12)
-          .fontColor(TABLET_COLOR_TEXT)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .constraintSize({ maxWidth: 120 })
-          .margin({ left: 8 })
+        .borderRadius(20)
+        .accessibilityText(this.display_name.length > 0 ? this.display_name : '我的')
       }
-      .margin({ left: 20 })
+      .width('100%')
+      .height('100%')
+      .padding({ left: 28, right: 28 })
+
+      Row({ space: 44 }) {
+        Column() {
+          Text('题库')
+            .fontSize(15)
+            .fontWeight(this.active_tab === TabletTab.LIBRARY ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.active_tab === TabletTab.LIBRARY ? TABLET_COLOR_PRIMARY : TABLET_COLOR_MUTED)
+          Text('')
+            .width(26)
+            .height(3)
+            .borderRadius(2)
+            .backgroundColor(this.active_tab === TabletTab.LIBRARY ? TABLET_COLOR_PRIMARY : Color.Transparent)
+            .margin({ top: 6 })
+        }
+        .height(TABLET_TOP_BAR_HEIGHT)
+        .justifyContent(FlexAlign.Center)
+        .padding({ left: 8, right: 8 })
+        .onClick(() => {
+          this.active_tab = TabletTab.LIBRARY;
+        })
+
+        Column() {
+          Text('我的')
+            .fontSize(15)
+            .fontWeight(this.active_tab === TabletTab.ACCOUNT ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.active_tab === TabletTab.ACCOUNT ? TABLET_COLOR_PRIMARY : TABLET_COLOR_MUTED)
+          Text('')
+            .width(26)
+            .height(3)
+            .borderRadius(2)
+            .backgroundColor(this.active_tab === TabletTab.ACCOUNT ? TABLET_COLOR_PRIMARY : Color.Transparent)
+            .margin({ top: 6 })
+        }
+        .height(TABLET_TOP_BAR_HEIGHT)
+        .justifyContent(FlexAlign.Center)
+        .padding({ left: 8, right: 8 })
+        .onClick(() => {
+          this.active_tab = TabletTab.ACCOUNT;
+        })
+      }
     }
     .width('100%')
     .height(TABLET_TOP_BAR_HEIGHT)
-    .padding({ left: 24, right: 24 })
     .backgroundColor(TABLET_COLOR_CARD)
     .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
-  }
-
-  @Builder
-  nav_tab(label: string, tab: TabletTab) {
-    Button(label)
-      .type(ButtonType.Normal)
-      .fontSize(14)
-      .fontWeight(this.active_tab === tab ? FontWeight.Medium : FontWeight.Normal)
-      .fontColor(this.active_tab === tab ? TABLET_COLOR_PRIMARY : TABLET_COLOR_MUTED)
-      .height(TABLET_CONTROL_SIZE)
-      .padding({ left: 16, right: 16 })
-      .backgroundColor(this.active_tab === tab ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
-      .borderRadius(TABLET_RADIUS_SMALL)
-      .onClick(() => {
-        this.active_tab = tab;
-      })
+    .visibility(this.answer_mode ? Visibility.None : Visibility.Visible)
   }
 }

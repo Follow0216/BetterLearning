@@ -1,32 +1,38 @@
-import { QuestionDetail } from 'common';
+import { AnswerState, QuestionDetail } from 'common';
 import {
   CanvasWorkspaceState,
   TabletCanvasController,
   TabletCanvasWorkspace
 } from '../features/canvas/TabletCanvasWorkspace';
 import {
-  TABLET_COLOR_BACKGROUND,
+  TABLET_ANSWER_HEADER_HEIGHT,
   TABLET_COLOR_BORDER,
   TABLET_COLOR_CARD,
   TABLET_COLOR_DANGER,
   TABLET_COLOR_DANGER_SOFT,
+  TABLET_COLOR_MUTED,
   TABLET_COLOR_PRIMARY,
   TABLET_COLOR_PRIMARY_SOFT,
-  TABLET_COLOR_TEXT,
-  TABLET_CONTROL_SIZE,
-  TABLET_RADIUS_SMALL
+  TABLET_COLOR_SUCCESS,
+  TABLET_COLOR_SUCCESS_SOFT,
+  TABLET_COLOR_TEXT
 } from '../theme/TabletTheme';
 
 /**
- * 答题页包装：只负责挂载 C2 画布工作区、操作按钮与状态反馈。
+ * 答题页包装：沉浸式单条页头 + C2 画布工作区。
  *
- * <p>固定题面与笔迹都由 C2 的 TabletCanvasWorkspace 内部维护，本组件不再并排
- * 渲染独立 Markdown 或空白纸。保存/完成/继续只调用父级传入的稳定控制器，
- * 按钮可用性完全依据 C2 状态，不在本层猜测保存结果。</p>
+ * <p>题面、笔迹与工具栏全部由 C2 的 TabletCanvasWorkspace 内部维护；本组件只
+ * 负责返回、真实保存状态、保存/完成/继续按钮与必要的错误提示。按钮可用性和
+ * 文案直接读取 @Prop，不再经过多参数 Builder 转发动态值。</p>
  */
 @Component
 export struct AnswerWorkspace {
   @Prop question: QuestionDetail | null = null;
+  @Prop collection_name: string = '';
+  @Prop question_ordinal: string = '';
+  @Prop answer_state: AnswerState = AnswerState.NOT_STARTED;
+  @Prop save_hint: string = '';
+  @Prop can_back: boolean = true;
   @Prop can_save: boolean = false;
   @Prop can_complete: boolean = false;
   @Prop can_continue: boolean = false;
@@ -39,6 +45,8 @@ export struct AnswerWorkspace {
   };
   on_session_expired: () => void = () => {
   };
+  on_back: () => void = () => {
+  };
   on_save: () => void = () => {
   };
   on_complete: () => void = () => {
@@ -48,6 +56,27 @@ export struct AnswerWorkspace {
 
   build() {
     Column() {
+      this.answer_header()
+
+      if (this.feedback_error && this.feedback_text.length > 0) {
+        Row() {
+          Image($r('app.media.bl_warning'))
+            .width(15)
+            .height(15)
+            .objectFit(ImageFit.Contain)
+          Text(this.feedback_text)
+            .fontSize(12)
+            .fontColor(TABLET_COLOR_DANGER)
+            .layoutWeight(1)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .margin({ left: 8 })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 8, bottom: 8 })
+        .backgroundColor(TABLET_COLOR_DANGER_SOFT)
+      }
+
       TabletCanvasWorkspace({
         question: this.question,
         controller: this.controller,
@@ -60,88 +89,124 @@ export struct AnswerWorkspace {
       })
         .width('100%')
         .layoutWeight(1)
-
-      this.action_bar()
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(TABLET_COLOR_BACKGROUND)
+    .backgroundColor(TABLET_COLOR_CARD)
   }
 
   @Builder
-  action_bar() {
-    Column() {
-      if (this.feedback_text.length > 0) {
-        Row() {
-          Image(this.feedback_error ? $r('app.media.bl_warning') : $r('app.media.bl_info'))
-            .width(16)
-            .height(16)
-            .objectFit(ImageFit.Contain)
-          Text(this.feedback_text)
-            .fontSize(12)
-            .fontColor(this.feedback_error ? TABLET_COLOR_DANGER : TABLET_COLOR_TEXT)
-            .layoutWeight(1)
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .margin({ left: 8 })
-        }
-        .width('100%')
-        .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-        .backgroundColor(this.feedback_error ? TABLET_COLOR_DANGER_SOFT : TABLET_COLOR_PRIMARY_SOFT)
-        .borderRadius(TABLET_RADIUS_SMALL)
-        .margin({ bottom: 10 })
+  answer_header() {
+    Row() {
+      Button() {
+        Image($r('app.media.bl_back'))
+          .width(20)
+          .height(20)
+          .objectFit(ImageFit.Contain)
+      }
+      .type(ButtonType.Normal)
+      .width(36)
+      .height(36)
+      .padding(0)
+      .backgroundColor(Color.Transparent)
+      .borderRadius(18)
+      .accessibilityText('返回题库')
+      .enabled(this.can_back)
+      .opacity(this.can_back ? 1 : 0.4)
+      .onClick(() => {
+        this.on_back();
+      })
+
+      Text(this.collection_name.length > 0 ? this.collection_name : '题目')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 180 })
+        .margin({ left: 2, right: 12 })
+
+      Divider()
+        .vertical(true)
+        .height(16)
+        .strokeWidth(1)
+        .color(TABLET_COLOR_BORDER)
+
+      Text(this.question_ordinal.length > 0 ? this.question_ordinal : '题目')
+        .fontSize(14)
+        .fontColor(TABLET_COLOR_TEXT)
+        .maxLines(1)
+        .margin({ left: 12, right: 10 })
+
+      Text(this.state_label())
+        .fontSize(11)
+        .fontColor(this.state_foreground())
+        .backgroundColor(this.state_background())
+        .borderRadius(6)
+        .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+
+      Blank()
+
+      if (this.save_hint.length > 0) {
+        Text(this.save_hint)
+          .fontSize(11)
+          .fontColor(TABLET_COLOR_MUTED)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 160 })
+          .margin({ right: 12 })
       }
 
-      Row({ space: 10 }) {
-        Blank()
+      if (!this.show_continue) {
         Button(this.pending_action === 'save' ? '保存中…' : '保存')
           .type(ButtonType.Normal)
-          .fontSize(14)
-          .fontColor(TABLET_COLOR_CARD)
-          .height(TABLET_CONTROL_SIZE)
-          .padding({ left: 22, right: 22 })
-          .backgroundColor(TABLET_COLOR_PRIMARY)
-          .borderRadius(TABLET_RADIUS_SMALL)
+          .fontSize(13)
+          .fontColor(TABLET_COLOR_PRIMARY)
+          .height(36)
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
+          .borderRadius(18)
           .enabled(this.can_save)
           .opacity(this.can_save ? 1 : 0.4)
           .onClick(() => {
             this.dispatch('save');
           })
+
         Button(this.pending_action === 'complete' ? '完成中…' : '完成')
           .type(ButtonType.Normal)
-          .fontSize(14)
-          .fontColor(TABLET_COLOR_PRIMARY)
-          .height(TABLET_CONTROL_SIZE)
-          .padding({ left: 22, right: 22 })
-          .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-          .borderRadius(TABLET_RADIUS_SMALL)
+          .fontSize(13)
+          .fontColor(TABLET_COLOR_CARD)
+          .height(36)
+          .padding({ left: 18, right: 18 })
+          .backgroundColor(TABLET_COLOR_PRIMARY)
+          .borderRadius(18)
+          .margin({ left: 8 })
           .enabled(this.can_complete)
           .opacity(this.can_complete ? 1 : 0.4)
           .onClick(() => {
             this.dispatch('complete');
           })
-        if (this.show_continue) {
-          Button(this.pending_action === 'continue' ? '恢复中…' : '继续作答')
-            .type(ButtonType.Normal)
-            .fontSize(14)
-            .fontColor(TABLET_COLOR_PRIMARY)
-            .height(TABLET_CONTROL_SIZE)
-            .padding({ left: 22, right: 22 })
-            .backgroundColor(TABLET_COLOR_PRIMARY_SOFT)
-            .borderRadius(TABLET_RADIUS_SMALL)
-            .enabled(this.can_continue)
-            .opacity(this.can_continue ? 1 : 0.4)
-            .onClick(() => {
-              this.dispatch('continue');
-            })
-        }
+      } else {
+        Button(this.pending_action === 'continue' ? '恢复中…' : '继续作答')
+          .type(ButtonType.Normal)
+          .fontSize(13)
+          .fontColor(TABLET_COLOR_CARD)
+          .height(36)
+          .padding({ left: 18, right: 18 })
+          .backgroundColor(TABLET_COLOR_PRIMARY)
+          .borderRadius(18)
+          .enabled(this.can_continue)
+          .opacity(this.can_continue ? 1 : 0.4)
+          .onClick(() => {
+            this.dispatch('continue');
+          })
       }
-      .width('100%')
     }
     .width('100%')
-    .padding({ left: 20, right: 20, top: 12, bottom: 16 })
+    .height(TABLET_ANSWER_HEADER_HEIGHT)
+    .padding({ left: 16, right: 16 })
     .backgroundColor(TABLET_COLOR_CARD)
-    .border({ width: { top: 1 }, color: TABLET_COLOR_BORDER })
+    .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
   }
 
   private dispatch(action: string): void {
@@ -156,4 +221,33 @@ export struct AnswerWorkspace {
     this.on_continue();
   }
 
+  private state_label(): string {
+    if (this.answer_state === AnswerState.COMPLETED) {
+      return '已完成';
+    }
+    if (this.answer_state === AnswerState.IN_PROGRESS) {
+      return '作答中';
+    }
+    return '未开始';
+  }
+
+  private state_foreground(): string {
+    if (this.answer_state === AnswerState.COMPLETED) {
+      return TABLET_COLOR_SUCCESS;
+    }
+    if (this.answer_state === AnswerState.IN_PROGRESS) {
+      return TABLET_COLOR_PRIMARY;
+    }
+    return TABLET_COLOR_MUTED;
+  }
+
+  private state_background(): string {
+    if (this.answer_state === AnswerState.COMPLETED) {
+      return TABLET_COLOR_SUCCESS_SOFT;
+    }
+    if (this.answer_state === AnswerState.IN_PROGRESS) {
+      return TABLET_COLOR_PRIMARY_SOFT;
+    }
+    return '#F0F3F9';
+  }
 }
