@@ -89,6 +89,9 @@ export struct LibraryPane {
   @State canvas_busy: boolean = false;
   @State canvas_can_complete: boolean = false;
   @State canvas_completed: boolean = false;
+  @State canvas_has_unsaved_changes: boolean = false;
+  @State canvas_local_draft_saved: boolean = false;
+  @State canvas_has_saved_solution: boolean = false;
   @State pending_action: string = '';
   @State feedback_text: string = '';
   @State feedback_error: boolean = false;
@@ -505,7 +508,7 @@ export struct LibraryPane {
         .type(ButtonType.Normal)
         .fontSize(12)
         .fontColor(TABLET_COLOR_PRIMARY)
-        .height(32)
+        .height(44)
         .padding({ left: 12, right: 12 })
         .backgroundColor(Color.Transparent)
         .enabled(!this.loading && this.page > 1)
@@ -517,7 +520,7 @@ export struct LibraryPane {
         .type(ButtonType.Normal)
         .fontSize(12)
         .fontColor(TABLET_COLOR_PRIMARY)
-        .height(32)
+        .height(44)
         .padding({ left: 12, right: 12 })
         .backgroundColor(Color.Transparent)
         .margin({ left: 4 })
@@ -702,11 +705,12 @@ export struct LibraryPane {
           .objectFit(ImageFit.Contain)
       }
       .type(ButtonType.Normal)
-      .width(36)
-      .height(36)
+      .width(44)
+      .height(44)
       .padding(0)
       .backgroundColor(Color.Transparent)
-      .borderRadius(18)
+      .borderRadius(22)
+      .accessibilityText('返回题库')
       .enabled(this.back_enabled())
       .opacity(this.back_enabled() ? 1 : 0.4)
       .onClick(() => {
@@ -813,14 +817,35 @@ export struct LibraryPane {
   }
 
   private save_hint(): string {
-    if (this.pending_action.length > 0 || this.canvas_busy) {
-      return '正在同步…';
+    if (this.pending_action === 'save') {
+      return '正在保存…';
+    }
+    if (this.pending_action === 'complete') {
+      return '正在完成…';
+    }
+    if (this.pending_action === 'continue') {
+      return '正在恢复作答…';
+    }
+    if (this.canvas_busy) {
+      return '处理中…';
     }
     if (this.canvas_completed) {
       return '已完成';
     }
-    if (this.current_answer_state === AnswerState.IN_PROGRESS) {
-      return '已保存过作答';
+    if (!this.canvas_ready) {
+      return '';
+    }
+    if (this.canvas_has_unsaved_changes) {
+      if (this.canvas_local_draft_saved) {
+        return '本机已保存，待上传';
+      }
+      if (this.feedback_error) {
+        return '';
+      }
+      return '正在保存草稿…';
+    }
+    if (this.canvas_has_saved_solution) {
+      return '已保存到云端';
     }
     return '';
   }
@@ -1166,6 +1191,9 @@ export struct LibraryPane {
     this.canvas_busy = false;
     this.canvas_can_complete = false;
     this.canvas_completed = false;
+    this.canvas_has_unsaved_changes = false;
+    this.canvas_local_draft_saved = false;
+    this.canvas_has_saved_solution = false;
     this.current_answer_state = AnswerState.NOT_STARTED;
     this.pending_action = '';
     this.feedback_text = '';
@@ -1181,6 +1209,9 @@ export struct LibraryPane {
     this.canvas_busy = state.isBusy;
     this.canvas_can_complete = state.canComplete;
     this.canvas_completed = state.isCompleted;
+    this.canvas_has_unsaved_changes = state.hasUnsavedChanges;
+    this.canvas_local_draft_saved = state.localDraftSaved;
+    this.canvas_has_saved_solution = state.hasSavedSolution;
     if (state.errorMessage.length > 0 && this.pending_action.length === 0) {
       this.feedback_text = state.errorMessage;
       this.feedback_error = true;

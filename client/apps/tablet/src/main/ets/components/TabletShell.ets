@@ -6,6 +6,7 @@ import {
   TABLET_COLOR_MUTED,
   TABLET_COLOR_PRIMARY,
   TABLET_COLOR_PRIMARY_SOFT,
+  TABLET_COLOR_TEXT,
   TABLET_TOP_BAR_HEIGHT
 } from '../theme/TabletTheme';
 
@@ -66,7 +67,7 @@ export struct TabletShell {
           Text('Better')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor(TABLET_COLOR_PRIMARY)
+            .fontColor(TABLET_COLOR_TEXT)
           Text('Learning')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
