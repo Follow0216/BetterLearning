@@ -514,6 +514,28 @@ export class AuthApi {
   }
 
   /**
+   * 共享的受保护资源请求。学习 API 复用认证栈的超时、Bearer、错误解析与资源释放。
+   * 成功时返回响应文本，由领域 API 按各自 DTO 解析；不自动刷新、重试或修改会话。
+   */
+  async request_resource(method: http.RequestMethod, path: string, token: string,
+    body: string = '', expectedStatus: number = STATUS_OK): Promise<AuthResult<string>> {
+    if (token.length === 0) {
+      return AuthResult.failure<string>(
+        AuthError.local_validation('登录状态缺失，请重新登录', {}));
+    }
+    const outcome: RequestOutcome = await this.send_request(method, path, token, body);
+    const transportError: AuthError | null = this.transport_error(outcome);
+    if (transportError !== null) {
+      return AuthResult.failure<string>(transportError);
+    }
+    const response: RawHttpResponse = outcome.response as RawHttpResponse;
+    if (response.status !== expectedStatus) {
+      return AuthResult.failure<string>(this.http_error(response));
+    }
+    return AuthResult.success<string>(response.body);
+  }
+
+  /**
 
    * 发送一次请求。令牌只以 Bearer 形式放入 Authorization 头。
    *
@@ -556,7 +578,7 @@ export class AuthApi {
       const messageText: string = typeof rawMessage === 'string' ? rawMessage : '';
       const cause: string = `code=${codeText}; message=${messageText}`;
       return RequestOutcome.failed(
-        AuthError.network_failure('无法连接认证服务，请检查网络或 HDC 端口转发', cause));
+        AuthError.network_failure('网络连接失败，请检查网络后重试', cause));
     } finally {
       request.destroy();
     }
