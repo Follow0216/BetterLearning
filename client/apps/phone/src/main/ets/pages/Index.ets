@@ -1,11 +1,11 @@
-import { AuthScreen } from 'common';
+import { PhoneApp } from '../components/PhoneApp';
 
 @Entry
 @Component
 struct Index {
   build() {
     Column() {
-      AuthScreen()
+      PhoneApp()
     }
     .width('100%')
     .height('100%')
