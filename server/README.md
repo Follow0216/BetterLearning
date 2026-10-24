@@ -317,3 +317,9 @@ HTTP 契约以根目录 `docs/design/mvp-m1-contract.md` 为准。接口均要�
 没有独立标题；summary 由服务端生成约 50 字符预览。M1 科目代码仅 `HIGHER_MATHEMATICS`、`OTHER`。不提供题目编辑、题集写操作、搜索、作答、AI 或文件系统。
 
 新增 `LearningIntegrationTests` 与 `DevAdminAccountIntegrationTests` 使用原 Testcontainers PostgreSQL/Redis 基础设施；开发交付不运行构建或测试，具体结果由独立 TEST 记录。
+
+## 9. M2 题集阶段
+
+题集现支持 POST `/api/v1/learning/collections`（name、可空 parentCollectionId）、PATCH `/api/v1/learning/collections/{collectionId}`（仅 name）和 PATCH `/api/v1/learning/questions/{questionId}/collection`（collectionId，inbox 可移回待整理）。题集 GET 节点增加 parentCollectionId；计数只含直接归属，父级不可更改，固定待整理不可改名或作为父级。同级重名为 409 A0450，其他账号资源为 404。
+
+V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动题集或题干编辑。字段以 `docs/design/mvp-m2-contract.md` 题集章节为准。完整作答／文件接口另行固定并交付，本题集提交不提供模拟作答。

@@ -9,6 +9,8 @@ public class QuestionCollectionDO {
 
     private String name;
 
+    private Long parentCollectionId;
+
     private Long questionCount;
 
     /** 返回 collectionId。 */
@@ -39,6 +41,16 @@ public class QuestionCollectionDO {
     /** 设置 name。 */
     public void setName(String name) {
         this.name = name;
+    }
+
+    /** 返回父题集 ID，根级为 null。 */
+    public Long getParentCollectionId() {
+        return parentCollectionId;
+    }
+
+    /** 设置父题集 ID。 */
+    public void setParentCollectionId(Long parentCollectionId) {
+        this.parentCollectionId = parentCollectionId;
     }
 
     /** 返回 questionCount。 */

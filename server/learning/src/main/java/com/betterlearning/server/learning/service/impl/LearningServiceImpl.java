@@ -7,6 +7,11 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.converter.QuestionConverter;
 import com.betterlearning.server.learning.dao.LearningDao;
+import com.betterlearning.server.learning.exception.CollectionNameConflictException;
+import com.betterlearning.server.learning.model.dataobject.QuestionCollectionDO;
+import com.betterlearning.server.learning.model.dto.CreateQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.RenameQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.MoveQuestionDTO;
 import com.betterlearning.server.learning.model.dataobject.QuestionDO;
 import com.betterlearning.server.learning.model.dto.ConfirmQuestionDTO;
 import com.betterlearning.server.learning.model.vo.QuestionCollectionsVO;
@@ -20,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 当前账号题库服务；事务内原子去重，确认后不提供编辑或整理能力。 */
+/** 当前账号题库服务；事务内原子去重，支持题集树与单题整理，不编辑正文。 */
 @Service
 public class LearningServiceImpl implements LearningService {
 
@@ -86,10 +91,85 @@ public class LearningServiceImpl implements LearningService {
         List<QuestionCollectionVO> items = new ArrayList<>();
         items.add(new QuestionCollectionVO(QuestionConverter.INBOX_ID, "待整理", true,
                 dao.count(accountId, true, null)));
-        dao.collections(accountId).forEach(collection -> items.add(new QuestionCollectionVO(
-                Long.toString(collection.getCollectionId()), collection.getName(), false,
-                collection.getQuestionCount())));
+        dao.collections(accountId).forEach(collection -> items.add(collectionView(collection)));
         return new QuestionCollectionsVO(items);
+    }
+
+    @Override
+    @Transactional
+    public QuestionCollectionVO createCollection(long accountId, CreateQuestionCollectionDTO request) {
+        String name = collectionName(request.name());
+        Long parentId = request.parentCollectionId() == null ? null : positiveId(request.parentCollectionId());
+        if (parentId != null && !dao.collectionExists(accountId, parentId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
+        rejectReservedRootName(name, parentId);
+        try {
+            long id = dao.createCollection(accountId, name, parentId);
+            return collectionView(dao.findCollection(accountId, id)
+                    .orElseThrow(() -> new IllegalStateException("创建后未读取到题集")));
+        } catch (CollectionNameConflictException exception) {
+            throw new BusinessException(ErrorCode.COLLECTION_NAME_EXISTS);
+        }
+    }
+
+    @Override
+    @Transactional
+    public QuestionCollectionVO renameCollection(long accountId, String collectionId,
+            RenameQuestionCollectionDTO request) {
+        long id = positiveId(collectionId);
+        QuestionCollectionDO existing = dao.findCollection(accountId, id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
+        String name = collectionName(request.name());
+        rejectReservedRootName(name, existing.getParentCollectionId());
+        try {
+            if (dao.renameCollection(accountId, id, name) != 1) {
+                throw new BusinessException(ErrorCode.NOT_FOUND);
+            }
+        } catch (CollectionNameConflictException exception) {
+            throw new BusinessException(ErrorCode.COLLECTION_NAME_EXISTS);
+        }
+        return collectionView(dao.findCollection(accountId, id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND)));
+    }
+
+    @Override
+    @Transactional
+    public QuestionVO moveQuestion(long accountId, String questionId, MoveQuestionDTO request) {
+        long id = positiveId(questionId);
+        if (dao.findById(accountId, id).isEmpty()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
+        Long target = QuestionConverter.INBOX_ID.equals(request.collectionId())
+                ? null : positiveId(request.collectionId());
+        if (target != null && !dao.collectionExists(accountId, target)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
+        if (dao.moveQuestion(accountId, id, target) != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
+        return QuestionConverter.detail(dao.findById(accountId, id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND)));
+    }
+
+    private static QuestionCollectionVO collectionView(QuestionCollectionDO collection) {
+        Long parent = collection.getParentCollectionId();
+        return new QuestionCollectionVO(Long.toString(collection.getCollectionId()),
+                collection.getName(), false, collection.getQuestionCount(),
+                parent == null ? null : Long.toString(parent));
+    }
+
+    private static String collectionName(String raw) {
+        if (raw == null || raw.strip().isEmpty() || raw.strip().length() > 64) {
+            throw new BusinessException(ErrorCode.INVALID_PARAM);
+        }
+        return raw.strip();
+    }
+
+    private static void rejectReservedRootName(String name, Long parentId) {
+        if (parentId == null && "待整理".equals(name)) {
+            throw new BusinessException(ErrorCode.COLLECTION_NAME_EXISTS);
+        }
     }
 
     private static long positiveId(String value) {

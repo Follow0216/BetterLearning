@@ -46,6 +46,10 @@
         ORDER BY created_at DESC, question_id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
+    <update id="move">
+        UPDATE question SET collection_id = #{collectionId,jdbcType=BIGINT}
+        WHERE account_id = #{accountId} AND question_id = #{questionId}
+    </update>
     <select id="count" resultType="long">
         SELECT COUNT(*) FROM question WHERE <include refid="accountAndCollection"/>
     </select>

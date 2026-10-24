@@ -1,6 +1,10 @@
 package com.betterlearning.server.learning.service;
 
 import com.betterlearning.server.learning.model.dto.ConfirmQuestionDTO;
+import com.betterlearning.server.learning.model.dto.CreateQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.RenameQuestionCollectionDTO;
+import com.betterlearning.server.learning.model.dto.MoveQuestionDTO;
+import com.betterlearning.server.learning.model.vo.QuestionCollectionVO;
 import com.betterlearning.server.learning.model.vo.QuestionCollectionsVO;
 import com.betterlearning.server.learning.model.vo.QuestionPageVO;
 import com.betterlearning.server.learning.model.vo.QuestionVO;
@@ -13,6 +17,12 @@ public interface LearningService {
     QuestionVO detail(long accountId, String questionId);
 
     QuestionPageVO page(long accountId, String collectionId, int page, int pageSize);
+
+    QuestionCollectionVO createCollection(long accountId, CreateQuestionCollectionDTO request);
+
+    QuestionCollectionVO renameCollection(long accountId, String collectionId, RenameQuestionCollectionDTO request);
+
+    QuestionVO moveQuestion(long accountId, String questionId, MoveQuestionDTO request);
 
     QuestionCollectionsVO collections(long accountId);
 }

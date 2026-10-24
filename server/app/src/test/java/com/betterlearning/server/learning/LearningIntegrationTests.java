@@ -209,6 +209,94 @@ class LearningIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM question", Long.class)).isZero();
     }
 
+    @Test
+    void createsNestedCollectionsRenamesAndMovesOneQuestion() throws Exception {
+        String token = account("alice_01");
+        Map<String, Object> root = createCollection(token, "  微积分  ", null);
+        String rootId = (String) root.get("collectionId");
+        assertThat(root.get("name")).isEqualTo("微积分");
+        assertThat(root.get("parentCollectionId")).isNull();
+        Map<String, Object> child = createCollection(token, "导数", rootId);
+        String childId = (String) child.get("collectionId");
+        Map<String, Object> leaf = createCollection(token, "基础练习", childId);
+        assertThat(leaf.get("parentCollectionId")).isEqualTo(childId);
+        HttpResponse<String> renamed = http.patch(ROOT + "/collections/" + childId,
+                json.writeValueAsString(Map.of("name", "导数与微分")), token);
+        assertThat(renamed.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(renamed)).containsEntry("parentCollectionId", rootId)
+                .containsEntry("name", "导数与微分");
+        String questionId = (String) http.jsonBody(confirm(token, UUID.randomUUID().toString(), "original"))
+                .get("questionId");
+        HttpResponse<String> moved = http.patch(ROOT + "/questions/" + questionId + "/collection",
+                json.writeValueAsString(Map.of("collectionId", childId)), token);
+        assertThat(moved.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(moved)).containsEntry("collectionId", childId)
+                .containsEntry("bodyMarkdown", "original");
+        List<Map<String, Object>> collections = items(http.jsonBody(http.get(ROOT + "/collections", token)));
+        assertThat(collections).hasSize(4);
+        for (Map<String, Object> collection : collections) {
+            long expected = childId.equals(collection.get("collectionId")) ? 1L : 0L;
+            assertThat(((Number) collection.get("questionCount")).longValue()).isEqualTo(expected);
+        }
+        assertThat(items(http.jsonBody(http.get(ROOT + "/questions?collectionId=" + rootId, token)))).isEmpty();
+        HttpResponse<String> inbox = http.patch(ROOT + "/questions/" + questionId + "/collection",
+                json.writeValueAsString(Map.of("collectionId", "inbox")), token);
+        assertThat(inbox.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(inbox).get("collectionId")).isEqualTo("inbox");
+    }
+
+    @Test
+    void enforcesSiblingNamesAndKeepsSystemInboxFixed() throws Exception {
+        String token = account("alice_01");
+        String root = (String) createCollection(token, "微积分", null).get("collectionId");
+        String other = (String) createCollection(token, "线性代数", null).get("collectionId");
+        http.assertErrorEnvelope(http.post(ROOT + "/collections", "{\"name\":\"微积分\"}", token), 409, "A0450");
+        createCollection(token, "基础", root);
+        createCollection(token, "基础", other);
+        http.assertErrorEnvelope(http.post(ROOT + "/collections", json.writeValueAsString(
+                Map.of("name", "基础", "parentCollectionId", root)), token), 409, "A0450");
+        http.assertErrorEnvelope(http.patch(ROOT + "/collections/" + other,
+                "{\"name\":\"微积分\"}", token), 409, "A0450");
+        assertThat(http.patch(ROOT + "/collections/" + root,
+                "{\"name\":\"微积分\"}", token).statusCode()).isEqualTo(200);
+        http.assertErrorEnvelope(http.post(ROOT + "/collections", "{\"name\":\"待整理\"}", token), 409, "A0450");
+        http.assertErrorEnvelope(http.patch(ROOT + "/collections/inbox", "{\"name\":\"test\"}", token), 400, "A0400");
+        http.assertErrorEnvelope(http.post(ROOT + "/collections", json.writeValueAsString(
+                Map.of("name", "child", "parentCollectionId", "inbox")), token), 400, "A0400");
+        http.assertErrorEnvelope(http.patch(ROOT + "/collections/" + root, json.writeValueAsString(
+                Map.of("name", "changed", "parentCollectionId", other)), token), 400, "A0427");
+    }
+
+    @Test
+    void collectionWritesCannotCrossAccountBoundaries() throws Exception {
+        String alice = account("alice_01");
+        String bob = account("bob_02");
+        String root = (String) createCollection(alice, "微积分", null).get("collectionId");
+        createCollection(bob, "微积分", null);
+        http.assertErrorEnvelope(http.patch(ROOT + "/collections/" + root,
+                "{\"name\":\"foreign\"}", bob), 404, "A0606");
+        http.assertErrorEnvelope(http.post(ROOT + "/collections", json.writeValueAsString(
+                Map.of("name", "foreign", "parentCollectionId", root)), bob), 404, "A0606");
+        String aliceQuestion = (String) http.jsonBody(confirm(alice, UUID.randomUUID().toString(), "alice"))
+                .get("questionId");
+        String bobQuestion = (String) http.jsonBody(confirm(bob, UUID.randomUUID().toString(), "bob"))
+                .get("questionId");
+        http.assertErrorEnvelope(http.patch(ROOT + "/questions/" + aliceQuestion + "/collection",
+                "{\"collectionId\":\"inbox\"}", bob), 404, "A0606");
+        http.assertErrorEnvelope(http.patch(ROOT + "/questions/" + bobQuestion + "/collection",
+                json.writeValueAsString(Map.of("collectionId", root)), bob), 404, "A0606");
+        assertThat(http.jsonBody(http.get(ROOT + "/questions/" + bobQuestion, bob)).get("collectionId"))
+                .isEqualTo("inbox");
+    }
+
+    private Map<String, Object> createCollection(String token, String name, String parent) throws Exception {
+        Map<String, String> payload = parent == null ? Map.of("name", name)
+                : Map.of("name", name, "parentCollectionId", parent);
+        HttpResponse<String> response = http.post(ROOT + "/collections", json.writeValueAsString(payload), token);
+        assertThat(response.statusCode()).isEqualTo(201);
+        return http.jsonBody(response);
+    }
+
     private String account(String username) throws Exception {
         assertThat(http.post("/api/v1/users", TestData.registerJson(username, PASSWORD)).statusCode()).isEqualTo(201);
         HttpResponse<String> login = http.post("/api/v1/sessions", TestData.loginJson(username, PASSWORD));
