@@ -68,7 +68,7 @@ export async function selectImage(context: Context): Promise<string | undefined>
 }
 
 export async function takePhoto(context: Context): Promise<string | undefined> {
-  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-photo-');
+  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-photo-XXXXXX');
   const path: string = directory + '/photo.jpg';
   let created: boolean = false;
   let accepted: boolean = false;
@@ -210,7 +210,7 @@ export class CroppedImageCleanupError extends Error {
 // Keep this file until confirmed M1 handoff or explicit user/account abandonment.
 export async function cropToFile(context: Context, preview: image.PixelMap, rect: PixelRect): Promise<string> {
   const png: Uint8Array = await crop(preview, rect);
-  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-crop-');
+  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-crop-XXXXXX');
   const path: string = directory + '/crop.png';
   pendingCrops.set(path, directory);
   try {
