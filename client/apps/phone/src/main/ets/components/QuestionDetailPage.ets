@@ -141,15 +141,19 @@ export struct QuestionDetailPage {
         .padding({ left: 18, right: 18, top: 12, bottom: 12 })
 
       Column() {
-        QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
+        Column() {
+          QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .backgroundColor(PHONE_COLOR_CARD)
+        .borderRadius(PHONE_RADIUS_CARD)
+        .border({ width: 1, color: PHONE_COLOR_BORDER })
+        .clip(true)
       }
       .width('100%')
       .layoutWeight(1)
-      .backgroundColor(PHONE_COLOR_CARD)
-      .borderRadius(PHONE_RADIUS_CARD)
-      .border({ width: 1, color: PHONE_COLOR_BORDER })
-      .clip(true)
-      .margin({ left: 14, right: 14, bottom: 14 })
+      .padding({ left: 14, right: 14, bottom: 14 })
     }
     .width('100%')
     .layoutWeight(1)
