@@ -122,6 +122,20 @@ public class UserDao {
         }
     }
 
+    /** dev 管理员专用插入，沿用现有唯一约束与连接故障翻译。 */
+    public long insertAdmin(String username, String passwordHash) {
+        try {
+            Long accountId = execute(
+                    () -> userMapper.insertAdminReturningAccountId(username, passwordHash));
+            if (accountId == null) {
+                throw new IllegalStateException("创建管理员后未返回 account_id");
+            }
+            return accountId;
+        } catch (DataIntegrityViolationException exception) {
+            throw translateOrOriginal(exception);
+        }
+    }
+
     /**
      * 更新用户联系方式。
      *

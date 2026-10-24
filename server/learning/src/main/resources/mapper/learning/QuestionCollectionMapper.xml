@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.learning.mapper.QuestionCollectionMapper">
+    <resultMap id="collection" type="com.betterlearning.server.learning.model.dataobject.QuestionCollectionDO">
+        <id column="collection_id" property="collectionId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="name" property="name"/>
+        <result column="question_count" property="questionCount"/>
+    </resultMap>
+    <select id="findAll" resultMap="collection">
+        SELECT c.collection_id, c.account_id, c.name,
+               (SELECT COUNT(*) FROM question q
+                WHERE q.account_id = c.account_id AND q.collection_id = c.collection_id) AS question_count
+        FROM question_collection c
+        WHERE c.account_id = #{accountId}
+        ORDER BY c.collection_id
+    </select>
+    <select id="exists" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM question_collection
+                       WHERE account_id = #{accountId} AND collection_id = #{collectionId})
+    </select>
+</mapper>

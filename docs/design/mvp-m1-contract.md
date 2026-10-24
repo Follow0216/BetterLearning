@@ -7,7 +7,7 @@
 - 所有下述接口使用 `Authorization: Bearer <accessToken>`，沿用 `POST /api/v1/sessions`。当前账号由现有 JWT、Redis 会话及数据库实时校验后的 principal 提供，客户端不传 `accountId` 或角色。
 - 数据库 ID 全部以正十进制字符串返回，不转 JS/ArkTS number。固定虚拟题集 `collectionId="inbox"`，名称“待整理”；数据库题目 `collection_id=NULL` 对应此标识，不创建额外系统题集行。
 - 科目 `subject` 是大小写敏感的稳定枚举，M1 支持 `HIGHER_MATHEMATICS`（高等数学）与 `OTHER`（其他）；必须提供，不接收中文自由文本或 demo ID。待整理不属于科目。
-- 无独立标题。列表与详情的 `summary` 均由服务端从 `bodyMarkdown` 去除常见 Markdown 标记、收拢空白后取前 50 个 Unicode 码点，不追加省略号。它是文本预览，不是完整 Markdown/LaTeX 渲染器；三端直接显示服务端值，不各自计算。
+- 无独立标题。列表与详情的 `summary` 均由服务端从 `bodyMarkdown` 去除常见 Markdown 标记、收拢空白后取前 50 个 Unicode 码点，不追加省略号；无文本时返回“（无文本预览）”。它是文本预览，不是完整 Markdown/LaTeX 渲染器；三端直接显示服务端值，不各自计算。
 - `bodyMarkdown` 原样保存，不 trim 或重写；要求非空白且最多 20,000 个 UTF-16 code units。详情返回同一原文。用户在确认前编辑，确认入库后 M1 不提供修改接口。
 - 时间均为带偏移量的 ISO 8601 字符串。JSON 响应直接是下列对象，不新增 data/code 成功包装。严格 JSON 规则继续生效，未知或被忽略字段为 `400 A0427`。
 
@@ -108,7 +108,7 @@
 
 仅显式启用 Spring `dev` profile 时初始化管理员。默认用户名 `admin`、默认密码 `admin123`；可通过 `APP_DEV_ADMIN_USERNAME`、`APP_DEV_ADMIN_PASSWORD` 覆盖，值按字面读取，密码不插值也不 trim。`APP_DEV_ADMIN_ENABLED=false` 可在 dev 中显式禁用；非 dev 永不初始化，不设置正式环境通用账号。
 
-已有用户名若是 USER，初始化失败并明确提示，不提权；已有 ADMIN 只校验配置密码，匹配则原样保留，不匹配则明确失败，不自动重置。公共注册接口仍固定创建 USER。既有 dev 普通账号初始化及其 `SPRING_SECURITY_USER_NAME/PASSWORD` 要求保留，普通账号用户名必须与管理员不同。管理员默认密码仅适用于该 dev 初始化器，不放宽公共注册的 8 字符密码要求。
+已有用户名若是 USER，初始化失败并明确提示，不提权；已有 ADMIN 只校验配置密码，匹配则原样保留，不匹配则明确失败，不自动重置。更换配置不会撤销旧 ADMIN 账号或旧凭据；两个 dev 初始化器独立提交，任一失败可能留下另一初始化器已创建的账号，但不会覆盖已有角色或哈希。公共注册接口仍固定创建 USER。既有 dev 普通账号初始化及其 `SPRING_SECURITY_USER_NAME/PASSWORD` 要求保留，普通账号用户名必须与管理员不同。管理员默认密码仅适用于该 dev 初始化器，不放宽公共注册的 8 字符密码要求。
 
 管理员沿用 `POST /api/v1/sessions`：
 

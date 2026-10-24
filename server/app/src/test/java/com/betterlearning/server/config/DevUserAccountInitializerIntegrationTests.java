@@ -48,6 +48,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "app.dev-admin.enabled=false",
         DevUserAccountInitializerIntegrationTests.USERNAME_PROPERTY,
         DevUserAccountInitializerIntegrationTests.PASSWORD_PROPERTY})
 @ActiveProfiles("dev")
@@ -134,7 +135,7 @@ class DevUserAccountInitializerIntegrationTests {
             startupCaptured = true;
         }
         baseUrl = "http://127.0.0.1:" + port;
-        jdbcTemplate.update("TRUNCATE TABLE app_user RESTART IDENTITY");
+        jdbcTemplate.update("TRUNCATE TABLE question, question_collection, app_user RESTART IDENTITY");
         redisTemplate.execute((RedisCallback<Void>) connection -> {
             connection.serverCommands().flushDb();
             return null;
