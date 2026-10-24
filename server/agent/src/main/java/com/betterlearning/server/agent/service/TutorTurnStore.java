@@ -15,7 +15,7 @@ public interface TutorTurnStore {
 
     TutorModels.Turn get(long accountId, String questionId, String turnId);
 
-    /** 仅返回当前题WAITING_ANSWER轮次；空结果也必须先验证题目归属。 */
+    /** 仅返回当前题WAITING_ANSWER且fileRef=null的轮次；空结果也必须先验证题目归属。 */
     Optional<TutorModels.Turn> pending(long accountId, String questionId);
 
     /**
