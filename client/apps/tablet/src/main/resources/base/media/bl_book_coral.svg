@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="80" height="108" viewBox="0 0 80 108">
+  <defs>
+    <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFCAB4"/><stop offset="1" stop-color="#F39B7C"/></linearGradient>
+    <linearGradient id="spine" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#C76D51"/><stop offset="1" stop-color="#FFCAB4"/></linearGradient>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFE0D0" stop-opacity="0.2"/><stop offset="1" stop-color="#FFE0D0" stop-opacity="0.85"/></linearGradient>
+  </defs>
+  <rect x="4" y="4" width="74" height="103" rx="4" fill="#152744" opacity="0.07"/>
+  <rect x="1" y="1" width="76" height="103" rx="4" fill="url(#cover)"/>
+  <path d="M5 1h7v103H5c-2.2 0-4-1.8-4-4V5c0-2.2 1.8-4 4-4Z" fill="url(#spine)"/>
+  <path d="M12 2v101" stroke="#FFFFFF" stroke-opacity="0.5"/>
+  <path d="M13 83c20-5 30-31 64-29v20c-26-6-40 23-64 25Z" fill="url(#wave)"/>
+  <path d="M13 92c25-3 37-37 64-36" fill="none" stroke="#FFFFFF" stroke-opacity="0.4"/>
+  <path d="M15 3h58" stroke="#FFFFFF" stroke-opacity="0.35"/>
+</svg>

@@ -3,6 +3,7 @@ import { LibraryPane } from './LibraryPane';
 import {
   TABLET_COLOR_BORDER,
   TABLET_COLOR_CARD,
+  TABLET_COLOR_HEADER,
   TABLET_COLOR_MUTED,
   TABLET_COLOR_PRIMARY,
   TABLET_COLOR_PRIMARY_SOFT,
@@ -135,7 +136,7 @@ export struct TabletShell {
     }
     .width('100%')
     .height(TABLET_TOP_BAR_HEIGHT)
-    .backgroundColor(TABLET_COLOR_CARD)
+    .backgroundColor(TABLET_COLOR_HEADER)
     .border({ width: { bottom: 1 }, color: TABLET_COLOR_BORDER })
     .visibility(this.answer_mode ? Visibility.None : Visibility.Visible)
   }
