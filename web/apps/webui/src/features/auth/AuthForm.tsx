@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 
 import type { AuthUserProfile } from "@/lib/api/auth-contract";
@@ -605,6 +606,9 @@ export function AuthForm() {
           </p>
         ) : null}
         <div className="mt-8 flex flex-col gap-3">
+          <Link href="/workspace" className={PRIMARY_BUTTON}>
+            进入题库
+          </Link>
           <button
             type="button"
             onClick={() => void handleRefresh()}
@@ -619,7 +623,7 @@ export function AuthForm() {
             onClick={() => void handleLogout()}
             disabled={loggingOut || refreshing}
             aria-busy={loggingOut}
-            className={PRIMARY_BUTTON}
+            className={SECONDARY_BUTTON}
           >
             {loggingOut ? "正在退出…" : "退出登录"}
           </button>
