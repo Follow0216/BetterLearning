@@ -21,9 +21,10 @@ enum PhoneTab {
 /**
  * 手机 M1 主壳：登录、正式题库、手工录题、详情与账号。
  *
- * <p>登录成功后只进入真实题库；不提供游客或演示数据入口。所有子页面以当前
- * 访问令牌与请求序号保护异步回写，401、退出或会话失效时统一清除本端题库、
- * 详情和录题草稿状态。</p>
+ * <p>登录成功后只进入真实题库；不提供游客或演示数据入口。题库、录题与账号
+ * 三个页面在会话内常驻并以可见性切换，录题正文与确认快照不会因切换 tab 丢失。
+ * 所有子页面以当前访问令牌与请求序号保护异步回写，401、退出或会话失效时统一
+ * 清除本端题库、详情和录题状态。</p>
  */
 @Component
 export struct PhoneApp {
@@ -63,7 +64,43 @@ export struct PhoneApp {
   @Builder
   main_shell() {
     Column() {
-      Column() {
+      Stack() {
+        QuestionLibrary({
+          refreshToken: this.libraryRefreshToken,
+          onOpenQuestion: (questionId: string) => {
+            this.detailQuestionId = questionId;
+          },
+          onUnauthorized: (token: string) => {
+            this.handle_signed_out(token);
+          }
+        })
+          .visibility(this.detailQuestionId.length === 0 &&
+          this.activeTab === PhoneTab.LIBRARY ? Visibility.Visible : Visibility.None)
+
+        ManualEntry({
+          onSaved: (detail: QuestionDetail) => {
+            this.libraryRefreshToken = this.libraryRefreshToken + 1;
+            this.activeTab = PhoneTab.LIBRARY;
+            this.detailQuestionId = detail.questionId;
+          },
+          onUnauthorized: (token: string) => {
+            this.handle_signed_out(token);
+          }
+        })
+          .visibility(this.detailQuestionId.length === 0 &&
+          this.activeTab === PhoneTab.ENTRY ? Visibility.Visible : Visibility.None)
+
+        AccountPage({
+          onBack: () => {
+            this.activeTab = PhoneTab.LIBRARY;
+          },
+          onSignedOut: (token: string) => {
+            this.handle_signed_out(token);
+          }
+        })
+          .visibility(this.detailQuestionId.length === 0 &&
+          this.activeTab === PhoneTab.ACCOUNT ? Visibility.Visible : Visibility.None)
+
         if (this.detailQuestionId.length > 0) {
           QuestionDetailPage({
             questionId: this.detailQuestionId,
@@ -71,36 +108,6 @@ export struct PhoneApp {
               this.detailQuestionId = '';
             },
             onUnauthorized: (token: string) => {
-              this.handle_signed_out(token);
-            }
-          })
-        } else if (this.activeTab === PhoneTab.LIBRARY) {
-          QuestionLibrary({
-            refreshToken: this.libraryRefreshToken,
-            onOpenQuestion: (questionId: string) => {
-              this.detailQuestionId = questionId;
-            },
-            onUnauthorized: (token: string) => {
-              this.handle_signed_out(token);
-            }
-          })
-        } else if (this.activeTab === PhoneTab.ENTRY) {
-          ManualEntry({
-            onSaved: (detail: QuestionDetail) => {
-              this.libraryRefreshToken = this.libraryRefreshToken + 1;
-              this.activeTab = PhoneTab.LIBRARY;
-              this.detailQuestionId = detail.questionId;
-            },
-            onUnauthorized: (token: string) => {
-              this.handle_signed_out(token);
-            }
-          })
-        } else {
-          AccountPage({
-            onBack: () => {
-              this.activeTab = PhoneTab.LIBRARY;
-            },
-            onSignedOut: (token: string) => {
               this.handle_signed_out(token);
             }
           })

@@ -29,8 +29,9 @@ import {
  * 手工 Markdown 录题：选择学科、输入正文并确认入库。
  *
  * <p>首次确认生成一次不可变的 {@link ManualQuestionInput}；双击、超时或断网
- * 重试复用同一对象，只有正文或学科改变才重建 requestId。成功后在父级打开
- * 同 questionId 的详情并刷新题库。</p>
+ * 重试复用同一对象，只有正文或学科改变才重建 requestId。组件在登录会话内
+ * 常驻，提交中切换 tab 不会重复创建请求，未知结果可在返回后原样重试。
+ * 成功后在父级打开同 questionId 的详情并刷新题库。</p>
  */
 @Component
 export struct ManualEntry {
@@ -259,10 +260,13 @@ export struct ManualEntry {
       if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
         return;
       }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
+        return;
+      }
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.is_unauthorized()) {
-          authSession.clear_session_if_token(token);
-          this.onUnauthorized(token);
+          this.handle_unauthorized(token);
           return;
         }
         this.errorText = describe_confirm_error(result.error);
@@ -274,6 +278,10 @@ export struct ManualEntry {
       this.onSaved(detail);
     } catch (error) {
       if (seq !== this.requestSeq || !authSession.matches_access_token(token)) {
+        return;
+      }
+      if (!authSession.has_valid_session()) {
+        this.handle_unauthorized(token);
         return;
       }
       this.errorText = '确认请求异常，请重试';
@@ -292,5 +300,15 @@ export struct ManualEntry {
       return '题目正文不能超过 20000 个字符';
     }
     return '';
+  }
+
+  /**
+   * 清理当前令牌会话并通知外层回到登录；旧令牌不影响新会话。
+   *
+   * @param token 触发失效的访问令牌
+   */
+  private handle_unauthorized(token: string): void {
+    authSession.clear_session_if_token(token);
+    this.onUnauthorized(token);
   }
 }
