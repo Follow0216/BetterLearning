@@ -135,6 +135,8 @@ export class TabletTutorBridge {
       // 只取消该轮本机等待/导出/待发送；C2保留原包且不会调用服务端cancel。
       this.canvas.cancelTutorFreeze(this.questionId, this.activeTurnId);
     }
+    // 恢复时必须经C2重新挂接上下文；原冻结包仍由C2保留和复用。
+    this.retained = null;
     this.publish(TabletTutorPhase.STOPPED, '辅导请求已暂停');
   }
 
