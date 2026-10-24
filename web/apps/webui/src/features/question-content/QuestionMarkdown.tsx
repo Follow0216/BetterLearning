@@ -8,6 +8,7 @@ export interface QuestionMarkdownProps {
   bodyMarkdown: string;
   className?: string;
   ariaLabel?: string;
+  failureMessage?: string;
 }
 
 function joinClassNames(...values: Array<string | undefined>): string {
@@ -20,6 +21,7 @@ export function QuestionMarkdown({
   bodyMarkdown,
   className,
   ariaLabel = "题目正文",
+  failureMessage = "题面暂时无法显示，请稍后重试。",
 }: QuestionMarkdownProps) {
   const rendered = renderQuestionMarkdown(bodyMarkdown);
   const rootClassName = joinClassNames(styles.content, className);
@@ -28,7 +30,7 @@ export function QuestionMarkdown({
     return (
       <div className={rootClassName} aria-label={ariaLabel} data-render-state="error">
         <p role="note" className={styles.failure}>
-          题面暂时无法显示，请稍后重试。
+          {failureMessage}
         </p>
       </div>
     );

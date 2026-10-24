@@ -26,6 +26,12 @@ import {
   type QuestionDetail,
   type QuestionPage,
 } from "./library-contract";
+import {
+  isValidTutorTurnId,
+  parseTutorReadManifest,
+  parseTutorTurnList,
+  type TutorTurnList,
+} from "./tutor-turn-contract";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:18081";
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -483,6 +489,100 @@ export async function getAnswerBlock(
 
   return requestPng(
     `/api/v1/learning/questions/${encodeURIComponent(questionId)}/answer/files/${encodeURIComponent(fileRef)}/blocks/${index}`,
+    token,
+  );
+}
+
+export async function getTutorTurns(questionId: string): Promise<LibraryResult<TutorTurnList>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  const token = await readSessionToken();
+  if (token === null) {
+    return {
+      ok: false,
+      failure: failure("unauthenticated", 401, "A0200", "登录状态已失效，请重新登录"),
+    };
+  }
+
+  const result = await requestJson(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/tutor-turns`,
+    token,
+  );
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ok: true, data: parseTutorTurnList(result.value, questionId) };
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+}
+
+export async function getTutorTurnAnswerManifest(
+  questionId: string,
+  turnId: string,
+): Promise<LibraryResult<Record<string, unknown>>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  if (!isValidTutorTurnId(turnId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "辅导轮次编号不合法") };
+  }
+  const token = await readSessionToken();
+  if (token === null) {
+    return {
+      ok: false,
+      failure: failure("unauthenticated", 401, "A0200", "登录状态已失效，请重新登录"),
+    };
+  }
+
+  const result = await requestJson(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/tutor-turns/${encodeURIComponent(turnId)}/answer`,
+    token,
+  );
+  if (!result.ok) {
+    return result;
+  }
+  if (typeof result.value !== "object" || result.value === null || Array.isArray(result.value)) {
+    return { ok: false, failure: contractFailure() };
+  }
+  try {
+    parseTutorReadManifest(result.value, turnId);
+  } catch {
+    return { ok: false, failure: contractFailure() };
+  }
+  return { ok: true, data: result.value as Record<string, unknown> };
+}
+
+export async function getTutorTurnAnswerBlock(
+  questionId: string,
+  turnId: string,
+  fileRef: string,
+  index: number,
+): Promise<LibraryResult<AnswerBlockImage>> {
+  if (!isValidQuestionId(questionId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "题目编号不合法") };
+  }
+  if (!isValidTutorTurnId(turnId)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "辅导轮次编号不合法") };
+  }
+  if (!isValidAnswerFileRef(fileRef)) {
+    return { ok: false, failure: failure("error", 400, "A0400", "作答文件编号不合法") };
+  }
+  if (!Number.isSafeInteger(index) || index < 0 || index >= MAX_ANSWER_BLOCKS) {
+    return { ok: false, failure: failure("error", 400, "A0400", "作答图块编号不合法") };
+  }
+  const token = await readSessionToken();
+  if (token === null) {
+    return {
+      ok: false,
+      failure: failure("unauthenticated", 401, "A0200", "登录状态已失效，请重新登录"),
+    };
+  }
+
+  return requestPng(
+    `/api/v1/learning/questions/${encodeURIComponent(questionId)}/tutor-turns/${encodeURIComponent(turnId)}/answer/files/${encodeURIComponent(fileRef)}/blocks/${index}`,
     token,
   );
 }
