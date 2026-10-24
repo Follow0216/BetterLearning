@@ -1,9 +1,13 @@
 import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { camera, cameraPicker } from '@kit.CameraKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { canvas_write } from 'common';
+
+const CAMERA_LOG_DOMAIN: number = 0xB120;
+const CAMERA_LOG_TAG: string = 'BLImageSource';
 
 const MAX_IMAGE_BYTES: number = 16 * 1024 * 1024;
 const MAX_PIXELS: number = 16 * 1024 * 1024;
@@ -67,34 +71,67 @@ export async function selectImage(context: Context): Promise<string | undefined>
   return result.photoUris.length === 0 ? undefined : result.photoUris[0];
 }
 
+function cameraFailure(stage: string, error: Error): void {
+  const nativeCode: number = error === null || error === undefined ? -1 : (error as BusinessError).code;
+  const code: number = typeof nativeCode === 'number' && Number.isFinite(nativeCode) ? nativeCode : -1;
+  const type: string = error instanceof TypeError ? 'TypeError' : error instanceof Error ? 'Error' : 'NativeError';
+  hilog.error(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=%{public}s code=%{public}d type=%{public}s', stage, code, type);
+}
+
 export async function takePhoto(context: Context): Promise<string | undefined> {
-  const directory: string = fileIo.mkdtempSync(context.cacheDir + '/ocr-photo-XXXXXX');
-  const path: string = directory + '/photo.jpg';
+  let directory: string = '';
+  let path: string = '';
+  let stage: string = 'context';
   let created: boolean = false;
   let accepted: boolean = false;
   try {
+    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=context entry');
+    stage = 'temp-directory';
+    directory = fileIo.mkdtempSync(context.cacheDir + '/ocr-photo-XXXXXX');
+    path = directory + '/photo.jpg';
+    stage = 'create-file';
     const file: fileIo.File = fileIo.openSync(path, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE);
     created = true;
+    stage = 'close-file';
     fileIo.closeSync(file);
+    stage = 'file-uri';
     const uri: string = new fileUri.FileUri(path).toString();
+    stage = 'profile-constructor';
+    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=profile-constructor start');
     const profile: cameraPicker.PickerProfile = new cameraPicker.PickerProfile();
+    stage = 'profile-fields';
     profile.cameraPosition = camera.CameraPosition.CAMERA_POSITION_BACK;
     profile.saveUri = uri;
-    const result: cameraPicker.PickerResult = await cameraPicker.pick(context,
+    stage = 'pick-call';
+    const pending: Promise<cameraPicker.PickerResult> = cameraPicker.pick(context,
       [cameraPicker.PickerMediaType.PHOTO], profile);
+    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=pick-call returnType=%{public}s', typeof pending);
+    const result: cameraPicker.PickerResult = await pending;
+    stage = 'pick-result';
+    const present: boolean = result !== null && result !== undefined;
+    hilog.info(CAMERA_LOG_DOMAIN, CAMERA_LOG_TAG, 'stage=pick-result present=%{public}s code=%{public}d',
+      present ? 'yes' : 'no', present ? result.resultCode : -1);
     if (result.resultCode !== 0 || result.resultUri.length === 0) {
       return undefined;
     }
     pendingPhotos.set(result.resultUri, directory);
     accepted = true;
     return result.resultUri;
+  } catch (error) {
+    cameraFailure(stage, error as Error);
+    throw error as Error;
   } finally {
-    if (!accepted) {
-      if (created && pathExists(path)) {
-        fileIo.unlinkSync(path);
-      }
-      if (pathExists(directory)) {
-        fileIo.rmdirSync(directory);
+    if (!accepted && directory.length > 0) {
+      try {
+        if (created && pathExists(path)) {
+          fileIo.unlinkSync(path);
+        }
+        if (pathExists(directory)) {
+          fileIo.rmdirSync(directory);
+        }
+      } catch (cleanupError) {
+        cameraFailure('cleanup', cleanupError as Error);
+        throw cleanupError as Error;
       }
     }
   }
