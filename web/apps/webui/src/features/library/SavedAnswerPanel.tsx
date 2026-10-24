@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
@@ -163,12 +164,12 @@ export function SavedAnswerPanel({ questionId }: SavedAnswerPanelProps) {
               重试
             </button>
             {outcome.unauthenticated ? (
-              <a
+              <Link
                 href="/"
                 className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--auth-primary)] px-3 text-sm font-medium text-white transition-colors hover:bg-[var(--auth-primary-hover)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 重新登录
-              </a>
+              </Link>
             ) : null}
           </div>
         </div>
