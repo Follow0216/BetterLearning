@@ -316,9 +316,10 @@ export struct TabletCanvasWorkspace {
       if (this.rasterizing) {
         ForEach([this.rasterRequest], (request: RasterRequest) => {
           QuestionRasterHost({ bodyMarkdown: request.body, directory: request.directory,
+            requestActive: () => this.raster_current(request) && authSession.has_valid_session(),
             onReady: (result: QuestionRasterResult) => this.raster_ready(result,request),
             onFailure: (message: string) => this.raster_failed(message,request) })
-            .opacity(0.01).hitTestBehavior(HitTestMode.None)
+            .hitTestBehavior(HitTestMode.None)
         }, (request: RasterRequest) => request.key)
       }
       if (this.loading || this.rasterizing) {
