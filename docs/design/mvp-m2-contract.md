@@ -20,8 +20,10 @@ M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复�
 | 操作 | HTTP | 请求与结果 |
 | --- | --- | --- |
 | 创建题集 | POST `/api/v1/learning/collections` | `{"name":"微积分","parentCollectionId":null}` → 201，返回新节点；创建子集时父 ID 如 `"12"` |
-| 改名 | PATCH `/api/v1/learning/collections/{collectionId}` | `{"name":"导数与微分"}` → 200，返回节点；不接受 parentCollectionId |
-| 单题移动／移回待整理 | PATCH `/api/v1/learning/questions/{questionId}/collection` | `{"collectionId":"12"}` 或 `{"collectionId":"inbox"}` → 200，返回更新后既有 QuestionVO |
+| 改名 | PATCH／POST `/api/v1/learning/collections/{collectionId}` | `{"name":"导数与微分"}` → 200，返回节点；不接受 parentCollectionId |
+| 单题移动／移回待整理 | PATCH／POST `/api/v1/learning/questions/{questionId}/collection` | `{"collectionId":"12"}` 或 `{"collectionId":"inbox"}` → 200，返回更新后既有 QuestionVO |
+
+为 API24 客户端提供同路径 POST 兼容别名：题集改名、单题移动、完成／继续三个操作均接受 PATCH 与 POST。两种方法复用同一控制器处理方法、DTO校验、Bearer鉴权与业务调用，请求、200响应、错误码和副作用完全一致。原 PATCH 保留；无需方法覆写请求头、过滤器或额外网络实现。OpenAPI 为15路径／22操作。
 
 同一题移动到当前题集及重复改为当前名称均为无副作用成功；创建不另建幂等框架，重复同父同名创建返回明确 409，客户端刷新列表确认，不自动加后缀或偷偷重建。
 
@@ -33,7 +35,7 @@ M2 包含题集创建／改名／单题移动、多层题集、Tablet 可恢复�
 | --- | --- | --- |
 | 读取当前作答 | GET `/api/v1/learning/questions/{questionId}/answer` | 200；含完整 JSON、题干快照及全部 PNG 块描述 |
 | 保存完整作答 | POST `/api/v1/learning/questions/{questionId}/answer` | multipart；只有全部文件保存且数据库提交成功才返回 200/fileRef |
-| 标记完成／继续 | PATCH `/api/v1/learning/questions/{questionId}/answer-state` | 200；针对当前 fileRef 原子切换状态 |
+| 标记完成／继续 | PATCH／POST `/api/v1/learning/questions/{questionId}/answer-state` | 200；针对当前 fileRef 原子切换状态 |
 | 读取题面底图 | GET `/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/question-blocks/{index}` | 与合成块相同鉴权，200 image/png，仅用于恢复可编辑画布 |
 | 读取单块 | GET `/api/v1/learning/questions/{questionId}/answer/files/{fileRef}/blocks/{index}` | Bearer + 账号／题号／当前 fileRef 校验，200 image/png |
 

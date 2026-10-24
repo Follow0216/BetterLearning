@@ -289,6 +289,35 @@ class LearningIntegrationTests {
                 .isEqualTo("inbox");
     }
 
+    @Test
+    void postAliasesRenameAndMoveWithSameValidationAndAccountIsolation() throws Exception {
+        String alice = account("alice_01");
+        String bob = account("bob_02");
+        String collection = (String) createCollection(alice, "微积分", null).get("collectionId");
+        String renamePath = ROOT + "/collections/" + collection;
+        HttpResponse<String> renamed = http.post(renamePath, "{\"name\":\"导数\"}", alice);
+        assertThat(renamed.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(renamed)).containsEntry("collectionId", collection).containsEntry("name", "导数");
+        String question = (String) http.jsonBody(confirm(alice, UUID.randomUUID().toString(), "original"))
+                .get("questionId");
+        String movePath = ROOT + "/questions/" + question + "/collection";
+        HttpResponse<String> moved = http.post(movePath, json.writeValueAsString(Map.of("collectionId", collection)), alice);
+        assertThat(moved.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(moved)).containsEntry("questionId", question).containsEntry("collectionId", collection);
+        assertThat(http.jsonBody(http.get(ROOT + "/questions/" + question, alice)))
+                .containsEntry("collectionId", collection).containsEntry("bodyMarkdown", "original");
+        HttpResponse<String> inbox = http.post(movePath, "{\"collectionId\":\"inbox\"}", alice);
+        assertThat(inbox.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(inbox)).containsEntry("collectionId", "inbox");
+        http.assertErrorEnvelope(http.post(renamePath, "{\"name\":\" \"}", alice), 400, "A0400");
+        http.assertErrorEnvelope(http.post(movePath, "{\"collectionId\":\"0\"}", alice), 400, "A0400");
+        http.assertErrorEnvelope(http.post(renamePath, "{\"name\":\"other\",\"parentCollectionId\":null}", alice), 400, "A0427");
+        http.assertErrorEnvelope(http.post(renamePath, "{\"name\":\"foreign\"}", bob), 404, "A0606");
+        http.assertErrorEnvelope(http.post(movePath, "{\"collectionId\":\"inbox\"}", bob), 404, "A0606");
+        http.assertErrorEnvelope(http.post(renamePath, "{\"name\":\"anonymous\"}"), 401, "A0200");
+        http.assertErrorEnvelope(http.post(movePath, "{\"collectionId\":\"inbox\"}"), 401, "A0200");
+    }
+
     private Map<String, Object> createCollection(String token, String name, String parent) throws Exception {
         Map<String, String> payload = parent == null ? Map.of("name", name)
                 : Map.of("name", name, "parentCollectionId", parent);

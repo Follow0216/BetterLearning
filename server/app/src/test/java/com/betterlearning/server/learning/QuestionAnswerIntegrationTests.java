@@ -178,6 +178,37 @@ class QuestionAnswerIntegrationTests {
                 .containsEntry("baseFileRef", ref);
     }
 
+    @Test
+    void postAliasCompletesAndContinuesWithSameCurrentReferenceChecks() throws Exception {
+        String token = account("alice_01");
+        String bob = account("bob_02");
+        String question = question(token);
+        http.assertErrorEnvelope(postState(token, question, "COMPLETED", UUID.randomUUID().toString()), 409, "A0452");
+        byte[] payload = multipart(AnswerTestData.manifest(UUID.randomUUID().toString(), null), true);
+        String ref = (String) http.jsonBody(save(token, question, payload)).get("fileRef");
+        http.assertErrorEnvelope(postState(null, question, "COMPLETED", ref), 401, "A0200");
+        http.assertErrorEnvelope(postState(bob, question, "COMPLETED", ref), 404, "A0606");
+        HttpResponse<String> completed = postState(token, question, "COMPLETED", ref);
+        assertThat(completed.statusCode()).isEqualTo(200);
+        Map<String, Object> result = http.jsonBody(completed);
+        assertThat(result).containsEntry("state", "COMPLETED").containsEntry("fileRef", ref);
+        assertThat(result.get("completedAt")).isNotNull();
+        assertThat(http.jsonBody(postState(token, question, "COMPLETED", ref)).get("completedAt"))
+                .isEqualTo(result.get("completedAt"));
+        http.assertErrorEnvelope(postState(token, question, "IN_PROGRESS", UUID.randomUUID().toString()), 409, "A0451");
+        http.assertErrorEnvelope(postState(token, question, "NOT_STARTED", ref), 400, "A0400");
+        HttpResponse<String> continued = postState(token, question, "IN_PROGRESS", ref);
+        assertThat(continued.statusCode()).isEqualTo(200);
+        assertThat(http.jsonBody(continued)).containsEntry("state", "IN_PROGRESS")
+                .containsEntry("fileRef", ref).containsEntry("completedAt", null);
+        assertThat(http.jsonBody(http.get(ROOT + question + "/answer", token))).containsEntry("state", "IN_PROGRESS");
+    }
+
+    private HttpResponse<String> postState(String token, String question, String state, String ref) throws Exception {
+        return http.post(ROOT + question + "/answer-state", json.writeValueAsString(Map.of(
+                "state", state, "fileRef", ref)), token);
+    }
+
     private HttpResponse<String> state(String token, String question, String state, String ref) throws Exception {
         return http.patch(ROOT + question + "/answer-state", json.writeValueAsString(Map.of(
                 "state", state, "fileRef", ref)), token);
