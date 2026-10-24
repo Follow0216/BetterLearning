@@ -8,7 +8,7 @@
 
 | 操作 | 路径 | 输入/输出 |
 | --- | --- | --- |
-| 发问 | POST /api/v1/learning/questions/{questionId}/tutor-turns | {requestId,prompt} → Turn，首次201，重复200 |
+| 发问 | POST /api/v1/learning/questions/{questionId}/tutor-turns | {requestId,prompt} → 200 Turn（创建/重复统一200） |
 | 同题轮次 | GET 同上 | {items:[Turn]}，最近50轮，createdAt/turnId正序 |
 | 轮次详情 | GET 同上/{turnId} | Turn |
 | Tablet前台轮询 | GET 同上/pending | {turn:Turn或null}，只返回该题 WAITING_ANSWER且fileRef=null |
@@ -20,7 +20,7 @@
 
 Turn字段：turnId,requestId,questionId,prompt,status,fileRef,answerMarkdown,failureCode,failureMessage,createdAt,updatedAt。
 状态只有 WAITING_ANSWER / GENERATING / SUCCEEDED / FAILED。回答/failure互斥；等待平板时fileRef=null；完整冻结后绑定一次fileRef且之后不可替换，绑定后到领取模型前可短暂保留WAITING_ANSWER且不再出现在pending中。模型重试不创建新轮次、不重新冻结。新requestId始终新轮并重新请求平板。
-同账号同题最多一个WAITING_ANSWER/GENERATING。重复requestId+同prompt先返回原轮；同requestId不同prompt或已有其他活动轮返回409。同账号同题不同requestId的新轮必须等前轮结束。列表/详情在Phone/Web相同。
+同账号最多一个WAITING_ANSWER/GENERATING（跨题同样互斥）。账号级requestId+相同questionId/prompt先返回原轮；同requestId用于不同题/不同prompt或账号已有其他活动轮返回409。新requestId的新轮必须等该账号前轮结束；失败轮retry也必须满足同一账号级活动限制。列表/详情在Phone/Web相同。
 
 Tablet仅前台、当前题questionId轮询。收到pending若落笔中，等待本笔结束后立即冻结题面、所有笔迹、负坐标及视口外范围；冻结完成可继续写。冻结包在本轮确认接收前保持原字节，重复上传不得重新导出。普通保存/冻结上传共用客户端顺序发送器，但服务端对象和引用完全分离。缺块/摘要不符不绑定fileRef，不调用模型；有效无笔迹仍有完整题面合成块，不当缺失快照。
 上传完整接受后，由C1调用TutorService.generate(...,false)同步尝试模型。重复上传若轮次已有fileRef，不得替换文件；同包可再次调用generate(...,false)，原子领取确保只有一次实际模型调用，GENERATING/SUCCEEDED直接返回原轮；若响应超时，Phone/Tablet读轮次状态确认。GENERATING重复retry返回当前轮；SUCCEEDED同样返回原结果。失败后显式retry，调用generate(...,true)。无自动模型重试（maxRetries=0），避免未知结果的隐式重复收费。进程在绑定fileRef后/GENERATING中止且无后续原包重试属于已知MVP限制，不另建恢复系统。
@@ -28,7 +28,7 @@ Tablet仅前台、当前题questionId轮询。收到pending若落笔中，等待
 ## C1 精确依赖接口
 
 C3提供 agent.model.TutorModels、agent.service.TutorService、agent.service.TutorTurnStore、agent.model.AgentModelException、agent.config.AgentProperties。C1在app显式@Bean注册DefaultTutorService(TutorTurnStore,ObjectProvider<TutoringModel>)和OcrService(ObjectProvider<OcrModel>)；DefaultTutorService不自动注册，避免C1接入前缺存储Bean阻断既有M1/M2。C3独立AgentModelConfiguration注册AgentProperties，C1无需重复注册。C1在app做TutorTurnStore适配实现，调用learning的独立轮次/不可变文件存储；learning和agent不互相依赖，也不依赖user DO/Mapper。
-TutorTurnStore的每次状态写是短数据库事务，不能包住模型调用。createOrGet及claimGeneration有行锁/约束原子保证；complete/fail只更新原轮GENERATING，不能覆盖已完成结果。模型调用前需已完整接受文件并提交，且FrozenAnswer必须来自该轮文件，不得用M2当前fileRef。方法详见接口Javadoc。
+TutorTurnStore的每次状态写是短数据库事务，不能包住模型调用。createOrGet及claimGeneration有账号级行锁/活动唯一约束原子保证（retry也覆盖），不是仅按questionId加锁；complete/fail只更新原轮GENERATING，不能覆盖已完成结果。模型调用前需已完整接受文件并提交，且FrozenAnswer必须来自该轮文件，不得用M2当前fileRef。方法详见接口Javadoc。
 
 C1独占：Flyway；learning存储；app控制器/适配Bean；common错误码；application.properties、.env.example和环境映射/测试。C3不跨owner实现这些文件。C1需将AgentModelException统一安全映射为现有503错误对象（使用failure.message，不透传原始模型异常）；辅导失败则在Turn内保存failureCode/failureMessage。
 AgentProperties键（尚无默认真实凭据）：app.agent.ocr.{base-url,model,api-key,timeout-seconds} 与 app.agent.tutoring.{base-url,model,api-key,timeout-seconds}。环境映射APP_AGENT_OCR_BASE_URL/MODEL/API_KEY/TIMEOUT_SECONDS以及APP_AGENT_TUTORING_BASE_URL/MODEL/API_KEY/TIMEOUT_SECONDS，由C1登记。timeout-seconds默认120，不要求用户额外填写开关。base-url原样交LangChain4j，保留路径前缀；不做host根路径重写。无配置时M1/M2仍可启动，真正调用明确失败，绝不返回模拟答案。

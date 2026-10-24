@@ -7,7 +7,7 @@ import com.betterlearning.server.agent.model.TutorModels;
 
 /** C1在app适配learning存储；每次操作自身提交，不跨模型调用持有数据库事务。 */
 public interface TutorTurnStore {
-    /** 先按账号/题目授权；同requestId同prompt返回原轮，不同内容409；同题最多一个活动轮。 */
+    /** 先按账号/题目授权；账号级requestId+同题同prompt返回原轮，不同内容409；同账号跨题最多一个活动轮。 */
     TutorModels.Turn createOrGet(long accountId, String questionId, String requestId, String prompt);
 
     /** 最近50轮，按createdAt/turnId正序；必须先验证题目属于当前账号。 */
@@ -20,7 +20,7 @@ public interface TutorTurnStore {
 
     /**
      * 原子领取：已有完整fileRef的WAITING_ANSWER，或retry=true且已有fileRef的FAILED转GENERATING。
-     * 已GENERATING/SUCCEEDED返回claimed=false原轮；其他非法重试409。
+     * 已GENERATING/SUCCEEDED返回claimed=false原轮；其他非法重试409。retry也须原子满足账号级活动唯一约束。
      * 文件绑定由C1完整上传事务完成且只允许一次，不能以M2当前作答替代。
      */
     TutorModels.GenerationClaim claimGeneration(long accountId, String questionId, String turnId, boolean retry);
