@@ -11,6 +11,7 @@ public interface RetrievalMapper {
     Map<String, Object> claim();
     Long lockAccount(long accountId);
     String lockJob(@Param("eventId") String eventId, @Param("fence") long fence);
+    String lockJobForUnknown(@Param("eventId") String eventId, @Param("accountId") long accountId);
     String indexProtocol(@Param("eventId") String eventId, @Param("fence") long fence);
     int beginIndexProtocol(@Param("eventId") String eventId, @Param("fence") long fence,
             @Param("protocol") String protocol);

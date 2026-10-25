@@ -58,7 +58,7 @@ public final class HandwritingOcrValidator {
                 candidates.add(new MethodCandidate(string(candidate, "method"),
                         integer(candidate, "evidenceStartUtf16"), integer(candidate, "evidenceEndUtf16"),
                         new Region(integer(region, "x"), integer(region, "y"),
-                                integer(region, "width"), integer(region, "height")),
+                        integer(region, "width"), integer(region, "height")),
                         string(candidate, "state"), string(candidate, "reason")));
             }
             return validate(new Result(string(node, "schemaVersion"), string(node, "taxonomyVersion"),

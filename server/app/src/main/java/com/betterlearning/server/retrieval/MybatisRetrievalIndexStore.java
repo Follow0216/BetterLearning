@@ -92,10 +92,10 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     @Override
     @Transactional
     public boolean complete(Job job, List<Chunk> chunks, String model, int dimensions) {
-        if (!job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
+        if (mapper.lockAccount(job.accountId()) == null
+                || !job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
             return false;
         }
-        mapper.lockAccount(job.accountId());
         var content = sources.get(job.accountId(), job.sourceId(), job.version());
         if (!"ACTIVE".equals(content.source().status())
                 || content.source().currentVersion() != job.version()
@@ -160,12 +160,15 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
             row.put("anchorId", chunk.anchor().anchorId());
             row.put("questionId", chunk.questionId());
             row.put("text", chunk.text());
-            row.put("methodTags", json.writeValueAsString(chunk.methodTags()));
+            row.put("methodTags", json.writeValueAsString(chunk.methodMetadataJson() == null
+                    ? chunk.methodTags() : ChineseMathTerms.methodsInText(chunk.text())));
             row.put("terms", json.writeValueAsString(chunk.terms()));
             row.put("vector", vector(chunk.embedding(), dimensions));
             row.put("model", model);
             row.put("dimensions", dimensions);
             row.put("methodMetadata", chunk.methodMetadataJson());
+            row.put("inferredMethodTags", json.writeValueAsString(chunk.methodMetadataJson() == null
+                    ? Set.of() : HandwritingMethodMetadata.parse(chunk.methodMetadataJson()).eligibleMethods()));
             mapper.insertChunk(row);
         }
         if (!sources.markIndex(job.accountId(), job.sourceId(), job.version(), job.indexRevision(), "READY")) {
@@ -178,8 +181,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     @Override
     @Transactional
     public void fail(Job job, String reason) {
-        if (job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
-            mapper.lockAccount(job.accountId());
+        if (mapper.lockAccount(job.accountId()) != null
+                && job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
             if (mapper.failure(job.eventId(), job.fence(), reason) != 1) {
                 throw new IllegalStateException("Index failure fence lost");
             }
@@ -297,7 +300,10 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
         validateStageKey(key);
         // The paid call may have returned after withdrawal or lease expiry. Its original
         // intent fence and full input binding still identify the uncertain cost.
-        mapper.unknownIndexStage(stageParameters(job, key));
+        if (mapper.lockAccount(job.accountId()) != null
+                && job.eventId().equals(mapper.lockJobForUnknown(job.eventId(), job.accountId()))) {
+            mapper.unknownIndexStage(stageParameters(job, key));
+        }
     }
 
     @Override
@@ -351,8 +357,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     @Override
     @Transactional
     public void obsolete(Job job) {
-        if (job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
-            mapper.lockAccount(job.accountId());
+        if (mapper.lockAccount(job.accountId()) != null
+                && job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
             mapper.unknownUnconfirmedStages(job.eventId());
             if ("SOURCE_WITHDRAWN".equals(job.kind())) {
                 mapper.deleteChunks(job.accountId(), job.sourceId(), null);
@@ -391,7 +397,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
 
     private Set<String> inferredMethods(Map<String, Object> row) {
         if (!handwritingMethods.isRecallEnabled() || !"SAVED_ANSWER".equals(text(row, "type"))
-                || text(row, "method_metadata") == null) {
+                || text(row, "method_metadata") == null
+                || !Boolean.TRUE.equals(row.get("method_projection_valid"))) {
             return Set.of();
         }
         try {
@@ -399,7 +406,9 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
             metadata.validateBindings(number(row, "account_id"), text(row, "source_id"),
                     number(row, "version"), number(row, "index_revision"), text(row, "anchor_id"),
                     text(row, "anchor_sha256"), text(row, "text"));
-            return metadata.eligibleMethods();
+            Set<String> projected = Set.of(json.readValue(text(row, "inferred_method_tags"), String[].class));
+            Set<String> eligible = metadata.eligibleMethods();
+            return projected.equals(eligible) ? eligible : Set.of();
         } catch (IllegalArgumentException exception) {
             return Set.of();
         }
@@ -423,8 +432,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     }
 
     private boolean currentIndexSource(Job job, StageKey key) {
-        if (!job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))
-                || mapper.lockAccount(job.accountId()) == null) {
+        if (mapper.lockAccount(job.accountId()) == null
+                || !job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
             return false;
         }
         try {
@@ -547,7 +556,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     }
 
     private static boolean matchesStage(Map<String, Object> row, Job job, StageKey key) {
-        return row != null && job.eventId().equals(text(row, "event_id"))
+        return row != null && row.get("purged_at") == null
+                && job.eventId().equals(text(row, "event_id"))
                 && key.phase().equals(text(row, "phase")) && key.ordinal() == number(row, "ordinal")
                 && job.accountId() == number(row, "account_id")
                 && job.sourceId().equals(text(row, "source_id"))

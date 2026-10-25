@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.Set;
 
+import com.betterlearning.server.agent.retrieval.ranking.ChineseMathTerms;
 import com.betterlearning.server.agent.retrieval.ranking.HandwritingMethodTaxonomy;
 import com.betterlearning.server.agent.service.HandwritingIndexOcr;
 
@@ -120,7 +121,7 @@ public record HandwritingMethodMetadata(int formatVersion, long accountId, Strin
         }
     }
 
-    /** Only clear, visible, canonical method candidates may participate in controlled recall. */
+    /** Shared SQL projection and ranker eligibility; raw OCR declarations remain unchanged. */
     public Set<String> eligibleMethods() {
         if (!"CLEAR".equals(result.uncertainty())) {
             return Set.of();
@@ -133,6 +134,7 @@ public record HandwritingMethodMetadata(int formatVersion, long accountId, Strin
                 methods.add(candidate.method());
             }
         }
+        methods.removeAll(ChineseMathTerms.negatedMethods(result.transcript()));
         return Set.copyOf(methods);
     }
 

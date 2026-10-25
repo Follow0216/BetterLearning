@@ -51,6 +51,7 @@ class MybatisRetrievalIndexStoreTests {
     @Test
     void expiredIntentFailsUnknownInsteadOfResendingPaidCall() {
         when(mapper.claim()).thenReturn(row("CALL_INTENT"));
+        when(mapper.lockAccount(7L)).thenReturn(7L);
         when(mapper.lockJob("event-1", 4L)).thenReturn("event-1");
         when(mapper.failure("event-1", 4L, "OUTCOME_UNKNOWN")).thenReturn(1);
 
@@ -64,6 +65,7 @@ class MybatisRetrievalIndexStoreTests {
     @Test
     void confirmedCallWithoutCommittedOutputAlsoRequiresExplicitReindex() {
         when(mapper.claim()).thenReturn(row("CONFIRMED"));
+        when(mapper.lockAccount(7L)).thenReturn(7L);
         when(mapper.lockJob("event-1", 4L)).thenReturn("event-1");
         when(mapper.failure("event-1", 4L, "OUTCOME_UNKNOWN")).thenReturn(1);
 
@@ -90,6 +92,7 @@ class MybatisRetrievalIndexStoreTests {
     void staleFailureFenceCannotMarkCurrentSourceFailed() {
         Job job = new Job("event-1", 7L, "source-1", 2L, "SOURCE_REINDEX", 4L, 3L, 2);
 
+        when(mapper.lockAccount(7L)).thenReturn(7L);
         store.fail(job, "OUTCOME_UNKNOWN");
 
         verify(mapper).lockJob("event-1", 4L);
@@ -173,6 +176,7 @@ class MybatisRetrievalIndexStoreTests {
         claimed.put("index_protocol", "HANDWRITING_METHODS_V1");
         when(mapper.claim()).thenReturn(claimed);
         when(mapper.unconfirmedStageCount("event-1")).thenReturn(1);
+        when(mapper.lockAccount(7L)).thenReturn(7L);
         when(mapper.lockJob("event-1", 4L)).thenReturn("event-1");
         when(mapper.failure("event-1", 4L, "OUTCOME_UNKNOWN")).thenReturn(1);
 

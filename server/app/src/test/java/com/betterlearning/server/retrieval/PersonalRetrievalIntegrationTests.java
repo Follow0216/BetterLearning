@@ -559,6 +559,58 @@ class PersonalRetrievalIntegrationTests {
     }
 
     @Test
+    void negatedStructuredMetadataCannotSaturateMethodShortlistBeforeValidFormula() throws Exception {
+        handwritingMethods.setEnabled(true);
+        try {
+            String formula = "$$x^2+2x=(x+1)^2-1$$";
+            StructuredSaved positive = readyStructuredSaved(owner, formula);
+            Set<String> methods = Set.of("配方法");
+            for (int ordinal = 0; ordinal < 41; ordinal++) {
+                String rejectedText = "不采用配方法，改用第" + ordinal + "个公式。";
+                StructuredSaved negative = readyStructuredSaved(owner, rejectedText);
+                // Every negative is closer by vector and retains the provider's raw candidate.
+                jdbc.update("UPDATE ma_retrieval_chunk SET embedding=CAST(? AS vector) WHERE source_id=?",
+                        "[1,0]", negative.sourceId());
+                HandwritingMethodMetadata raw = HandwritingMethodMetadata.parse(negative.metadataJson());
+                assertThat(raw.result().transcript()).isEqualTo(rejectedText);
+                assertThat(raw.result().methodCandidates()).singleElement()
+                        .satisfies(candidate -> {
+                            assertThat(candidate.method()).isEqualTo("配方法");
+                            assertThat(candidate.state()).isEqualTo("CANDIDATE");
+                        });
+                assertThat(jdbc.queryForObject("SELECT method_tags::text FROM ma_retrieval_chunk "
+                        + "WHERE source_id=?", String.class, negative.sourceId())).isEqualTo("[]");
+            }
+            var disabled = index.candidates(owner, Set.of(), methods, new double[] {1, 0}, MODEL, 2);
+            assertThat(disabled).extracting(candidate -> candidate.sourceId())
+                    .doesNotContain(positive.sourceId());
+
+            handwritingMethods.setRecallEnabled(true);
+            var enabled = index.candidates(owner, Set.of(), methods, new double[] {1, 0}, MODEL, 2);
+            assertThat(enabled).hasSize(41);
+            assertThat(enabled).extracting(candidate -> candidate.sourceId()).contains(positive.sourceId());
+            assertThat(enabled.stream().filter(candidate -> !positive.sourceId().equals(candidate.sourceId()))
+                    .toList())
+                    .allSatisfy(candidate -> {
+                        assertThat(candidate.lexicalScore()).isZero();
+                        assertThat(candidate.inferredMethods()).isEmpty();
+                    });
+            var valid = enabled.stream().filter(candidate -> positive.sourceId().equals(candidate.sourceId()))
+                    .findFirst().orElseThrow();
+            assertThat(valid.lexicalScore()).isPositive();
+            assertThat(valid.inferredMethods()).containsExactly("配方法");
+            var ranked = new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                    enabled, HybridRanker.Limits.defaults(), null);
+            assertThat(ranked.evidence()).extracting(hit -> hit.candidate().sourceId())
+                    .containsExactly(positive.sourceId());
+            assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(formula);
+        } finally {
+            handwritingMethods.setRecallEnabled(false);
+            handwritingMethods.setEnabled(false);
+        }
+    }
+
+    @Test
     void structuredHandwritingMetadataRejectsWrongMethodStateTopicAndBrokenBindings() throws Exception {
         String formula = "$$x^2+2x=(x+1)^2-1$$";
         handwritingMethods.setEnabled(true);

@@ -21,7 +21,8 @@ class PureP4WorkerContextIntegrationTests {
     @Test
     void workerLoadsRetrievalWithoutHttpOnlyNoteService() {
         List<String> expectedVersions = List.of("1", "2", "3", "4", "5", "2026102501", "2026102502",
-                "2026102503", "2026102504", "2026102505", "2026102506", "2026102507", "2026102508");
+                "2026102503", "2026102504", "2026102505", "2026102506", "2026102507", "2026102508",
+                "2026102509", "2026102510");
         try (RuntimeBusinessFixture fixture = RuntimeBusinessFixture.start()) {
             var context = fixture.context();
             assertThat(context.getBean(RetrievalIndexStore.class)).isInstanceOf(MybatisRetrievalIndexStore.class);

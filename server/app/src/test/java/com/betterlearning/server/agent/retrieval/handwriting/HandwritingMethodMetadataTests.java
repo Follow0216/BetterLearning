@@ -43,6 +43,23 @@ class HandwritingMethodMetadataTests {
     }
 
     @Test
+    void explicitNegationVetoesProjectionWithoutRewritingOcrDeclaration() {
+        String transcript = "不采用配方法";
+        var candidate = new HandwritingIndexOcr.MethodCandidate("配方法", 0,
+                transcript.length(), new HandwritingIndexOcr.Region(1, 2, 20, 10),
+                "CANDIDATE", "VISIBLE_STEPS");
+        var result = new HandwritingIndexOcr.Result(HandwritingIndexOcr.SCHEMA_VERSION,
+                HandwritingMethodTaxonomy.VERSION, 0, transcript, "CLEAR", List.of(candidate));
+        var metadata = new HandwritingMethodMetadata(HandwritingMethodMetadata.FORMAT_VERSION,
+                7L, "source", 2L, 3L, "anchor", sha(transcript), "a".repeat(64),
+                100, 80, "mock-ocr", result);
+        assertTrue(metadata.eligibleMethods().isEmpty());
+        assertEquals(result, HandwritingMethodMetadata.parse(metadata.encode()).result());
+        assertEquals("CANDIDATE", metadata.result().methodCandidates().get(0).state());
+        assertEquals(transcript, metadata.result().transcript());
+    }
+
+    @Test
     void strictJsonAndHashRejectUnboundOrExtraMetadata() {
         HandwritingMethodMetadata metadata = metadata("CLEAR", "CANDIDATE", "VISIBLE_STEPS");
         String encoded = metadata.encode();
