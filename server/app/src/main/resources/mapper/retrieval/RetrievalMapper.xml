@@ -138,10 +138,13 @@
                 (SELECT COUNT(*) FROM jsonb_array_elements_text(terms) term
                     WHERE jsonb_exists(CAST(#{terms} AS jsonb), term)) +
                 3 * (SELECT COUNT(*) FROM jsonb_each(CAST(#{methodAliases} AS jsonb)) query_method
-                    WHERE jsonb_exists(method_tags, query_method.key) OR EXISTS (
-                        SELECT 1 FROM jsonb_array_elements_text(query_method.value) method_alias(value)
-                        WHERE strpos(method_text, method_alias.value) > 0
-                    )) AS lexical_score
+                    WHERE CASE WHEN jsonb_exists(CAST(#{literalPatterns} AS jsonb), query_method.key)
+                        THEN method_text ~ (CAST(#{literalPatterns} AS jsonb) -> query_method.key ->> 'positive')
+                            AND method_text !~ (CAST(#{literalPatterns} AS jsonb) -> query_method.key ->> 'negative')
+                        ELSE jsonb_exists(method_tags, query_method.key) OR EXISTS (
+                            SELECT 1 FROM jsonb_array_elements_text(query_method.value) method_alias(value)
+                            WHERE strpos(method_text, method_alias.value) > 0
+                        ) END) AS lexical_score
             FROM authorized
         ), picked AS (
             (SELECT chunk_id FROM scores ORDER BY vector_score DESC,chunk_id LIMIT 40)

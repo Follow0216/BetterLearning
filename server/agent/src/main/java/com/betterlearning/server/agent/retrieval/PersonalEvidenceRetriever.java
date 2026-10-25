@@ -44,9 +44,11 @@ public final class PersonalEvidenceRetriever implements EvidenceRetriever {
                 || query.text().isBlank() || query.text().length() > 8000 || query.limit() < 1) {
             throw new IllegalArgumentException("Invalid retrieval query");
         }
-        Set<String> labels = query.methodTags() == null ? Set.of() : Set.copyOf(query.methodTags());
+        List<String> requestedLabels = query.methodTags() == null ? List.of() : query.methodTags();
+        var methodAliases = ChineseMathTerms.queryAliases(requestedLabels);
+        Set<String> labels = Set.copyOf(requestedLabels);
         Set<String> methods = labels.isEmpty() ? ChineseMathTerms.methods(query.text(), labels)
-                : ChineseMathTerms.explicitMethods(labels);
+                : methodAliases.keySet();
         if (!labels.isEmpty() && methods.isEmpty()) {
             return List.of();
         }
