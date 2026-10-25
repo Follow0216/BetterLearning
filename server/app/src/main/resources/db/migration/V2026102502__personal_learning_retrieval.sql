@@ -1,5 +1,6 @@
 -- P4: pgvector is a required deployment capability. There is no hash/dummy fallback.
-CREATE EXTENSION IF NOT EXISTS vector;
+-- The extension is database-wide; keep its objects independent of Flyway's target schema.
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 CREATE TABLE ma_note_request (
     account_id BIGINT NOT NULL REFERENCES app_user(account_id),
     idempotency_key VARCHAR(36) NOT NULL, note_id VARCHAR(36) NOT NULL,
@@ -17,11 +18,11 @@ CREATE TABLE ma_retrieval_chunk (
     chunk_id VARCHAR(36) PRIMARY KEY, account_id BIGINT NOT NULL, source_id VARCHAR(36) NOT NULL,
     version BIGINT NOT NULL, anchor_id VARCHAR(36) NOT NULL, question_id VARCHAR(80),
     text TEXT NOT NULL, method_tags JSONB NOT NULL, terms JSONB NOT NULL,
-    embedding vector NOT NULL, embedding_model TEXT NOT NULL,
+    embedding public.vector NOT NULL, embedding_model TEXT NOT NULL,
     dimensions INTEGER NOT NULL CHECK(dimensions > 0), index_revision BIGINT NOT NULL CHECK(index_revision > 0),
     FOREIGN KEY(account_id,source_id) REFERENCES ma_source(account_id,source_id),
     FOREIGN KEY(source_id,version,anchor_id) REFERENCES ma_anchor(source_id,version,anchor_id),
-    CHECK(vector_dims(embedding) = dimensions), UNIQUE(source_id,version,anchor_id,embedding_model)
+    CHECK(public.vector_dims(embedding) = dimensions), UNIQUE(source_id,version,anchor_id,embedding_model)
 );
 CREATE INDEX ix_ma_chunk_owner ON ma_retrieval_chunk(account_id,source_id,version);
 CREATE INDEX ix_ma_chunk_terms ON ma_retrieval_chunk USING gin(terms);
@@ -46,10 +47,10 @@ CREATE TABLE ma_query_embedding (
     embedding_model TEXT NOT NULL CHECK(length(embedding_model) > 0),
     dimensions INTEGER NOT NULL CHECK(dimensions > 0),
     call_state VARCHAR(16) NOT NULL CHECK(call_state IN ('CALL_INTENT','CONFIRMED')),
-    embedding vector, embedding_requests INTEGER, embedding_tokens BIGINT,
+    embedding public.vector, embedding_requests INTEGER, embedding_tokens BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     confirmed_at TIMESTAMPTZ,
-    CHECK(embedding IS NULL OR vector_dims(embedding) = dimensions),
+    CHECK(embedding IS NULL OR public.vector_dims(embedding) = dimensions),
     CHECK((call_state = 'CALL_INTENT' AND embedding IS NULL AND embedding_requests IS NULL)
         OR (call_state = 'CONFIRMED' AND embedding IS NOT NULL AND embedding_requests >= 1
             AND confirmed_at IS NOT NULL))
