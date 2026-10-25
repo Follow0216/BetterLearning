@@ -2,6 +2,7 @@ package com.betterlearning.server.retrieval;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -98,6 +99,8 @@ public class RetrievalIndexWorker {
                 indexes.complete(job, List.of(), properties.getModel(), properties.getDimensions());
                 return;
             }
+            Set<String> titleMethods = content.source().type() == SourceType.NOTE
+                    ? ChineseMathTerms.methodsInText(content.source().title()) : Set.of();
             requireExternalCallFence(indexes.beginExternalCall(job));
             var embedded = embedding.embedWithStats(anchors.stream().map(Anchor::text).toList());
             indexes.recordUsage(job, 0, embedded.requestCount(), embedded.totalTokens(), false);
@@ -108,8 +111,12 @@ public class RetrievalIndexWorker {
                     || content.source().type() == SourceType.SAVED_ANSWER ? content.source().originId() : null;
             for (int index = 0; index < anchors.size(); index++) {
                 Anchor anchor = anchors.get(index);
+                Set<String> methods = new HashSet<>(ChineseMathTerms.methods(anchor.text(), Set.of()));
+                Set<String> additional = new HashSet<>(titleMethods);
+                additional.removeAll(ChineseMathTerms.negatedMethods(anchor.text()));
+                methods.addAll(additional);
                 chunks.add(new Chunk(anchor, questionId, anchor.text(),
-                        ChineseMathTerms.methods(anchor.text(), Set.of()), ChineseMathTerms.terms(anchor.text()),
+                        Set.copyOf(methods), ChineseMathTerms.terms(anchor.text()),
                         vectors.get(index)));
             }
             indexes.complete(job, chunks, properties.getModel(), properties.getDimensions());

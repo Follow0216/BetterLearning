@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import com.betterlearning.server.agent.config.EmbeddingProperties;
 import com.betterlearning.server.agent.embedding.EmbeddingException;
@@ -21,6 +22,7 @@ import com.betterlearning.server.agent.embedding.HttpEmbeddingClient;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
+import com.betterlearning.server.agent.retrieval.anchor.MarkdownAnchorParser;
 import com.betterlearning.server.multiagent.MultiAgentModels.Anchor;
 import com.betterlearning.server.multiagent.MultiAgentModels.Source;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
@@ -100,6 +102,91 @@ class RetrievalIndexWorkerTests {
         verify(indexes).fail(job, "EMBEDDING_UNAVAILABLE");
         verify(indexes).beginExternalCall(job);
         verifyNoInteractions(handwriting);
+    }
+
+    @Test
+    void controlledNoteTitleAddsMethodWithoutChangingRawAnchorOrEmbeddingInput() {
+        String body = "$$x^2+2x=(x+1)^2-1$$";
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(
+                content(SourceType.NOTE, 1, 1, body, List.of(), "配方法"));
+        embeddingForOneBlock();
+
+        worker.process(job);
+
+        Chunk chunk = singleCompletedChunk();
+        assertThat(chunk.methodTags()).containsExactly("配方法");
+        assertThat(chunk.text()).isEqualTo(body);
+        assertThat(chunk.anchor().text()).isEqualTo(body);
+        assertThat(chunk.anchor().contentSha256())
+                .isEqualTo(MarkdownAnchorParser.parse(body).get(0).contentSha256());
+        assertThat(chunk.anchor().locatorJson()).contains("markdownLocator");
+        verify(embedding).embedWithStats(List.of(body));
+        verifyNoInteractions(handwriting);
+    }
+
+    @Test
+    void embeddedTitleMethodIsControlledButNoiseAndLongTailTitleAreNotAdded() {
+        String body = "$$x^2+2x=(x+1)^2-1$$";
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(
+                content(SourceType.NOTE, 1, 1, body, List.of(), "我的配方法笔记"),
+                content(SourceType.NOTE, 1, 1, body, List.of(), "普通公式"),
+                content(SourceType.NOTE, 1, 1, body, List.of(), "概率积分"),
+                content(SourceType.NOTE, 1, 1, body, List.of(), "柯西施瓦茨不等式"),
+                content(SourceType.NOTE, 1, 1, body, List.of(), "不使用配方法"));
+        embeddingForOneBlock();
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            worker.process(job);
+        }
+
+        ArgumentCaptor<List<Chunk>> chunks = ArgumentCaptor.forClass(List.class);
+        verify(indexes, times(5)).complete(eq(job), chunks.capture(), eq("test-embedding"), eq(2));
+        assertThat(chunks.getAllValues()).extracting(batch -> batch.get(0).methodTags())
+                .containsExactly(Set.of("配方法"), Set.of(), Set.of(), Set.of(), Set.of());
+        assertThat(chunks.getAllValues()).allSatisfy(batch -> {
+            assertThat(batch.get(0).text()).isEqualTo(body);
+            assertThat(batch.get(0).anchor().text()).isEqualTo(body);
+        });
+        verify(embedding, times(5)).embedWithStats(List.of(body));
+    }
+
+    @Test
+    void rawNoteDenialOverridesAdditionalTitleMethod() {
+        String body = "本题不使用换元法。x²−9=(x−3)(x+3)";
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(
+                content(SourceType.NOTE, 1, 1, body, List.of(), "换元法"));
+        embeddingForOneBlock();
+
+        worker.process(job);
+
+        Chunk chunk = singleCompletedChunk();
+        assertThat(chunk.methodTags()).isEmpty();
+        assertThat(chunk.text()).isEqualTo(body);
+        assertThat(chunk.anchor().contentSha256())
+                .isEqualTo(MarkdownAnchorParser.parse(body).get(0).contentSha256());
+        verify(embedding).embedWithStats(List.of(body));
+    }
+
+    @Test
+    void savedAnswerTitleAndQuestionIdDoNotInferMethodWithoutQuestionMetadata() {
+        String formula = "$$x^2+2x=(x+1)^2-1$$";
+        Anchor anchor = new Anchor("anchor-1", SOURCE, 1, "HANDWRITING_STEP", 0,
+                "digest", "{}", formula);
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(
+                content(SourceType.SAVED_ANSWER, 1, 1, null, List.of(anchor), "配方法"));
+        embeddingForOneBlock();
+
+        worker.process(job);
+
+        Chunk chunk = singleCompletedChunk();
+        assertThat(chunk.methodTags()).isEmpty();
+        assertThat(chunk.questionId()).isEqualTo("question-1");
+        assertThat(chunk.anchor()).isSameAs(anchor);
+        assertThat(chunk.text()).isEqualTo(formula);
+        verify(handwriting).validateReuse(any());
+        verify(embedding).embedWithStats(List.of(formula));
+        verify(sources).get(ACCOUNT, SOURCE, 1);
+        verifyNoMoreInteractions(sources);
     }
 
     @Test
@@ -233,11 +320,29 @@ class RetrievalIndexWorkerTests {
 
     private SourceContent content(SourceType type, long currentVersion, long indexRevision,
             String body, List<Anchor> anchors) {
+        return content(type, currentVersion, indexRevision, body, anchors, "title");
+    }
+
+    private SourceContent content(SourceType type, long currentVersion, long indexRevision,
+            String body, List<Anchor> anchors, String title) {
         Instant created = Instant.parse("2026-10-25T00:00:00Z");
-        Source source = new Source(SOURCE, ACCOUNT, type, "question-1", "title", "ACTIVE",
+        Source source = new Source(SOURCE, ACCOUNT, type, "question-1", title, "ACTIVE",
                 currentVersion, created);
         SourceVersion version = new SourceVersion(SOURCE, 1, "digest", "INDEX_PENDING",
                 "DRAFT", "file-ref", body, created, indexRevision);
         return new SourceContent(source, version, anchors);
+    }
+
+    private void embeddingForOneBlock() {
+        when(embedding.embedWithStats(any())).thenReturn(
+                new HttpEmbeddingClient.EmbeddingResult(List.of(new double[] {1, 0}),
+                1, 5L, 5L, "test-embedding"));
+    }
+
+    private Chunk singleCompletedChunk() {
+        ArgumentCaptor<List<Chunk>> chunks = ArgumentCaptor.forClass(List.class);
+        verify(indexes).complete(eq(job), chunks.capture(), eq("test-embedding"), eq(2));
+        assertThat(chunks.getValue()).hasSize(1);
+        return chunks.getValue().get(0);
     }
 }
