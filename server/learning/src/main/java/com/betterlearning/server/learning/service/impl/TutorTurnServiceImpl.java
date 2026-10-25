@@ -118,7 +118,8 @@ public class TutorTurnServiceImpl implements TutorTurnService {
         if (turn.getFileRef() == null) {
             throw new BusinessException(ErrorCode.ANSWER_NOT_SAVED);
         }
-        if (!(retry ? "FAILED" : "WAITING_ANSWER").equals(turn.getStatus())) {
+        if ("TABLET_CANCELLED".equals(turn.getFailureCode())
+                || !(retry ? "FAILED" : "WAITING_ANSWER").equals(turn.getStatus())) {
             throw conflict();
         }
         requireNoOtherActive(accountId, turnId);
