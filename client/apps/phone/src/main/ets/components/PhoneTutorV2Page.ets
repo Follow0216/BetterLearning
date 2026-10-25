@@ -62,6 +62,14 @@ export struct PhoneTutorV2Page {
   private accountId: string = '';
   private seq: number = 0;
   private listSeq: number = 0;
+  private selectionEpoch: number = 0;
+  private detailSeqs: Map<string, number> = new Map<string, number>();
+  private confirmSeq: number = 0;
+  private errorSource: string = '';
+  private errorRequestId: string = '';
+  private errorSelectionEpoch: number = 0;
+  private errorVersion: number = 0;
+  private errorRecoverable: boolean = false;
   private pollTimer: number = -1;
   private pollGeneration: number = 0;
   private pollBusy: boolean = false;
@@ -92,6 +100,8 @@ export struct PhoneTutorV2Page {
     this.alive = false;
     this.seq++;
     this.listSeq++;
+    this.selectionEpoch++;
+    this.detailSeqs.clear();
     this.stop_poll();
   }
 
@@ -101,6 +111,8 @@ export struct PhoneTutorV2Page {
     this.loadedQuestionId = this.questionId;
     this.seq++;
     this.listSeq++;
+    this.selectionEpoch++;
+    this.detailSeqs.clear();
     this.stop_poll();
     this.requests = [];
     this.questionDetail = null;
@@ -113,7 +125,7 @@ export struct PhoneTutorV2Page {
     this.retryKey = '';
     this.retryTargetRunId = '';
     this.message = '';
-    this.errorMessage = '';
+    this.clear_error();
     this.nextCursor = null;
     this.loadedOnce = false;
     this.loading = false;
@@ -228,7 +240,7 @@ export struct PhoneTutorV2Page {
         .enabled(!this.busy && this.createIntent.requestId.length === 0)
         .onFocus(() => { this.editorFocused = true; this.onComposingChanged(true); })
         .onBlur(() => { this.editorFocused = false; this.onComposingChanged(false); })
-        .onChange((value: string) => { this.prompt = value; this.errorMessage = ''; this.save_draft(); })
+        .onChange((value: string) => { this.prompt = value; this.clear_error(); this.save_draft(); })
       Text(this.prompt.length.toString() + ' / ' + V2_PROMPT_MAX.toString())
         .fontSize(11).fontColor(PHONE_COLOR_MUTED).margin({ top: 4 })
       Row() {
@@ -528,20 +540,49 @@ export struct PhoneTutorV2Page {
     return error === null ? '请求失败，请稍后重试' : error.message;
   }
 
+  private set_error(text: string, source: string = 'action', requestId: string = '',
+    recoverable: boolean = false): void {
+    // 后续 GET 不能盖住创建/取消/重试失败；只有显式操作或上下文重置能解除。
+    if (source !== 'action' && this.errorSource === 'action' && this.errorMessage.length > 0) { return; }
+    this.errorMessage = text;
+    this.errorSource = text.length > 0 ? source : '';
+    this.errorRequestId = requestId;
+    this.errorSelectionEpoch = this.selectionEpoch;
+    this.errorRecoverable = recoverable;
+    this.errorVersion++;
+  }
+
+  private clear_error(): void { this.set_error(''); }
+
+  private refresh_failed(error: AuthError | null, token: string, source: string, requestId: string): void {
+    this.set_error(this.failed(error, token), source, requestId, error !== null && error.is_network());
+  }
+
+  private clear_refresh_error(source: string, requestId: string, version: number): void {
+    if (this.errorRecoverable && this.errorSource === source && this.errorRequestId === requestId &&
+      this.errorVersion === version &&
+      (source !== 'detail' || this.errorSelectionEpoch === this.selectionEpoch)) {
+      this.clear_error();
+    }
+  }
+
   private async refresh_list(): Promise<void> {
     const token: string | null = this.session();
     if (token === null || this.questionId.length === 0) { return; }
     const accountId: string = this.accountId;
     const seq: number = this.seq;
+    const questionId: string = this.questionId;
+    const errorVersion: number = this.errorVersion;
     const listSeq: number = ++this.listSeq;
     this.loading = true;
     try {
-      const result: AuthResult<V2TutorRequestPage> = await this.api.listRequests(token, this.questionId);
-      if (!this.valid_context(seq, token, accountId) || listSeq !== this.listSeq) { return; }
+      const result: AuthResult<V2TutorRequestPage> = await this.api.listRequests(token, questionId);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId || listSeq !== this.listSeq) { return; }
       if (!result.isSuccess || result.data === null) {
-        this.errorMessage = this.failed(result.error, token);
+        this.refresh_failed(result.error, token, 'list', '');
         return;
       }
+      this.clear_refresh_error('list', '', errorVersion);
       this.requests = phone_v2_merge_requests(this.requests, result.data.items);
       this.loadedOnce = true;
       this.nextCursor = result.data.nextCursor;
@@ -554,14 +595,15 @@ export struct PhoneTutorV2Page {
         }
       }
       if (this.selectedRequestId.length === 0 && this.requests.length > 0) {
+        this.selectionEpoch++;
         this.selectedRequestId = this.requests[0].requestId;
       }
       if (this.selectedRequestId.length > 0) { this.refresh_detail(this.selectedRequestId); }
       if (this.createIntent.requestId.length > 0) { this.confirm_create(this.createIntent.requestId); }
       this.start_poll();
     } catch (error) {
-      if (this.valid_context(seq, token, accountId) && listSeq === this.listSeq) {
-        this.errorMessage = '暂时无法读取新版辅导记录';
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId && listSeq === this.listSeq) {
+        this.set_error('暂时无法读取新版辅导记录', 'list', '', true);
       }
     } finally {
       if (listSeq === this.listSeq) { this.loading = false; }
@@ -575,20 +617,23 @@ export struct PhoneTutorV2Page {
     const cursor: string = this.nextCursor;
     const accountId: string = this.accountId;
     const seq: number = this.seq;
+    const questionId: string = this.questionId;
+    const errorVersion: number = this.errorVersion;
     const listSeq: number = ++this.listSeq;
     this.loading = true;
     try {
-      const result: AuthResult<V2TutorRequestPage> = await this.api.listRequests(token, this.questionId, cursor);
-      if (!this.valid_context(seq, token, accountId) || listSeq !== this.listSeq) { return; }
+      const result: AuthResult<V2TutorRequestPage> = await this.api.listRequests(token, questionId, cursor);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId || listSeq !== this.listSeq) { return; }
       if (!result.isSuccess || result.data === null) {
-        this.errorMessage = this.failed(result.error, token);
+        this.refresh_failed(result.error, token, 'list', cursor);
         return;
       }
+      this.clear_refresh_error('list', cursor, errorVersion);
       this.requests = phone_v2_merge_requests(this.requests, result.data.items);
       this.nextCursor = result.data.nextCursor;
     } catch (error) {
-      if (this.valid_context(seq, token, accountId) && listSeq === this.listSeq) {
-        this.errorMessage = '读取更多记录失败，请稍后重试';
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId && listSeq === this.listSeq) {
+        this.set_error('读取更多记录失败，请稍后重试', 'list', cursor, true);
       }
     } finally {
       if (listSeq === this.listSeq) { this.loading = false; }
@@ -596,6 +641,8 @@ export struct PhoneTutorV2Page {
   }
 
   private select_request(requestId: string): void {
+    if (this.errorSource === 'detail' && this.errorRecoverable) { this.clear_error(); }
+    this.selectionEpoch++;
     if (this.selectedRequestId === requestId) {
       this.selectedRequestId = '';
       this.detail = null;
@@ -613,17 +660,32 @@ export struct PhoneTutorV2Page {
     if (token === null) { return; }
     const seq: number = this.seq;
     const accountId: string = this.accountId;
+    const questionId: string = this.questionId;
+    const selectionEpoch: number = this.selectionEpoch;
+    const detailSeq: number = (this.detailSeqs.get(requestId) ?? 0) + 1;
+    this.detailSeqs.set(requestId, detailSeq);
+    const errorVersion: number = this.errorVersion;
     try {
-      const result: AuthResult<V2TutorRequestDetail> = await this.api.getRequest(token, this.questionId, requestId);
-      if (!this.valid_context(seq, token, accountId)) { return; }
+      const result: AuthResult<V2TutorRequestDetail> = await this.api.getRequest(token, questionId, requestId);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId ||
+        this.detailSeqs.get(requestId) !== detailSeq) { return; }
       if (!result.isSuccess || result.data === null) {
-        this.errorMessage = this.failed(result.error, token);
+        if (selectionEpoch === this.selectionEpoch) { this.refresh_failed(result.error, token, 'detail', requestId); }
         return;
       }
-      this.receive_detail(result.data);
+      if (result.data.request.questionId !== questionId || result.data.request.requestId !== requestId) { return; }
+      if (selectionEpoch === this.selectionEpoch) {
+        this.clear_refresh_error('detail', requestId, errorVersion);
+        this.receive_detail(result.data);
+      } else {
+        // 已离开的选择只合并单调摘要，不回写当前详情或顶部反馈。
+        this.requests = phone_v2_merge_requests(this.requests, [result.data.request]);
+        if (!this.has_active_request()) { this.stop_poll(); }
+      }
     } catch (error) {
-      if (this.valid_context(seq, token, accountId)) {
-        this.message = '网络暂不可用，恢复后按原 requestId 查询';
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId &&
+        this.detailSeqs.get(requestId) === detailSeq && selectionEpoch === this.selectionEpoch) {
+        this.set_error('网络暂不可用，恢复后按原 requestId 查询', 'detail', requestId, true);
       }
     }
   }
@@ -688,7 +750,7 @@ export struct PhoneTutorV2Page {
     const seq: number = ++this.seq;
     const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
-    this.errorMessage = '';
+    this.clear_error();
     try {
       const result: AuthResult<V2TutorRequest> = await this.api.createRequest(token, this.questionId,
         requestId, text, mode, snapshotInput);
@@ -696,7 +758,7 @@ export struct PhoneTutorV2Page {
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.httpStatus === 409) {
           this.createIntent.clear();
-          this.errorMessage = this.failed(result.error, token);
+          this.set_error(this.failed(result.error, token));
         } else {
           this.message = '创建结果未知，正在查询原 requestId；再次操作仍使用原请求标识';
           this.confirm_create(requestId);
@@ -725,6 +787,7 @@ export struct PhoneTutorV2Page {
       requests: this.requests, detail: this.detail, selectedRequestId: this.selectedRequestId
     }, request);
     this.requests = next.requests;
+    if (this.selectedRequestId !== next.selectedRequestId) { this.selectionEpoch++; }
     this.selectedRequestId = next.selectedRequestId;
     this.detail = next.detail;
     this.save_draft();
@@ -736,13 +799,17 @@ export struct PhoneTutorV2Page {
 
   private async confirm_create(requestId: string): Promise<void> {
     const token: string | null = this.session();
-    if (token === null) { return; }
+    if (token === null || this.createIntent.requestId !== requestId) { return; }
     const seq: number = this.seq;
+    const questionId: string = this.questionId;
+    const confirmSeq: number = ++this.confirmSeq;
     const accountId: string = this.accountId;
     try {
-      const result: AuthResult<V2TutorRequestDetail> = await this.api.getRequest(token, this.questionId, requestId);
-      if (!this.valid_context(seq, token, accountId)) { return; }
+      const result: AuthResult<V2TutorRequestDetail> = await this.api.getRequest(token, questionId, requestId);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId ||
+        confirmSeq !== this.confirmSeq || this.createIntent.requestId !== requestId) { return; }
       if (result.isSuccess && result.data !== null) {
+        if (result.data.request.questionId !== questionId || result.data.request.requestId !== requestId) { return; }
         this.on_created(result.data.request, false);
         this.receive_detail(result.data);
       } else if (result.error !== null && result.error.is_unauthorized()) {
@@ -751,7 +818,8 @@ export struct PhoneTutorV2Page {
         this.message = '尚未确认原请求，请点击“确认原提问”按同一 requestId 重发';
       }
     } catch (error) {
-      if (this.valid_context(seq, token, accountId)) {
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId &&
+        confirmSeq === this.confirmSeq && this.createIntent.requestId === requestId) {
         this.message = '尚未确认原请求，请点击“确认原提问”按同一 requestId 重发';
       }
     }
@@ -773,7 +841,7 @@ export struct PhoneTutorV2Page {
         this.receive_detail(result.data);
         this.toast?.show({ key: 'phone-v2-cancel', type: 'info', message: '本次辅导状态已更新' }, toastScope);
       }
-      else { this.errorMessage = this.failed(result.error, token); this.refresh_detail(request.requestId); }
+      else { this.set_error(this.failed(result.error, token)); this.refresh_detail(request.requestId); }
     } catch (error) {
       if (this.valid_context(seq, token, accountId)) {
         this.message = '取消结果未知，按原 requestId 查询状态';
@@ -808,7 +876,7 @@ export struct PhoneTutorV2Page {
         this.start_poll();
         this.toast?.show({ key: 'phone-v2-retry', type: 'info', message: '已重试本次辅导' }, toastScope);
       } else {
-        this.errorMessage = this.failed(result.error, token);
+        this.set_error(this.failed(result.error, token));
         this.refresh_detail(request.requestId);
       }
     } catch (error) {
