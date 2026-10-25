@@ -195,3 +195,33 @@ test("stale timer callback cannot dismiss a replaced key", () => {
   t.advance(6000);
   assert.deepEqual(t.keys(), []);
 });
+
+test("fractional duration rounds up; very long duration uses bounded timer segments", () => {
+  const t = setup();
+  t.store.attachHost();
+  t.show("small", "info", 0.1);
+  t.present();
+  assert.equal(t.store.getSnapshot()[0].durationMs, 1);
+  t.advance(1);
+  assert.deepEqual(t.keys(), []);
+  t.show("large", "info", 2_147_483_648);
+  t.present();
+  assert.equal([...t.timers.values()][0].due, 2_147_483_648);
+  t.advance(2_147_483_647);
+  assert.deepEqual(t.keys(), ["large"]);
+  t.advance(1);
+  assert.deepEqual(t.keys(), []);
+});
+
+test("independent roots never share items or scope generations", () => {
+  const a = setup();
+  const b = setup();
+  a.store.attachHost();
+  b.store.attachHost();
+  a.show("only-a");
+  b.store.onScopeChange("account:b");
+  assert.deepEqual(a.keys(), ["only-a"]);
+  assert.deepEqual(b.keys(), []);
+  assert.equal(a.store.captureScope(), 0);
+  assert.equal(b.store.captureScope(), 1);
+});
