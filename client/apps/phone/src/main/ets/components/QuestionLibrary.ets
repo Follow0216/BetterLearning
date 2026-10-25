@@ -73,6 +73,8 @@ export struct QuestionLibrary {
   };
   onCreateQuestion: () => void = () => {
   };
+  onBack: () => void = () => {
+  };
 
   @State scope: string = SCOPE_ALL;
   @State page: number = 1;
@@ -163,48 +165,26 @@ export struct QuestionLibrary {
 
   @Builder
   header() {
-    Row({ space: 8 }) {
-      Column() {
-        Text('题库')
-          .fontSize(26)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(PHONE_COLOR_TITLE)
-        Text('把题目收好，慢慢弄懂。')
-          .fontSize(14)
-          .fontColor(PHONE_COLOR_MUTED)
-          .margin({ top: 6 })
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.bl_back')).width(22).height(22)
+        }
+        .width(44).height(44).padding(10).backgroundColor(Color.Transparent)
+        .accessibilityText('返回AI首页').onClick(() => { this.onBack(); })
+        Text('题库').fontSize(26).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE).layoutWeight(1)
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.bl_refresh')).width(22).height(22)
+        }
+        .width(44).height(44).padding(11).backgroundColor(PHONE_COLOR_SOFT)
+        .borderRadius(PHONE_RADIUS_CONTROL).enabled(!this.loading).opacity(this.loading ? 0.45 : 1)
+        .accessibilityText('刷新题库').onClick(() => this.reload_from_first_page())
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-
-      Button('录题')
-        .height(44)
-        .padding({ left: 14, right: 14 })
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(PHONE_COLOR_PRIMARY)
-        .backgroundColor(PHONE_COLOR_SOFT)
-        .borderRadius(PHONE_RADIUS_CONTROL)
-        .accessibilityText('录入一道题')
-        .onClick(() => this.onCreateQuestion())
-      Button({ type: ButtonType.Normal }) {
-        Image($r('app.media.bl_refresh'))
-          .width(22)
-          .height(22)
-      }
-      .width(44)
-      .height(44)
-      .padding(11)
-      .backgroundColor(PHONE_COLOR_SOFT)
-      .borderRadius(PHONE_RADIUS_CONTROL)
-      .enabled(!this.loading)
-      .opacity(this.loading ? 0.45 : 1)
-      .accessibilityText('刷新题库')
-      .onClick(() => this.reload_from_first_page())
+      .width('100%').alignItems(VerticalAlign.Center)
+      Text('把题目收好，慢慢弄懂。').fontSize(14).fontColor(PHONE_COLOR_MUTED).margin({ left: 10 })
     }
-    .width('100%')
-    .padding({ left: 18, right: 18, top: 20, bottom: 18 })
-    .alignItems(VerticalAlign.Center)
+    .width('100%').padding({ left: 8, right: 18, top: 12, bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder

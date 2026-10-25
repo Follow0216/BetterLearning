@@ -42,18 +42,19 @@ export struct ManualEntry {
   onSaved: (detail: QuestionDetail) => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
   onBack: () => void = () => {};
+  onNavigationVisibilityChanged: (visible: boolean) => void = () => {};
   backController: PhoneBackController = new PhoneBackController();
   @Prop @Watch('on_active_changed') active: boolean = true;
 
   @State subject: LearningSubject = LearningSubject.HIGHER_MATHEMATICS;
   @State bodyMarkdown: string = '';
   @State errorText: string = '';
-  @State submitting: boolean = false;
+  @State @Watch('report_navigation_visibility') submitting: boolean = false;
   @State pendingInput: ManualQuestionInput | null = null;
-  @State screen: EntryScreen = EntryScreen.SOURCE;
+  @State @Watch('report_navigation_visibility') screen: EntryScreen = EntryScreen.SOURCE;
   @State reviewMode: EntryReviewMode = EntryReviewMode.EDIT;
-  @State imageLoading: boolean = false;
-  @State cropBusy: boolean = false;
+  @State @Watch('report_navigation_visibility') imageLoading: boolean = false;
+  @State @Watch('report_navigation_visibility') cropBusy: boolean = false;
   @State recognizing: boolean = false;
   @State imageError: string = '';
   @State ocrNotice: string = '';
@@ -64,9 +65,9 @@ export struct ManualEntry {
   @State reviewImagePath: string = '';
   @State imageExpanded: boolean = true;
   @State showFullImage: boolean = false;
-  @State editorFocused: boolean = false;
-  @State sourcePicker: boolean = false;
-  @State discardPrompt: boolean = false;
+  @State @Watch('report_navigation_visibility') editorFocused: boolean = false;
+  @State @Watch('report_navigation_visibility') sourcePicker: boolean = false;
+  @State @Watch('report_navigation_visibility') discardPrompt: boolean = false;
 
   private api: LearningApi = LearningApi.create_default();
   private ocrApi: OcrApi = OcrApi.create_default();
@@ -84,7 +85,7 @@ export struct ManualEntry {
   aboutToAppear(): void {
     this.alive = true;
     this.backController.handleBack = (): boolean => { this.go_back(); return true; };
-    if (this.active) { this.claim_keyboard_mode(); }
+    if (this.active) { this.claim_keyboard_mode(); this.report_navigation_visibility(); }
   }
 
   aboutToDisappear(): void {
@@ -99,9 +100,11 @@ export struct ManualEntry {
   on_active_changed(): void {
     if (this.active) {
       this.claim_keyboard_mode();
+      this.report_navigation_visibility();
       return;
     }
     this.editorController.stopEditing();
+    this.editorFocused = false;
     this.restore_keyboard_mode();
     this.sourcePicker = false;
     this.discardPrompt = false;
@@ -112,6 +115,13 @@ export struct ManualEntry {
       this.recognizing = false;
       this.ocrNotice = '已暂停等待识别结果，题图仍保留，可继续识别。';
     }
+  }
+
+  /** 只有当前可见实例报告入口导航；隐藏期间的异步状态不控制父层底栏。 */
+  report_navigation_visibility(): void {
+    if (!this.alive || !this.active) { return; }
+    this.onNavigationVisibilityChanged(this.screen === EntryScreen.SOURCE && !this.editorFocused &&
+      !this.sourcePicker && !this.discardPrompt && !this.imageLoading && !this.cropBusy && !this.submitting);
   }
 
   build() {
@@ -144,7 +154,7 @@ export struct ManualEntry {
       }
       .width(44).height(44).padding(10)
       .backgroundColor(Color.Transparent)
-      .accessibilityText(this.screen === EntryScreen.SOURCE ? '返回，保留本次录题' : '返回录题入口，保留本次内容')
+      .accessibilityText(this.screen === EntryScreen.SOURCE ? '返回AI首页，保留本次录题' : '返回录题入口，保留本次内容')
       .enabled(!this.cropBusy && !this.submitting)
       .onClick(() => { this.go_back(); })
       Text(this.screen === EntryScreen.SOURCE ? '录题' :

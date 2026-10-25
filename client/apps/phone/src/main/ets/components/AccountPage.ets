@@ -123,7 +123,12 @@ export struct AccountPage {
 
   @Builder
   header() {
-    Row() {
+    Row({ space: 10 }) {
+      Button({ type: ButtonType.Normal }) {
+        Image($r('app.media.bl_back')).width(22).height(22)
+      }
+      .width(44).height(44).padding(10).backgroundColor(Color.Transparent)
+      .accessibilityText('返回AI首页').onClick(() => { this.onBack(); })
       Text('我的')
         .fontSize(26)
         .fontWeight(FontWeight.Bold)
@@ -131,7 +136,7 @@ export struct AccountPage {
     }
     .width('100%')
     .height(76)
-    .padding({ left: 20, right: 20, top: 12, bottom: 12 })
+    .padding({ left: 8, right: 20, top: 12, bottom: 12 })
     .alignItems(VerticalAlign.Center)
   }
 

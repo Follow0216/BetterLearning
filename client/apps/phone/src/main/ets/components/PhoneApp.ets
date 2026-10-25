@@ -29,6 +29,7 @@ export struct PhoneApp {
   @State homeQuestionId: string = '';
   @State homeRequestSerial: number = 0;
   @State entryVisible: boolean = false;
+  @State entryNavigationVisible: boolean = false;
   @State homeFullscreen: boolean = false;
   @State homeComposing: boolean = false;
   @State libraryRefreshToken: number = 0;
@@ -80,7 +81,7 @@ export struct PhoneApp {
           active: this.activeTab === PhoneTab.HOME && this.detailQuestionId.length === 0 &&
             !this.entryVisible && this.answerQuestionId.length === 0,
           navigation: this.homeNavigation,
-          onChooseQuestion: () => { this.activeTab = PhoneTab.LIBRARY; },
+          onChooseQuestion: () => { this.select_tab(PhoneTab.LIBRARY); },
           onComposingChanged: (value: boolean) => { this.homeComposing = value; },
           onFullscreenChanged: (value: boolean) => { this.homeFullscreen = value; },
           onOpenFrozenAnswer: (questionId: string, turnId: string) => {
@@ -94,7 +95,8 @@ export struct PhoneApp {
 
         QuestionLibrary({
           refreshToken: this.libraryRefreshToken,
-          onCreateQuestion: () => { this.entryVisible = true; },
+          onBack: () => { this.return_home(); },
+          onCreateQuestion: () => { this.open_entry(); },
           onOpenQuestion: (questionId: string) => {
             this.close_answer();
             this.detailQuestionId = questionId;
@@ -105,7 +107,7 @@ export struct PhoneApp {
             this.activeTab === PhoneTab.LIBRARY ? Visibility.Visible : Visibility.None)
 
         AccountPage({
-          onBack: () => { this.activeTab = PhoneTab.HOME; },
+          onBack: () => { this.return_home(); },
           onSignedOut: (token: string) => { this.handle_signed_out(token); }
         })
           .visibility(this.detailQuestionId.length === 0 && !this.entryVisible &&
@@ -132,10 +134,16 @@ export struct PhoneApp {
         ManualEntry({
           backController: this.entryNavigation,
           active: this.entryVisible && this.answerQuestionId.length === 0,
-          onBack: () => { this.entryVisible = false; },
+          onBack: () => { this.return_home(); },
+          onNavigationVisibilityChanged: (visible: boolean) => {
+            // 常驻但隐藏的录题组件不能改变当前页面的导航。
+            if (this.isAuthenticated && this.entryVisible && this.answerQuestionId.length === 0) {
+              this.entryNavigationVisible = visible;
+            }
+          },
           onSaved: (detail: QuestionDetail) => {
             this.libraryRefreshToken = this.libraryRefreshToken + 1;
-            this.entryVisible = false;
+            this.close_entry();
             this.activeTab = PhoneTab.LIBRARY;
             this.close_answer();
             this.detailQuestionId = detail.questionId;
@@ -145,7 +153,7 @@ export struct PhoneApp {
           .visibility(this.entryVisible ? Visibility.Visible : Visibility.None)
       }
       .width('100%').layoutWeight(1)
-      if (!this.entryVisible && this.detailQuestionId.length === 0 && !this.homeFullscreen && !this.homeComposing) {
+      if (this.show_bottom_nav()) {
         this.bottom_nav()
       }
     }
@@ -154,28 +162,81 @@ export struct PhoneApp {
 
   @Builder
   bottom_nav() {
-    Row() {
-      this.nav_item(PhoneTab.HOME, $r('app.media.bl_nav_home_active'), $r('app.media.bl_nav_home_inactive'), '首页')
-      this.nav_item(PhoneTab.LIBRARY, $r('app.media.bl_nav_library_active'), $r('app.media.bl_nav_library_inactive'), '题库')
-      this.nav_item(PhoneTab.ACCOUNT, $r('app.media.bl_nav_account_active'), $r('app.media.bl_nav_account_inactive'), '我的')
+    // 预留完整凸起区域，中央按钮不移出父容器，顶部圆形区域也能响应点击。
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {}
+        .width('100%').height(68).backgroundColor(PHONE_COLOR_CARD)
+        .border({ width: { top: 1 }, color: PHONE_COLOR_BORDER })
+      Row() {
+        this.nav_item(PhoneTab.LIBRARY, $r('app.media.bl_nav_library_active'), $r('app.media.bl_nav_library_inactive'), '题库')
+        this.capture_nav_item()
+        this.nav_item(PhoneTab.ACCOUNT, $r('app.media.bl_nav_account_active'), $r('app.media.bl_nav_account_inactive'), '我的')
+      }
+      .width('100%').height(PHONE_NAV_HEIGHT).padding({ left: 8, right: 8 })
+      .alignItems(VerticalAlign.Bottom)
     }
-    .width('100%').height(PHONE_NAV_HEIGHT)
-    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-    .backgroundColor(PHONE_COLOR_CARD)
-    .border({ width: { top: 1 }, color: PHONE_COLOR_BORDER })
-    .alignItems(VerticalAlign.Center)
+    .width('100%').height(PHONE_NAV_HEIGHT).backgroundColor(PHONE_COLOR_BACKGROUND)
   }
 
   @Builder
   nav_item(tab: PhoneTab, activeIcon: Resource, inactiveIcon: Resource, label: string) {
     Column() {
-      Image(this.activeTab === tab ? activeIcon : inactiveIcon).width(24).height(24)
-      Text(label).fontSize(12)
-        .fontWeight(this.activeTab === tab ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(this.activeTab === tab ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED).margin({ top: 3 })
+      Image(!this.entryVisible && this.activeTab === tab ? activeIcon : inactiveIcon).width(24).height(24)
+      Text(label).fontSize(12).lineHeight(16)
+        .fontWeight(!this.entryVisible && this.activeTab === tab ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(!this.entryVisible && this.activeTab === tab ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED)
+        .margin({ top: 3 })
     }
-    .layoutWeight(1).height('100%').justifyContent(FlexAlign.Center).accessibilityText(label)
-    .onClick(() => { this.activeTab = tab; })
+    .layoutWeight(1).height(68).justifyContent(FlexAlign.Center).accessibilityText(label)
+    .onClick(() => { this.select_tab(tab); })
+  }
+
+  @Builder
+  capture_nav_item() {
+    Button({ type: ButtonType.Normal }) {
+      Column() {
+        Row() {
+          Image($r('app.media.bl_nav_camera')).width(32).height(32)
+        }
+        .width(68).height(68).justifyContent(FlexAlign.Center).backgroundColor(PHONE_COLOR_PRIMARY)
+        .border({ width: 3, color: PHONE_COLOR_CARD }).borderRadius(34)
+        .shadow({ radius: 10, color: '#29246BFF', offsetY: 4 })
+        Text('录题').fontSize(12).lineHeight(16).fontColor(PHONE_COLOR_PRIMARY).margin({ top: 3 })
+      }
+      .width('100%').height('100%').justifyContent(FlexAlign.Start)
+    }
+    .layoutWeight(1).height(PHONE_NAV_HEIGHT).padding(0).backgroundColor(Color.Transparent).borderRadius(0)
+    .accessibilityText('录题，打开拍照、相册或手动输入入口')
+    .onClick(() => { this.open_entry(); })
+  }
+
+  private show_bottom_nav(): boolean {
+    if (this.answerQuestionId.length > 0 || this.detailQuestionId.length > 0) { return false; }
+    if (this.entryVisible) { return this.entryNavigationVisible; }
+    // 首页的编辑、阅读状态只约束首页，避免常驻组件的旧标志遮住其他顶层页面。
+    return this.activeTab !== PhoneTab.HOME || (!this.homeFullscreen && !this.homeComposing);
+  }
+
+  private open_entry(): void {
+    if (this.entryVisible) { return; }
+    // 每次重新激活后由录题组件报告当前层级，不能复用上一次 SOURCE 的标志。
+    this.entryNavigationVisible = false;
+    this.entryVisible = true;
+  }
+
+  private close_entry(): void {
+    this.entryVisible = false;
+    this.entryNavigationVisible = false;
+  }
+
+  private select_tab(tab: PhoneTab): void {
+    this.close_entry();
+    this.activeTab = tab;
+  }
+
+  private return_home(): void {
+    this.close_entry();
+    this.activeTab = PhoneTab.HOME;
   }
 
   private handle_back(): boolean {
@@ -184,7 +245,7 @@ export struct PhoneApp {
     if (this.entryVisible) { this.entryNavigation.handleBack(); return true; }
     if (this.detailQuestionId.length > 0) { this.detailQuestionId = ''; return true; }
     if (this.activeTab === PhoneTab.HOME && this.homeNavigation.handleBack()) { return true; }
-    if (this.activeTab !== PhoneTab.HOME) { this.activeTab = PhoneTab.HOME; return true; }
+    if (this.activeTab !== PhoneTab.HOME) { this.return_home(); return true; }
     return false;
   }
 
@@ -220,7 +281,7 @@ export struct PhoneApp {
     this.detailQuestionId = '';
     this.homeQuestionId = '';
     this.homeRequestSerial = 0;
-    this.entryVisible = false;
+    this.close_entry();
     this.homeFullscreen = false;
     this.homeComposing = false;
   }

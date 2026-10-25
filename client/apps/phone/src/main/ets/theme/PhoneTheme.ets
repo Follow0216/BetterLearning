@@ -18,4 +18,5 @@ export const PHONE_COLOR_WHITE: string = '#FFFFFF';
 
 export const PHONE_RADIUS_CARD: number = 20;
 export const PHONE_RADIUS_CONTROL: number = 14;
-export const PHONE_NAV_HEIGHT: number = 64;
+// 包含中央相机的凸起空间；白色底板为 68vp。
+export const PHONE_NAV_HEIGHT: number = 88;
