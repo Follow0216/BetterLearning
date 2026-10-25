@@ -11,6 +11,10 @@ public interface TutorTurnMapper {
     TutorTurnDO find(@Param("accountId") long accountId, @Param("questionId") long questionId,
             @Param("turnId") String turnId);
 
+    @org.apache.ibatis.annotations.Select("SELECT EXISTS(SELECT 1 FROM ma_request WHERE account_id=#{accountId} "
+            + "AND status IN ('WAITING_INPUT','QUEUED','RUNNING','CANCELLING'))")
+    boolean activeRequest(@Param("accountId") long accountId);
+
     Long lockAccount(@Param("accountId") long accountId);
 
     TutorTurnDO findRequest(@Param("accountId") long accountId, @Param("requestId") String requestId);

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.learning.mapper.SourceMapper">
+    <resultMap id="source" type="com.betterlearning.server.learning.model.dataobject.SourceDO">
+        <id column="source_id" property="sourceId"/>
+        <result column="account_id" property="accountId"/>
+        <result column="type" property="type"/>
+        <result column="origin_id" property="originId"/>
+        <result column="title" property="title"/>
+        <result column="status" property="status"/>
+        <result column="current_version" property="currentVersion"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+    <resultMap id="version" type="com.betterlearning.server.learning.model.dataobject.SourceVersionDO">
+        <id column="source_id" property="sourceId"/>
+        <id column="version" property="version"/>
+        <result column="content_sha256" property="contentSha256"/>
+        <result column="status" property="status"/>
+        <result column="answer_state" property="answerState"/>
+        <result column="file_ref" property="fileRef"/>
+        <result column="body_markdown" property="bodyMarkdown"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="index_revision" property="indexRevision"/>
+    </resultMap>
+    <resultMap id="anchor" type="com.betterlearning.server.learning.model.dataobject.AnchorDO">
+        <id column="anchor_id" property="anchorId"/>
+        <result column="source_id" property="sourceId"/>
+        <result column="version" property="version"/>
+        <result column="kind" property="kind"/>
+        <result column="ordinal" property="ordinal"/>
+        <result column="content_sha256" property="contentSha256"/>
+        <result column="locator_json" property="locatorJson"/>
+        <result column="text" property="text"/>
+    </resultMap>
+    <resultMap id="operation" type="com.betterlearning.server.learning.model.dataobject.SourceOperationDO">
+        <result column="payload_fingerprint" property="payloadFingerprint"/>
+        <result column="source_id" property="sourceId"/>
+        <result column="version" property="version"/>
+    </resultMap>
+    <resultMap id="cursor" type="com.betterlearning.server.learning.model.dataobject.SourceCursorDO">
+        <result column="account_id" property="accountId"/>
+        <result column="type" property="type"/>
+        <result column="before_time" property="beforeTime"/>
+        <result column="before_id" property="beforeId"/>
+    </resultMap>
+    <select id="lockAccount" resultType="java.lang.Long">
+        SELECT account_id FROM app_user WHERE account_id = #{accountId} FOR UPDATE
+    </select>
+    <insert id="create">
+        INSERT INTO ma_source(source_id, account_id, type, origin_id, title, status, current_version)
+        VALUES (#{sourceId}, #{accountId}, #{type}, #{originId}, #{title}, 'ACTIVE', 0)
+        ON CONFLICT (account_id, type, origin_id) DO NOTHING
+    </insert>
+    <select id="lockOrigin" resultMap="source">
+        SELECT * FROM ma_source WHERE account_id = #{accountId} AND type = #{type}
+            AND origin_id = #{originId} FOR UPDATE
+    </select>
+    <select id="find" resultMap="source">
+        SELECT * FROM ma_source WHERE account_id = #{accountId} AND source_id = #{sourceId}
+            AND status = 'ACTIVE'
+    </select>
+    <select id="findOrigin" resultMap="source">
+        SELECT * FROM ma_source WHERE account_id = #{accountId} AND type = #{type}
+            AND origin_id = #{originId} AND status = 'ACTIVE'
+    </select>
+    <select id="list" resultMap="source">
+        SELECT * FROM ma_source WHERE account_id = #{accountId} AND type = #{type}
+            AND status = 'ACTIVE' ORDER BY created_at DESC, source_id DESC LIMIT #{limit}
+    </select>
+    <select id="page" resultMap="source">
+        SELECT * FROM ma_source WHERE account_id = #{accountId} AND type = #{type}
+            AND status = 'ACTIVE'
+        <if test="beforeTime != null">
+            AND (created_at, source_id) &lt; (#{beforeTime}, #{beforeId})
+        </if>
+        ORDER BY created_at DESC, source_id DESC LIMIT #{limit}
+    </select>
+    <select id="cursor" resultMap="cursor">
+        SELECT account_id, type, before_time, before_id FROM ma_source_cursor
+        WHERE cursor_id = #{cursorId} AND expires_at > CURRENT_TIMESTAMP
+    </select>
+    <insert id="createCursor">
+        INSERT INTO ma_source_cursor(cursor_id, account_id, type, before_time, before_id)
+        VALUES (#{cursorId}, #{accountId}, #{type}, #{beforeTime}, #{beforeId})
+    </insert>
+    <select id="operation" resultMap="operation">
+        SELECT payload_fingerprint, source_id, version FROM ma_source_operation
+        WHERE account_id = #{accountId} AND operation_id = #{operationId}
+    </select>
+    <insert id="recordOperation">
+        INSERT INTO ma_source_operation(account_id, operation_id, payload_fingerprint, source_id, version)
+        VALUES (#{accountId}, #{operationId}, #{fingerprint}, #{sourceId}, #{version})
+    </insert>
+    <select id="version" resultMap="version">
+        SELECT v.* FROM ma_source_version v JOIN ma_source s ON s.source_id = v.source_id
+        WHERE s.account_id = #{accountId} AND s.status = 'ACTIVE'
+            AND v.source_id = #{sourceId} AND v.version = #{version}
+            AND v.status != 'WITHDRAWN'
+    </select>
+    <select id="anchors" resultMap="anchor">
+        SELECT a.* FROM ma_anchor a JOIN ma_source s ON s.source_id = a.source_id
+        WHERE s.account_id = #{accountId} AND s.status = 'ACTIVE'
+            AND a.source_id = #{sourceId} AND a.version = #{version}
+        ORDER BY a.kind, a.ordinal
+    </select>
+    <update id="advance">
+        UPDATE ma_source SET current_version = #{newVersion}, title = #{title}
+        WHERE account_id = #{accountId} AND source_id = #{sourceId}
+            AND status = 'ACTIVE' AND current_version = #{oldVersion}
+    </update>
+    <insert id="insertVersion">
+        INSERT INTO ma_source_version(source_id, version, content_sha256, status, answer_state,
+                file_ref, body_markdown)
+        VALUES (#{sourceId}, #{version}, #{digest}, 'INDEX_PENDING', #{answerState},
+                #{fileRef}, #{bodyMarkdown})
+    </insert>
+    <insert id="insertAnchor">
+        INSERT INTO ma_anchor(anchor_id, source_id, version, kind, ordinal,
+                content_sha256, locator_json, text)
+        VALUES (#{anchor.anchorId}, #{anchor.sourceId}, #{anchor.version}, #{anchor.kind},
+                #{anchor.ordinal}, #{anchor.contentSha256}, #{anchor.locatorJson}, #{anchor.text})
+    </insert>
+    <update id="markIndex">
+        UPDATE ma_source_version SET status = #{status}
+        WHERE source_id = #{sourceId} AND version = #{version} AND status = 'INDEX_PENDING'
+            AND index_revision = #{expectedIndexRevision}
+            AND EXISTS (SELECT 1 FROM ma_source s WHERE s.source_id = #{sourceId}
+                AND s.account_id = #{accountId} AND s.status = 'ACTIVE'
+                AND s.current_version = #{version})
+    </update>
+    <update id="reindex">
+        UPDATE ma_source_version SET status = 'INDEX_PENDING', index_revision = index_revision + 1
+        WHERE source_id = #{sourceId} AND version = #{version}
+            AND status IN ('READY','FAILED') AND index_revision = #{expectedIndexRevision}
+            AND EXISTS (SELECT 1 FROM ma_source s WHERE s.source_id = #{sourceId}
+                AND s.account_id = #{accountId} AND s.status = 'ACTIVE'
+                AND s.current_version = #{version})
+    </update>
+    <update id="withdraw">
+        UPDATE ma_source SET status = 'DELETED'
+        WHERE account_id = #{accountId} AND source_id = #{sourceId} AND status = 'ACTIVE'
+    </update>
+    <update id="withdrawRename">
+        UPDATE ma_source SET status = 'DELETED', origin_id = #{retiredOrigin}
+        WHERE account_id = #{accountId} AND source_id = #{sourceId} AND status = 'ACTIVE'
+    </update>
+    <insert id="outbox">
+        INSERT INTO ma_outbox(event_id, account_id, aggregate_type, aggregate_id,
+                aggregate_version, kind, payload_digest, status, index_revision)
+        VALUES (#{eventId}, #{accountId}, 'SOURCE', #{sourceId}, #{version},
+                #{kind}, #{digest}, 'PENDING', #{indexRevision})
+    </insert>
+    <select id="fileReferences" resultType="long">
+        SELECT COUNT(*) FROM ma_source_version WHERE file_ref = #{fileRef}
+    </select>
+</mapper>

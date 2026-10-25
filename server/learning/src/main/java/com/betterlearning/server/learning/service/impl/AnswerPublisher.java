@@ -5,9 +5,13 @@ import java.util.Objects;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.dao.QuestionAnswerDao;
+import com.betterlearning.server.learning.mapper.SourceMapper;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.model.dataobject.QuestionAnswerDO;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
+import com.betterlearning.server.multiagent.MultiAgentModels.PublishSource;
+import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
+import com.betterlearning.server.multiagent.SourceStore;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,9 +20,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AnswerPublisher {
     private final QuestionAnswerDao dao;
+    private final SourceMapper sourceMapper;
+    private final SourceStore sourceStore;
 
-    public AnswerPublisher(QuestionAnswerDao dao) {
+    public AnswerPublisher(QuestionAnswerDao dao, SourceMapper sourceMapper, SourceStore sourceStore) {
         this.dao = dao;
+        this.sourceMapper = sourceMapper;
+        this.sourceStore = sourceStore;
     }
 
     public record Published(QuestionAnswerDO answer, String retiredFileRef) {
@@ -48,7 +56,11 @@ public class AnswerPublisher {
         candidate.setFileRef(candidateRef);
         candidate.setSaveRequestId(manifest.saveRequestId());
         candidate.setRequestHash(requestHash);
-        return new Published(dao.publish(candidate), currentRef);
+        QuestionAnswerDO published = dao.publish(candidate);
+        sourceStore.publish(accountId, new PublishSource(SourceType.SAVED_ANSWER,
+                Long.toString(questionId), "作答 " + questionId, null, requestHash,
+                candidateRef, "DRAFT", null, manifest.saveRequestId()));
+        return new Published(published, currentRef);
     }
 
     @Transactional
@@ -69,10 +81,19 @@ public class AnswerPublisher {
         if (dao.updateState(accountId, questionId, request.fileRef(), request.state()) != 1) {
             throw new BusinessException(ErrorCode.ANSWER_CHANGED);
         }
+        long currentSourceVersion = sourceStore.findOrigin(accountId, SourceType.SAVED_ANSWER,
+                Long.toString(questionId)).map(content -> content.version().version()).orElse(0L);
+        sourceStore.publish(accountId, new PublishSource(SourceType.SAVED_ANSWER,
+                Long.toString(questionId), "作答 " + questionId, null, current.getRequestHash(),
+                current.getFileRef(), "COMPLETED".equals(request.state()) ? "COMPLETED" : "DRAFT", null,
+                "state:" + current.getFileRef() + ":" + request.state() + ":" + currentSourceVersion));
         return dao.find(accountId, questionId).orElseThrow();
     }
 
     private void lock(long accountId, long questionId) {
+        if (sourceMapper.lockAccount(accountId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
         if (!dao.lockQuestion(accountId, questionId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }

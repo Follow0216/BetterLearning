@@ -135,7 +135,7 @@ class DevUserAccountInitializerIntegrationTests {
             startupCaptured = true;
         }
         baseUrl = "http://127.0.0.1:" + port;
-        jdbcTemplate.update("TRUNCATE TABLE tutor_turn, question_answer, question, question_collection, app_user RESTART IDENTITY");
+        com.betterlearning.server.support.TestData.cleanDatabase(jdbcTemplate);
         redisTemplate.execute((RedisCallback<Void>) connection -> {
             connection.serverCommands().flushDb();
             return null;

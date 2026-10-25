@@ -1,6 +1,7 @@
 package com.betterlearning.server.learning;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -17,6 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
+import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.IntegrationProperties;
 import com.betterlearning.server.support.TestData;
@@ -78,6 +81,9 @@ class QuestionAnswerIntegrationTests {
 
     @Autowired
     private JsonMapper json;
+
+    @Autowired
+    private SourceStore sourceStore;
 
     private TestHttpClient http;
 
@@ -174,7 +180,7 @@ class QuestionAnswerIntegrationTests {
         assertThat(second.statusCode()).isEqualTo(200);
         String newer = (String) http.jsonBody(second).get("fileRef");
         assertThat(newer).isNotEqualTo(ref);
-        assertThat(FILE_ROOT.resolve("objects").resolve(ref)).doesNotExist();
+        assertThat(FILE_ROOT.resolve("objects").resolve(ref)).exists();
         http.assertErrorEnvelope(save(token, question, first), 409, "A0451");
         http.assertErrorEnvelope(state(token, question, "COMPLETED", ref), 409, "A0451");
         assertPngError(ROOT + question + "/answer/files/" + ref + "/blocks/0", token, 404, "A0606");
@@ -209,6 +215,68 @@ class QuestionAnswerIntegrationTests {
         assertThat(http.jsonBody(continued)).containsEntry("state", "IN_PROGRESS")
                 .containsEntry("fileRef", ref).containsEntry("completedAt", null);
         assertThat(http.jsonBody(http.get(ROOT + question + "/answer", token))).containsEntry("state", "IN_PROGRESS");
+    }
+
+    @Test
+    void explicitSavesAndStateChangesCreateImmutableVersionsAndWithdrawalRevokesAccess() throws Exception {
+        String token = account("alice_01");
+        account("bob_02");
+        String question = question(token);
+        long accountId = jdbc.queryForObject(
+                "SELECT account_id FROM app_user WHERE username = ?", Long.class, "alice_01");
+        long otherAccountId = jdbc.queryForObject(
+                "SELECT account_id FROM app_user WHERE username = ?", Long.class, "bob_02");
+        String request = UUID.randomUUID().toString();
+        byte[] first = multipart(AnswerTestData.manifest(request, null), true);
+        String oldRef = (String) http.jsonBody(save(token, question, first)).get("fileRef");
+        var firstVersion = sourceStore.findOrigin(accountId, SourceType.SAVED_ANSWER, question).orElseThrow();
+        assertThat(firstVersion.version().version()).isEqualTo(1);
+        assertThat(firstVersion.version().answerState()).isEqualTo("DRAFT");
+        assertThat(firstVersion.version().fileRef()).isEqualTo(oldRef);
+        assertThatThrownBy(() -> sourceStore.get(otherAccountId, firstVersion.source().sourceId(), 1))
+                .isInstanceOf(com.betterlearning.server.exception.BusinessException.class);
+        assertThat(sourceStore.findOrigin(otherAccountId, SourceType.SAVED_ANSWER, question)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE aggregate_id = ?",
+                Long.class, firstVersion.source().sourceId())).isEqualTo(1);
+
+        state(token, question, "COMPLETED", oldRef);
+        state(token, question, "COMPLETED", oldRef);
+        assertThat(sourceStore.get(accountId, firstVersion.source().sourceId(), 2)
+                .version().answerState()).isEqualTo("COMPLETED");
+        assertThat(sourceStore.get(accountId, firstVersion.source().sourceId(), 1)
+                .version().answerState()).isEqualTo("DRAFT");
+        state(token, question, "IN_PROGRESS", oldRef);
+        assertThat(sourceStore.get(accountId, firstVersion.source().sourceId(), 3)
+                .version().answerState()).isEqualTo("DRAFT");
+        assertThat(sourceStore.get(accountId, firstVersion.source().sourceId(), 3)
+                .version().fileRef()).isEqualTo(oldRef);
+
+        String newRef = (String) http.jsonBody(save(token, question,
+                multipart(AnswerTestData.manifest(UUID.randomUUID().toString(), oldRef), true)))
+                .get("fileRef");
+        assertThat(newRef).isNotEqualTo(oldRef);
+        assertThat(FILE_ROOT.resolve("objects").resolve(oldRef)).exists();
+        assertThat(sourceStore.get(accountId, firstVersion.source().sourceId(), 1)
+                .version().fileRef()).isEqualTo(oldRef);
+        assertThat(sourceStore.findOrigin(accountId, SourceType.SAVED_ANSWER, question).orElseThrow()
+                .version().version()).isEqualTo(4);
+        assertThat(sourceStore.markIndex(accountId, firstVersion.source().sourceId(), 1, "READY")).isFalse();
+        assertThat(sourceStore.markIndex(accountId, firstVersion.source().sourceId(), 4, "READY")).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE aggregate_id = ?",
+                Long.class, firstVersion.source().sourceId())).isEqualTo(4);
+
+        sourceStore.withdraw(accountId, firstVersion.source().sourceId());
+        assertThat(sourceStore.findOrigin(accountId, SourceType.SAVED_ANSWER, question)).isEmpty();
+        assertThat(sourceStore.fileReferenced(oldRef)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE aggregate_id = ?",
+                Long.class, firstVersion.source().sourceId())).isEqualTo(5);
+        String resumedRef = (String) http.jsonBody(save(token, question,
+                multipart(AnswerTestData.manifest(UUID.randomUUID().toString(), newRef), true)))
+                .get("fileRef");
+        assertThat(resumedRef).isNotEqualTo(newRef);
+        var newGeneration = sourceStore.findOrigin(accountId, SourceType.SAVED_ANSWER, question).orElseThrow();
+        assertThat(newGeneration.source().sourceId()).isNotEqualTo(firstVersion.source().sourceId());
+        assertThat(newGeneration.version().version()).isEqualTo(1);
     }
 
     private HttpResponse<String> postState(String token, String question, String state, String ref) throws Exception {

@@ -105,7 +105,7 @@ class UniqueConstraintMappingIntegrationTests {
 
     @BeforeEach
     void cleanTable() {
-        jdbcTemplate.update("TRUNCATE TABLE tutor_turn, question_answer, question, question_collection, app_user RESTART IDENTITY");
+        com.betterlearning.server.support.TestData.cleanDatabase(jdbcTemplate);
     }
 
     @Test
