@@ -76,6 +76,9 @@ const network = (message) => ({ isSuccess: false, data: null,
   error: { kind: 'network', message, httpStatus: 0, is_unauthorized: () => false, is_network: () => true } });
 const httpError = (message, httpStatus) => ({ isSuccess: false, data: null,
   error: { kind: 'http', message, httpStatus, is_unauthorized: () => false, is_network: () => false } });
+const unauthorized = () => ({ isSuccess: false, data: null,
+  error: { kind: 'http', message: '登录已过期', httpStatus: 401,
+    is_unauthorized: () => true, is_network: () => false } });
 const deferred = () => { let resolve; let reject;
   const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
   return { promise, resolve, reject }; };
@@ -202,6 +205,110 @@ async function check(name, run) {
     await value.submit(); await value.refresh_list();
     assert.equal(value.errorMessage, '创建冲突'); assert.equal(value.errorSource, 'action');
   });
+  await check('same cancel target succeeds after failure and clears its action error', async () => {
+    const value = page(); const running = request('A', 1, 'runA', status.RUNNING);
+    value.requests = [running]; value.selectedRequestId = 'A'; value.detail = detail(running);
+    api.cancelRequest = async () => httpError('取消失败', 409);
+    api.getRequest = async () => ok(detail(running));
+    await value.cancel(running); await flush();
+    assert.equal(value.errorMessage, '取消失败');
+    assert.equal(value.errorActionKind, 'cancel');
+    assert.equal(value.errorRequestId, 'A');
+    assert.equal(value.errorTargetRunId, 'runA');
+    api.cancelRequest = async () => ok(detail(request('A', 2, 'runA', status.CANCELLING)));
+    await value.cancel(running);
+    assert.equal(value.errorMessage, '');
+  });
+  await check('same retry target succeeds after failure and clears its action error', async () => {
+    const value = page(); const failed = request('A', 2, 'runA', status.FAILED);
+    value.requests = [failed]; value.selectedRequestId = 'A'; value.detail = detail(failed);
+    api.retryRequest = async () => httpError('重试失败', 409);
+    api.getRequest = async () => ok(detail(failed));
+    await value.retry(failed); await flush();
+    assert.equal(value.errorMessage, '重试失败');
+    assert.equal(value.errorActionKind, 'retry');
+    assert.equal(value.errorRequestId, 'A');
+    assert.equal(value.errorTargetRunId, 'runA');
+    const queued = detail(request('A', 3, 'runB', status.QUEUED));
+    queued.run.runNo = 2; queued.run.retryOfRunId = 'runA';
+    queued.runs = [detail(failed).run, queued.run];
+    api.retryRequest = async () => ok(queued);
+    await value.retry(failed);
+    assert.equal(value.errorMessage, '');
+  });
+  await check('different request, action kind or target run cannot clear cancel error', async () => {
+    for (const variant of ['request', 'kind', 'run']) {
+      const value = page(); const running = request('A', 1, 'runA', status.RUNNING);
+      value.requests = [running]; value.selectedRequestId = 'A'; value.detail = detail(running);
+      api.cancelRequest = async () => httpError('A取消失败', 409);
+      api.getRequest = async () => ok(detail(running));
+      await value.cancel(running); await flush();
+      if (variant === 'kind') {
+        const failed = request('A', 2, 'runA', status.FAILED);
+        value.requests = [failed]; value.detail = detail(failed);
+        api.retryRequest = async () => ok(detail(request('A', 3, 'runB', status.QUEUED)));
+        await value.retry(failed);
+      } else {
+        const other = variant === 'request' ? request('B', 1, 'runB', status.RUNNING) :
+          request('A', 2, 'runB', status.RUNNING);
+        api.cancelRequest = async () => ok(detail(request(other.requestId, other.revision + 1,
+          other.currentRunId, status.CANCELLING)));
+        await value.cancel(other);
+      }
+      assert.equal(value.errorMessage, 'A取消失败', variant);
+      assert.equal(value.errorActionKind, 'cancel', variant);
+    }
+  });
+  await check('late same-scope cancel success cannot erase a newer action error', async () => {
+    const value = page(); const running = request('A', 1, 'runA', status.RUNNING);
+    value.requests = [running]; value.selectedRequestId = 'A'; value.detail = detail(running);
+    api.cancelRequest = async () => httpError('先前失败', 409);
+    api.getRequest = async () => ok(detail(running));
+    await value.cancel(running); await flush();
+    const late = deferred(); api.cancelRequest = () => late.promise;
+    const pending = value.cancel(running);
+    // Model a newer action error while the old HTTP response is pending; preserve its scope.
+    value.errorMessage = '较新失败'; value.errorVersion++;
+    late.resolve(ok(detail(request('A', 2, 'runA', status.CANCELLING))));
+    await pending;
+    assert.equal(value.errorMessage, '较新失败');
+  });
+  await check('create conflict records its request scope and another create success preserves it', async () => {
+    const value = page(); value.loadedOnce = true; value.prompt = '问题';
+    let firstId = ''; let secondId = '';
+    api.createRequest = async (_, __, id) => { firstId = id; return httpError('创建冲突', 409); };
+    await value.submit();
+    assert.equal(value.errorSource, 'action');
+    assert.equal(value.errorActionKind, 'create');
+    assert.equal(value.errorRequestId, firstId);
+    assert.equal(value.errorTargetRunId, null);
+    api.createRequest = async (_, __, id) => { secondId = id;
+      return ok(request(id, 0, null, status.WAITING_INPUT)); };
+    api.getRequest = async (_, __, id) => ok(detail(request(id, 0, null, status.WAITING_INPUT)));
+    await value.submit(); await flush();
+    assert.notEqual(secondId, firstId);
+    assert.equal(value.errorMessage, '创建冲突');
+    assert.equal(value.errorRequestId, firstId);
+  });
+  await check('waiting-input cancel null target clears only its own action error', async () => {
+    const value = page(); const waiting = request('A', 0, null, status.WAITING_INPUT);
+    value.requests = [waiting]; value.selectedRequestId = 'A'; value.detail = detail(waiting);
+    api.cancelRequest = async () => httpError('等待中取消失败', 409);
+    api.getRequest = async () => ok(detail(waiting));
+    await value.cancel(waiting); await flush();
+    assert.equal(value.errorTargetRunId, null);
+    api.cancelRequest = async () => ok(detail(request('A', 1, null, status.CANCELLED)));
+    await value.cancel(waiting);
+    assert.equal(value.errorMessage, '');
+    const running = request('A', 2, 'runA', status.RUNNING);
+    api.cancelRequest = async () => httpError('运行中取消失败', 409);
+    api.getRequest = async () => ok(detail(running));
+    await value.cancel(running); await flush();
+    api.cancelRequest = async () => ok(detail(request('A', 3, null, status.CANCELLED)));
+    await value.cancel(waiting);
+    assert.equal(value.errorMessage, '运行中取消失败');
+    assert.equal(value.errorTargetRunId, 'runA');
+  });
   await check('A to B to A rejects old detail and error', async () => {
     const value = page(); const oldA = deferred(); let aReads = 0;
     value.requests = [request('A', 1, 'runA', status.RUNNING),
@@ -241,6 +348,37 @@ async function check(name, run) {
     value.poll_selected(); await flush(); await flush();
     assert.equal(value.requests.find((item) => item.requestId === 'A').status, status.SUCCEEDED);
     assert.equal(value.detail.request.requestId, 'B'); assert.equal(value.errorMessage, '动作失败');
+  });
+  await check('background active poll failures do not paint selected history error', async () => {
+    for (const failure of ['network', 'throw', 'http']) {
+      const value = page(); const active = request('A', 1, 'runA', status.RUNNING);
+      const history = detail(request('B', 1, 'runB', status.SUCCEEDED));
+      value.requests = [active, history.request]; value.selectedRequestId = 'B'; value.detail = history;
+      api.getRequest = async (_, __, id) => {
+        if (id === 'B') return ok(history);
+        if (failure === 'throw') throw new Error('离线');
+        return failure === 'network' ? network('A轮询断网') : httpError('A轮询失败', 503);
+      };
+      value.poll_selected(); await flush(); await flush();
+      assert.equal(value.errorMessage, '', failure);
+      assert.equal(value.selectedRequestId, 'B', failure);
+      assert.equal(value.detail.request.requestId, 'B', failure);
+      await value.refresh_detail('B');
+      assert.equal(value.errorMessage, '', failure + '/B success');
+    }
+  });
+  await check('background active poll 401 still revokes the current session', async () => {
+    const value = page(); const active = request('A', 1, 'runA', status.RUNNING);
+    const history = detail(request('B', 1, 'runB', status.SUCCEEDED));
+    value.requests = [active, history.request]; value.selectedRequestId = 'B'; value.detail = history;
+    let unauthorizedToken = '';
+    value.onUnauthorized = (received) => { unauthorizedToken = received; };
+    api.getRequest = async () => unauthorized();
+    value.poll_selected(); await flush(); await flush();
+    assert.equal(unauthorizedToken, 'one');
+    assert.equal(token, '');
+    assert.equal(value.errorMessage, '');
+    assert.equal(value.detail.request.requestId, 'B');
   });
   await check('token, account, question and disappear reject late list and detail success or failure', async () => {
     for (const change of ['token', 'account', 'question', 'disappear']) {
