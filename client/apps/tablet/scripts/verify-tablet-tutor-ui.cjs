@@ -48,6 +48,7 @@ class LibraryHarness {
     this.context_changes=[]; this.on_context_changed=context=>this.context_changes.push(context);
     this.on_answer_mode_changed=active=>this.answer_modes.push(active);
     this.canvas_controller={flushLocal:async()=>({isSuccess:true,data:true})};
+    this.backController={attach:()=>{},detach:()=>{}};
   }
   ${methods}
 }
@@ -75,7 +76,7 @@ class FakeBridge {
   dispose() { this.disposals++; }
   publish(phase, questionId=this.qid) { this.onChange({phase,questionId,message:'unsafe provider detail'}); }
 }
-const sandbox = { TabletTutorBridge:FakeBridge, SharedTabletTutorApi:class {},
+const sandbox = { TabletV2TutorBridge:FakeBridge, SharedTabletV2TutorApi:class {},
   TABLET_COLOR_SUCCESS:'success', TABLET_COLOR_MUTED:'muted', TABLET_COLOR_PRIMARY:'primary',
   AnswerState:{NOT_STARTED:'NOT_STARTED'},
   authSession:{read_access_token:()=>token,has_valid_session:()=>token!==null,

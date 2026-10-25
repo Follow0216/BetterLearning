@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
-import { authSession, ToastStore } from 'common';
+import { authSession, ToastStore, V2Citation } from 'common';
 import { discardPendingPhoto, loadPreview, selectImage, takePhoto } from '../features/ocr/QuestionImageSource';
 import { PhoneBackController, PhoneHomeMode, PhoneTutorSession, PhoneTutorSessionStore } from '../model/PhoneHomeState';
 import {
@@ -9,7 +9,7 @@ import {
   PHONE_RADIUS_CARD
 } from '../theme/PhoneTheme';
 import { PhoneReadingPage } from './PhoneReadingPage';
-import { PhoneTutorPage } from './PhoneTutorPage';
+import { PhoneTutorV2Page } from './PhoneTutorV2Page';
 
 /** AI 首页。当前题与独立图文服务尚无契约，未知状态不作为成功连接呈现。 */
 @Component
@@ -24,6 +24,9 @@ export struct PhoneHomePage {
   onComposingChanged: (value: boolean) => void = () => {};
   onFullscreenChanged: (value: boolean) => void = () => {};
   onOpenFrozenAnswer: (questionId: string, turnId: string) => void = () => {};
+  onOpenLegacy: (questionId: string) => void = () => {};
+  onOpenNotes: () => void = () => {};
+  onOpenCitation: (citationId: string) => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
 
   @State @Watch('report_toast_context') mode: PhoneHomeMode = PhoneHomeMode.COLLABORATION;
@@ -40,6 +43,7 @@ export struct PhoneHomePage {
   @State readingTitle: string = '';
   @State readingBody: string = '';
   @State readingPlainText: boolean = false;
+  @State readingCitations: V2Citation[] = [];
 
   @State singleFocused: boolean = false;
   private singleEditor: TextAreaController = new TextAreaController();
@@ -92,11 +96,10 @@ export struct PhoneHomePage {
         this.header()
         Stack() {
           if (this.selectedQuestionId.length > 0) {
-            PhoneTutorPage({
+            PhoneTutorV2Page({
               toast: this.toast,
               questionId: this.selectedQuestionId,
               embedded: true,
-              sessionStore: this.sessions,
               editorNavigation: this.tutorEditorNavigation,
               onComposingChanged: (value: boolean) => {
                 this.tutorComposing = value;
@@ -105,12 +108,17 @@ export struct PhoneHomePage {
               visible: this.active && this.mode === PhoneHomeMode.COLLABORATION &&
                 !this.readingVisible && !this.historyVisible && !this.modePickerVisible,
               onChooseQuestion: () => { this.onChooseQuestion(); },
-              onRead: (title: string, body: string, plainText: boolean) => {
-                this.open_reading(title, body, plainText);
+              onRead: (title: string, body: string, plainText: boolean, citations?: V2Citation[]) => {
+                this.open_reading(title, body, plainText, citations);
               },
-              onOpenFrozenAnswer: (questionId: string, turnId: string) => {
-                this.onOpenFrozenAnswer(questionId, turnId);
+              onSessionSummary: (questionId: string, label: string, prompt: string) => {
+                const session: PhoneTutorSession = this.sessions.get(questionId);
+                session.label = label;
+                session.prompt = prompt;
               },
+              onOpenLegacy: () => { this.onOpenLegacy(this.selectedQuestionId); },
+              onOpenNotes: () => { this.onOpenNotes(); },
+              onOpenCitation: (citationId: string) => { this.onOpenCitation(citationId); },
               onUnauthorized: (token: string) => { this.onUnauthorized(token); }
             })
               .visibility(this.mode === PhoneHomeMode.COLLABORATION ? Visibility.Visible : Visibility.None)
@@ -131,6 +139,8 @@ export struct PhoneHomePage {
       if (this.readingVisible) {
         PhoneReadingPage({
           title: this.readingTitle, bodyMarkdown: this.readingBody, plainText: this.readingPlainText,
+          citations: this.readingCitations, markdownLimit: 65536,
+          onCitation: (citationId: string) => { this.onOpenCitation(citationId); },
           onBack: () => { this.close_reading(); }
         })
       }
@@ -357,7 +367,7 @@ export struct PhoneHomePage {
       .width('100%').padding({ left: 8, top: 8, bottom: 8 })
       Scroll() {
         Column({ space: 12 }) {
-          Text('本次登录中打开过的题目与草稿。题目历史会从服务重新读取最近 50 轮。')
+          Text('本次登录中打开过的题目与草稿。新版辅导记录可从服务分页读取。')
             .fontSize(13).fontColor(PHONE_COLOR_MUTED).lineHeight(20).width('100%')
           if (this.singleDraft.length > 0 || this.singlePreview !== null) {
             Button('单设备问答 · 未发送草稿').width('100%').height(52).fontSize(15)
@@ -430,11 +440,13 @@ export struct PhoneHomePage {
     this.onFullscreenChanged(false);
   }
 
-  private open_reading(title: string, body: string, plainText: boolean): void {
+  private open_reading(title: string, body: string, plainText: boolean,
+    citations?: V2Citation[]): void {
     this.stop_editing();
     this.readingTitle = title;
     this.readingBody = body;
     this.readingPlainText = plainText;
+    this.readingCitations = citations ?? [];
     this.readingVisible = true;
     this.onFullscreenChanged(true);
   }
@@ -442,6 +454,7 @@ export struct PhoneHomePage {
   private close_reading(): void {
     this.readingVisible = false;
     this.readingBody = '';
+    this.readingCitations = [];
     this.onFullscreenChanged(false);
   }
 

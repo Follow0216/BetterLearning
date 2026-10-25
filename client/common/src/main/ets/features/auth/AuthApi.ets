@@ -645,12 +645,12 @@ export class AuthApi {
    */
   async request_resource(method: http.RequestMethod, path: string, token: string,
     body: string = '', expectedStatus: number = STATUS_OK,
-    readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS): Promise<AuthResult<string>> {
+    readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS, extraHeaders: Record<string, string> = {}): Promise<AuthResult<string>> {
     if (token.length === 0) {
       return AuthResult.failure<string>(
         AuthError.local_validation('登录状态缺失，请重新登录', {}));
     }
-    const outcome: RequestOutcome = await this.send_request(method, path, token, body, readTimeoutMillis);
+    const outcome: RequestOutcome = await this.send_request(method, path, token, body, readTimeoutMillis, extraHeaders);
     const transportError: AuthError | null = this.transport_error(outcome);
     if (transportError !== null) {
       return AuthResult.failure<string>(transportError);
@@ -714,12 +714,16 @@ export class AuthApi {
    * @return 响应或网络错误
    */
   private async send_request(method: http.RequestMethod, path: string, token: string,
-    body: string, readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS): Promise<RequestOutcome> {
+    body: string, readTimeoutMillis: number = REQUEST_TIMEOUT_MILLIS, extraHeaders: Record<string, string> = {}): Promise<RequestOutcome> {
     const header: Record<string, string> = {
       'Content-Type': JSON_CONTENT_TYPE
     };
     if (token.length > 0) {
       header['Authorization'] = 'Bearer ' + token;
+    }
+    // 仅允许领域层所需的幂等键；避免覆盖 Bearer 或 Content-Type。
+    if (extraHeaders['Idempotency-Key']) {
+      header['Idempotency-Key'] = extraHeaders['Idempotency-Key'];
     }
     const options: http.HttpRequestOptions = {
       method: method,
