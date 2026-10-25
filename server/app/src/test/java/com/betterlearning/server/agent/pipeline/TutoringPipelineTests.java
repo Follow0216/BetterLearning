@@ -173,8 +173,10 @@ class TutoringPipelineTests {
                 {"status":"UNCERTAIN","summary":"有误","observations":[{"kind":"ERROR","description":"符号错了",
                 "strokeIds":["s1"]}],"clarification":"确认？"}
                 """;
-        assertReason(() -> RoleOutputValidator.parse(Role.DIAGNOSE, hallucination,
-                locatedInput(0.4)), Reason.INVALID_OUTPUT);
+        var safe = RoleOutputValidator.parse(Role.DIAGNOSE, hallucination, locatedInput(0.4));
+        assertThat(safe.get("status").asString()).isEqualTo("UNCERTAIN");
+        assertThat(safe.get("observations")).isEmpty();
+        assertThat(safe.get("summary").asString()).isEqualTo("当前笔迹识别不可靠，尚不能判断是否有误。");
     }
 
     @Test
