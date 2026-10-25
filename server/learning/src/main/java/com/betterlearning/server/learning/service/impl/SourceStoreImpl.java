@@ -35,9 +35,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class SourceStoreImpl implements SourceStore {
     private final SourceMapper mapper;
+    private final com.betterlearning.server.learning.retention.SourceDeletionService deletions;
     private final SourceAnchorValidator anchorValidator;
 
-    public SourceStoreImpl(SourceMapper mapper, SourceAnchorValidator anchorValidator) {
+    public SourceStoreImpl(SourceMapper mapper, SourceAnchorValidator anchorValidator,
+            com.betterlearning.server.learning.retention.SourceDeletionService deletions) {
+        this.deletions = deletions;
         this.mapper = mapper;
         this.anchorValidator = anchorValidator;
     }
@@ -238,9 +241,7 @@ public class SourceStoreImpl implements SourceStore {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }
         SourceVersionDO current = mapper.version(accountId, sourceId, source.getCurrentVersion());
-        if (mapper.withdrawRename(accountId, sourceId, source.getOriginId() + "#deleted:" + sourceId) != 1) {
-            throw new BusinessException(ErrorCode.NOT_FOUND);
-        }
+        deletions.withdraw(accountId, sourceId);
         mapper.outbox(UUID.randomUUID().toString(), accountId, sourceId, source.getCurrentVersion(),
                 "SOURCE_WITHDRAWN", current.getContentSha256(), current.getIndexRevision());
     }

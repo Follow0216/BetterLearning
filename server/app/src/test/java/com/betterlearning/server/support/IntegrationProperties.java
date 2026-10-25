@@ -27,12 +27,24 @@ public final class IntegrationProperties {
      */
     public static void registerInfrastructure(DynamicPropertyRegistry registry,
             PostgreSQLContainer postgres, GenericContainer<?> redis) {
+        registerDeletionJournal(registry);
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port",
                 () -> redis.getMappedPort(IntegrationContainers.REDIS_PORT));
+    }
+
+    public static void registerDeletionJournal(DynamicPropertyRegistry registry) {
+        try {
+            java.nio.file.Path journal = java.nio.file.Files.createTempDirectory("bl-test-deletion-journal-");
+            com.betterlearning.server.learning.retention.DeletionJournal.initialize(journal);
+            registry.add("app.agent-retention.delete-log-root", journal::toString);
+            registry.add("app.agent-retention.sweep-enabled", () -> false);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     /**

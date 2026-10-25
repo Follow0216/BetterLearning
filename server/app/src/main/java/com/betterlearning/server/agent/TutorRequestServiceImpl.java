@@ -11,6 +11,7 @@ import com.betterlearning.server.learning.dao.LearningDao;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.model.dataobject.QuestionDO;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
+import com.betterlearning.server.learning.service.impl.FileRetentionService;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 import com.betterlearning.server.multiagent.MultiAgentModels;
 import com.betterlearning.server.multiagent.SnapshotPort;
@@ -28,12 +29,15 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
     private final SourceStore sources;
     private final LearningDao questions;
     private final AnswerFileStore files;
+    private final FileRetentionService retention;
 
-    public TutorRequestServiceImpl(TutorLedger ledger, SourceStore sources, LearningDao questions, AnswerFileStore files) {
+    public TutorRequestServiceImpl(TutorLedger ledger, SourceStore sources, LearningDao questions,
+            AnswerFileStore files, FileRetentionService retention) {
         this.ledger = ledger;
         this.sources = sources;
         this.questions = questions;
         this.files = files;
+        this.retention = retention;
     }
 
     @Override
@@ -110,18 +114,14 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
             MultiAgentModels.Request bound = ledger.bindSnapshot(accountId, questionId, requestId,
                     new MultiAgentModels.SnapshotBinding(candidate.fileRef(), candidate.requestHash(), null, 0));
             if (!candidate.fileRef().equals(bound.snapshotFileRef())) {
-                files.discard(candidate);
+                retention.requestCandidateCleanup(candidate.fileRef());
             }
             return detail(accountId, questionId, requestId);
         } catch (RuntimeException exception) {
-            // 数据库提交结果未知时先读回引用；无法确认则保留候选，避免误删有效快照。
             try {
-                MultiAgentModels.Request current = ledger.get(accountId, questionId, requestId);
-                if (!candidate.fileRef().equals(current.snapshotFileRef())) {
-                    files.discard(candidate);
-                }
-            } catch (RuntimeException lookupFailure) {
-                // 保留可能已提交的文件，留给文件引用对账处理。
+                retention.requestCandidateCleanup(candidate.fileRef());
+            } catch (RuntimeException holdFailure) {
+                exception.addSuppressed(holdFailure);
             }
             throw exception;
         }

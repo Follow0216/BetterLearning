@@ -17,6 +17,7 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.dao.LearningDao;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
+import com.betterlearning.server.learning.service.impl.FileRetentionService;
 import com.betterlearning.server.multiagent.MultiAgentModels;
 import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.multiagent.TutorLedger;
@@ -34,7 +35,9 @@ class TutorRequestServiceTests {
     private final SourceStore sources = mock(SourceStore.class);
     private final LearningDao questions = mock(LearningDao.class);
     private final AnswerFileStore files = mock(AnswerFileStore.class);
-    private final TutorRequestServiceImpl service = new TutorRequestServiceImpl(ledger, sources, questions, files);
+    private final FileRetentionService retention = mock(FileRetentionService.class);
+    private final TutorRequestServiceImpl service = new TutorRequestServiceImpl(
+            ledger, sources, questions, files, retention);
 
     @Test
     void omittedModeAndSnapshotNormalizeBeforeLedgerIdempotency() {

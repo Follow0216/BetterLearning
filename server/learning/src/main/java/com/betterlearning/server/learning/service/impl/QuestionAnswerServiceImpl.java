@@ -14,7 +14,6 @@ import com.betterlearning.server.learning.model.dataobject.QuestionAnswerDO;
 import com.betterlearning.server.learning.model.dataobject.QuestionDO;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 import com.betterlearning.server.learning.service.QuestionAnswerService;
-import com.betterlearning.server.multiagent.SourceStore;
 
 import jakarta.servlet.http.Part;
 
@@ -27,15 +26,15 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
     private final QuestionAnswerDao answerDao;
     private final AnswerPublisher publisher;
     private final AnswerFileStore store;
-    private final SourceStore sourceStore;
+    private final FileRetentionService retention;
 
     public QuestionAnswerServiceImpl(LearningDao learningDao, QuestionAnswerDao answerDao,
-            AnswerPublisher publisher, AnswerFileStore store, SourceStore sourceStore) {
+            AnswerPublisher publisher, AnswerFileStore store, FileRetentionService retention) {
         this.learningDao = learningDao;
         this.answerDao = answerDao;
         this.publisher = publisher;
         this.store = store;
-        this.sourceStore = sourceStore;
+        this.retention = retention;
     }
 
     public AnswerModels.SaveResult save(long accountId, String questionId,
@@ -51,20 +50,14 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
                     candidate.requestHash(), candidate.fileRef());
             QuestionAnswerDO result = published.answer();
             if (!candidate.fileRef().equals(result.getFileRef())) {
-                store.discard(candidate);
+                retention.requestCandidateCleanup(candidate.fileRef());
             }
-            // 已发布的旧 fileRef 可能被不可变资料版本引用，不能由 M2 覆盖流程清理。
             return result(result);
         } catch (RuntimeException exception) {
-            // 提交结果未知时不可删掉可能已经提交的文件；仅在读回确认未引用后清本候选。
             try {
-                boolean referenced = answerDao.find(accountId, id)
-                        .map(answer -> candidate.fileRef().equals(answer.getFileRef())).orElse(false);
-                if (!referenced && !sourceStore.fileReferenced(candidate.fileRef())) {
-                    store.discard(candidate);
-                }
+                retention.requestCandidateCleanup(candidate.fileRef());
             } catch (RuntimeException lookupFailure) {
-                // DB 不可用，保留不可确定的候选；原异常仍传播，不伪报成功。
+                exception.addSuppressed(lookupFailure);
             }
             throw exception;
         }

@@ -42,8 +42,11 @@ class AnswerFileStoreTests {
                 .isEqualTo(AnswerTestData.png(32));
         assertThat(reopened.block(saved.fileRef(), "question_0000"))
                 .isEqualTo(AnswerTestData.png(16));
-        store.discard(saved);
-        assertThat(directory.resolve("objects").resolve(saved.fileRef())).doesNotExist();
+        assertThatThrownBy(() -> store.deletePublished(saved.fileRef()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("数据库回收判定");
+        store.holdUnknown(saved.fileRef());
+        assertThat(reopened.hasUnknownHold(saved.fileRef())).isTrue();
+        assertThat(directory.resolve("objects").resolve(saved.fileRef())).exists();
     }
 
     @Test

@@ -26,11 +26,14 @@ public class FrozenAnswerServiceImpl implements FrozenAnswerService {
     private final TutorTurnService turns;
     private final LearningDao questions;
     private final AnswerFileStore files;
+    private final FileRetentionService retention;
 
-    public FrozenAnswerServiceImpl(TutorTurnService turns, LearningDao questions, AnswerFileStore files) {
+    public FrozenAnswerServiceImpl(TutorTurnService turns, LearningDao questions, AnswerFileStore files,
+            FileRetentionService retention) {
         this.turns = turns;
         this.questions = questions;
         this.files = files;
+        this.retention = retention;
     }
 
     @Override
@@ -52,16 +55,14 @@ public class FrozenAnswerServiceImpl implements FrozenAnswerService {
             TutorStorageModels.Acceptance result = turns.bind(accountId, questionId, turnId,
                     candidate.fileRef(), candidate.requestHash());
             if (!candidate.fileRef().equals(result.turn().getFileRef())) {
-                files.discard(candidate);
+                retention.requestCandidateCleanup(candidate.fileRef());
             }
             return result;
         } catch (RuntimeException exception) {
             try {
-                if (!candidate.fileRef().equals(turns.get(accountId, questionId, turnId).getFileRef())) {
-                    files.discard(candidate);
-                }
-            } catch (RuntimeException lookupFailure) {
-                // 提交结果未知且无法确认引用时保留可能已提交候选，绝不误删冻结文件。
+                retention.requestCandidateCleanup(candidate.fileRef());
+            } catch (RuntimeException holdFailure) {
+                exception.addSuppressed(holdFailure);
             }
             throw exception;
         }
