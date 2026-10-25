@@ -779,7 +779,12 @@ class TutorLedgerIntegrationTests {
             assertConflict(() -> ledger.recordEvidence(account, runId, List.of(stolen)));
             assertThat(ledger.evidence(account, runId)).containsExactly(allowed);
         } finally {
-            files.discard(candidate);
+            // Test-owned temporary object only; production cleanup remains behind the DB tombstone barrier.
+            try (var paths = Files.walk(FILE_ROOT.resolve("objects").resolve(candidate.fileRef()))) {
+                for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
         }
     }
 
