@@ -117,7 +117,7 @@ export struct AccountPage {
       Scroll() {
         Column() {
           if (this.user !== null) {
-            this.profile_card(this.user)
+            this.profile_card()
           }
           this.settings_list()
           if (this.activeSection.length > 0) {
@@ -195,7 +195,7 @@ export struct AccountPage {
   }
 
   @Builder
-  profile_card(user: UserProfile) {
+  profile_card() {
     Row({ space: 16 }) {
       Image($r('app.media.bl_reading_profile'))
         .width(64)
@@ -205,7 +205,7 @@ export struct AccountPage {
         .borderRadius(32)
         .accessibilityText('个人账号')
       Column({ space: 7 }) {
-        Text(user.username)
+        Text(this.user === null ? '' : this.user.username)
           .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(PHONE_COLOR_TITLE)
@@ -295,9 +295,9 @@ export struct AccountPage {
         }
         if (this.user !== null) {
           if (this.activeSection === 'account') {
-            this.info_row('用户名', this.user.username)
-            this.info_row('账号 ID', this.user.accountId)
-            this.info_row('注册时间', format_question_time(this.user.createdAt))
+            this.info_row('用户名', 'username')
+            this.info_row('账号 ID', 'accountId')
+            this.info_row('注册时间', 'createdAt')
           } else {
             this.contact_form()
           }
@@ -314,8 +314,8 @@ export struct AccountPage {
     Text('修改后保存到账号资料；此操作不代表已验证手机号或邮箱归属。')
       .fontSize(13).fontColor(PHONE_COLOR_MUTED).lineHeight(21)
     if (this.user !== null) {
-      this.info_row('当前手机号', this.contact_value(this.user.phone))
-      this.info_row('当前邮箱', this.contact_value(this.user.email))
+      this.info_row('当前手机号', 'phone')
+      this.info_row('当前邮箱', 'email')
     }
     Text('手机号').fontSize(14).fontColor(PHONE_COLOR_TITLE)
     TextInput({ text: this.phoneInput, placeholder: '国内手机号或 + 开头的国际号码' })
@@ -327,7 +327,7 @@ export struct AccountPage {
         this.phoneError = '';
         this.contactTouched = true;
       })
-    this.field_error(this.phoneError)
+    this.field_error('phone')
     if (this.user !== null && this.user.phone !== null) {
       Row({ space: 8 }) {
         Checkbox({ name: 'unbind-phone' }).select(this.unbindPhone)
@@ -351,7 +351,7 @@ export struct AccountPage {
         this.emailError = '';
         this.contactTouched = true;
       })
-    this.field_error(this.emailError)
+    this.field_error('email')
     if (this.user !== null && this.user.email !== null) {
       Row({ space: 8 }) {
         Checkbox({ name: 'unbind-email' }).select(this.unbindEmail)
@@ -365,7 +365,7 @@ export struct AccountPage {
       }
       .width('100%')
     }
-    this.field_error(this.contactError)
+    this.field_error('contact')
     Button(this.savingContact ? '保存中…' : '保存联系方式')
       .width('100%').height(48).fontSize(15).fontColor(Color.White)
       .backgroundColor(PHONE_COLOR_PRIMARY).borderRadius(PHONE_RADIUS_CONTROL)
@@ -379,12 +379,12 @@ export struct AccountPage {
   password_form() {
     Text('修改成功后需在所有设备重新登录。密码只在本次表单中使用。')
       .fontSize(13).lineHeight(21).fontColor(PHONE_COLOR_MUTED)
-    this.password_field('原密码', this.oldPassword, this.oldPasswordError, 'oldPassword')
-    this.password_field('新密码', this.newPassword, this.newPasswordError, 'newPassword')
-    this.password_field('确认新密码', this.confirmPassword, this.confirmPasswordError, 'confirmPassword')
+    this.password_field('原密码', 'oldPassword')
+    this.password_field('新密码', 'newPassword')
+    this.password_field('确认新密码', 'confirmPassword')
     Text('新密码为 8～64 个字符，UTF-8 编码不超过 72 字节。')
       .fontSize(12).lineHeight(19).fontColor(PHONE_COLOR_MUTED)
-    this.field_error(this.passwordError)
+    this.field_error('password')
     Button(this.changingPassword ? '提交中…' : '确认修改密码')
       .width('100%').height(48).fontSize(15).fontColor(Color.White)
       .backgroundColor(PHONE_COLOR_PRIMARY).borderRadius(PHONE_RADIUS_CONTROL)
@@ -393,34 +393,34 @@ export struct AccountPage {
   }
 
   @Builder
-  password_field(label: string, value: string, errorText: string, field: string) {
+  password_field(label: string, field: string) {
     Column({ space: 6 }) {
       Text(label).fontSize(14).fontColor(PHONE_COLOR_TITLE)
-      TextInput({ text: value, placeholder: '请输入' + label })
+      TextInput({ text: this.password_value(field), placeholder: '请输入' + label })
         .height(48).fontSize(15).type(InputType.Password)
         .backgroundColor(PHONE_COLOR_BACKGROUND).borderRadius(PHONE_RADIUS_CONTROL)
         .enabled(!this.account_busy()).accessibilityText(label)
         .onChange((next: string) => this.edit_password(field, next))
-      this.field_error(errorText)
+      this.field_error(field)
     }
     .width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
-  field_error(message: string) {
-    if (message.length > 0) {
-      Text(message).fontSize(13).lineHeight(20).fontColor(PHONE_COLOR_DANGER).width('100%')
+  field_error(field: string) {
+    if (this.field_message(field).length > 0) {
+      Text(this.field_message(field)).fontSize(13).lineHeight(20).fontColor(PHONE_COLOR_DANGER).width('100%')
     }
   }
 
   @Builder
-  info_row(label: string, value: string) {
+  info_row(label: string, field: string) {
     Row({ space: 10 }) {
       Text(label)
         .fontSize(13)
         .fontColor(PHONE_COLOR_MUTED)
         .width(68)
-      Text(value)
+      Text(this.profile_value(field))
         .fontSize(14)
         .lineHeight(21)
         .fontColor(PHONE_COLOR_TITLE)
@@ -428,6 +428,52 @@ export struct AccountPage {
     }
     .width('100%')
     .alignItems(VerticalAlign.Top)
+  }
+
+  // Builder 仅接收静态字段标识，在观察闭包内部读取状态，避免值参数冻结 UI。
+  private field_message(field: string): string {
+    if (field === 'phone') {
+      return this.phoneError;
+    }
+    if (field === 'email') {
+      return this.emailError;
+    }
+    if (field === 'contact') {
+      return this.contactError;
+    }
+    if (field === 'oldPassword') {
+      return this.oldPasswordError;
+    }
+    if (field === 'newPassword') {
+      return this.newPasswordError;
+    }
+    if (field === 'confirmPassword') {
+      return this.confirmPasswordError;
+    }
+    return this.passwordError;
+  }
+
+  private password_value(field: string): string {
+    if (field === 'oldPassword') {
+      return this.oldPassword;
+    }
+    return field === 'newPassword' ? this.newPassword : this.confirmPassword;
+  }
+
+  private profile_value(field: string): string {
+    if (this.user === null) {
+      return '';
+    }
+    if (field === 'username') {
+      return this.user.username;
+    }
+    if (field === 'accountId') {
+      return this.user.accountId;
+    }
+    if (field === 'createdAt') {
+      return format_question_time(this.user.createdAt);
+    }
+    return this.contact_value(field === 'phone' ? this.user.phone : this.user.email);
   }
 
   private account_busy(): boolean {
