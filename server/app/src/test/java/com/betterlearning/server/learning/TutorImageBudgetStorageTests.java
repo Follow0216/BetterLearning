@@ -21,6 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** 真实完整 M2 文件包验证；32 MiB 是辅导模型预算，M2 存储仍接受至 64 MiB。 */
 class TutorImageBudgetStorageTests {
+    // JUnit owns this isolated directory; P6 removed direct deletion from the production file store.
     @TempDir
     Path directory;
 
@@ -35,18 +36,14 @@ class TutorImageBudgetStorageTests {
         long compositeBytes = fixture.compositePngs().stream().mapToLong(bytes -> bytes.length).sum();
         assertThat(compositeBytes).isEqualTo(36L * TutorBudgetTestData.MIB);
         AnswerFileStore.Candidate saved = store.save(fixture.manifest(), fixture.snapshot(), fixture.parts());
-        try {
-            assertThat(store.manifest(saved.fileRef()).source()).isEqualTo(fixture.manifest());
-            for (int index = 0; index < 3; index++) {
-                String partName = String.format(java.util.Locale.ROOT, "chunk_%04d", index);
-                assertThat(store.block(saved.fileRef(), partName).length)
-                        .isEqualTo(12 * TutorBudgetTestData.MIB);
-            }
-            assertThat(store.block(saved.fileRef(), "question_0000").length)
-                    .isEqualTo(fixture.rasterPng().length);
-        } finally {
-            store.discard(saved);
+        assertThat(store.manifest(saved.fileRef()).source()).isEqualTo(fixture.manifest());
+        for (int index = 0; index < 3; index++) {
+            String partName = String.format(java.util.Locale.ROOT, "chunk_%04d", index);
+            assertThat(store.block(saved.fileRef(), partName).length)
+                    .isEqualTo(12 * TutorBudgetTestData.MIB);
         }
+        assertThat(store.block(saved.fileRef(), "question_0000").length)
+                .isEqualTo(fixture.rasterPng().length);
     }
 
     @Test
@@ -59,16 +56,12 @@ class TutorImageBudgetStorageTests {
                 .isEqualTo(32L * TutorBudgetTestData.MIB);
         assertThat(fixture.rasterPng().length).isEqualTo(12 * TutorBudgetTestData.MIB);
         AnswerFileStore.Candidate saved = store.save(fixture.manifest(), fixture.snapshot(), fixture.parts());
-        try {
-            assertThat(store.block(saved.fileRef(), "chunk_0000").length)
-                    .isEqualTo(16 * TutorBudgetTestData.MIB);
-            assertThat(store.block(saved.fileRef(), "chunk_0001").length)
-                    .isEqualTo(16 * TutorBudgetTestData.MIB);
-            assertThat(store.block(saved.fileRef(), "question_0000").length)
-                    .isEqualTo(12 * TutorBudgetTestData.MIB);
-        } finally {
-            store.discard(saved);
-        }
+        assertThat(store.block(saved.fileRef(), "chunk_0000").length)
+                .isEqualTo(16 * TutorBudgetTestData.MIB);
+        assertThat(store.block(saved.fileRef(), "chunk_0001").length)
+                .isEqualTo(16 * TutorBudgetTestData.MIB);
+        assertThat(store.block(saved.fileRef(), "question_0000").length)
+                .isEqualTo(12 * TutorBudgetTestData.MIB);
     }
 
     @Test
@@ -83,13 +76,9 @@ class TutorImageBudgetStorageTests {
                 + fixture.rasterPng().length;
         assertThat(totalBytes).isEqualTo(AnswerManifestValidator.MAX_TOTAL_PNG_BYTES);
         AnswerFileStore.Candidate saved = store.save(fixture.manifest(), fixture.snapshot(), fixture.parts());
-        try {
-            assertThat(store.manifest(saved.fileRef()).source().blocks()).hasSize(4);
-            assertThat(store.block(saved.fileRef(), "chunk_0003").length)
-                    .isEqualTo(16 * TutorBudgetTestData.MIB - rasterBytes);
-        } finally {
-            store.discard(saved);
-        }
+        assertThat(store.manifest(saved.fileRef()).source().blocks()).hasSize(4);
+        assertThat(store.block(saved.fileRef(), "chunk_0003").length)
+                .isEqualTo(16 * TutorBudgetTestData.MIB - rasterBytes);
     }
 
     @Test
