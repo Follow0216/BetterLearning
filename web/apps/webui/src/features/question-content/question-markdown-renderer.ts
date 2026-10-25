@@ -1,5 +1,3 @@
-import "server-only";
-
 import katex from "katex";
 import MarkdownIt from "markdown-it";
 import texmath from "markdown-it-texmath";
@@ -27,6 +25,7 @@ type RenderEnvironment = Env;
 
 export interface QuestionRenderOptions {
   headingLevel?: 2 | 3 | 4 | 5 | 6;
+  citations?: readonly { citationId: string; label: string }[];
 }
 
 export type QuestionRenderResult =
@@ -143,6 +142,26 @@ function createParser(): MarkdownItInstance {
   md.renderer.rules.math_block_eqno = (tokens, index, _options, env) =>
     renderMath(tokens, index, true, false, true, env ?? {});
 
+  md.renderer.rules.text = (tokens, index, _options, env) => {
+    const content = tokens[index].content;
+    const citations = env?.citations as ReadonlyMap<string, string> | undefined;
+    if (!citations?.size) return md.utils.escapeHtml(content);
+    let offset = 0;
+    let html = "";
+    for (const match of content.matchAll(
+      /\[\[citation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/g,
+    )) {
+      const id = match[1];
+      const label = citations.get(id);
+      if (label === undefined) continue;
+      const start = match.index!;
+      html += md.utils.escapeHtml(content.slice(offset, start));
+      html += `<button type="button" class="citation-marker" data-citation-id="${md.utils.escapeHtml(id)}" aria-label="查看引用 ${md.utils.escapeHtml(label)}">[${md.utils.escapeHtml(label)}]</button>`;
+      offset = start + match[0].length;
+    }
+    return html + md.utils.escapeHtml(content.slice(offset));
+  };
+
   md.renderer.rules.link_open = () => '<span class="markdown-link">';
   md.renderer.rules.link_close = () => "</span>";
   md.renderer.rules.image = (tokens, index) => {
@@ -159,7 +178,10 @@ export function renderQuestionMarkdown(
 ): QuestionRenderResult {
   try {
     const instance = parser ?? (parser = createParser());
-    const env: Env = { formulaErrors: 0 };
+    const env: Env = {
+      formulaErrors: 0,
+      citations: new Map(options.citations?.map((item) => [item.citationId, item.label])),
+    };
     let html: string;
     if (options.headingLevel === undefined) {
       html = instance.render(bodyMarkdown, env);

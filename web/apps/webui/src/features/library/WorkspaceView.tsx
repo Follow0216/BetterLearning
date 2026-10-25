@@ -104,12 +104,12 @@ export async function WorkspaceView({
   const collectionsFailure = collectionsResult.ok ? undefined : collectionsResult.failure;
 
   if (collectionsFailure?.kind === "unauthenticated") {
-    redirect("/");
+    redirect("/account");
   }
 
   if (!pageResult.ok) {
     if (pageResult.failure.kind === "unauthenticated") {
-      redirect("/");
+      redirect("/account");
     }
     return (
       <WorkspaceFrame view={view} collections={collections} collectionsFailure={collectionsFailure}>

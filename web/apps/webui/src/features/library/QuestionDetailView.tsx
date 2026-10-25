@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
+import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
+import { TutorRequestHistory } from "@/features/tutoring/TutorRequestHistory";
 import {
   INBOX_COLLECTION_ID,
   INBOX_COLLECTION_NAME,
@@ -41,20 +43,22 @@ function DetailFrame({
   backLabel: string;
 }) {
   return (
-    <div className={styles.root}>
-      <WorkspaceHeader />
-      <main tabIndex={-1} id="workspace-content" className={styles.detailShell}>
-        <Link
-          href={backHref}
-          scroll={backHref === "/workspace" || backHref === "/"}
-          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-primary)]"
-        >
-          <BlIcon name="back" size={16} />
-          {backLabel}
-        </Link>
-        {children}
-      </main>
-    </div>
+    <SessionBoundary>
+      <div className={styles.root}>
+        <WorkspaceHeader />
+        <main tabIndex={-1} id="workspace-content" className={styles.detailShell}>
+          <Link
+            href={backHref}
+            scroll={backHref === "/workspace" || backHref === "/"}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-primary)]"
+          >
+            <BlIcon name="back" size={16} />
+            {backLabel}
+          </Link>
+          {children}
+        </main>
+      </div>
+    </SessionBoundary>
   );
 }
 
@@ -125,7 +129,7 @@ export async function QuestionDetailView({
     getCollections(),
   ]);
   if (!result.ok) {
-    if (result.failure.kind === "unauthenticated") redirect("/");
+    if (result.failure.kind === "unauthenticated") redirect("/account");
     return (
       <DetailFrame backHref={backHref} backLabel={backLabel}>
         <FailurePanel
@@ -137,7 +141,8 @@ export async function QuestionDetailView({
       </DetailFrame>
     );
   }
-  if (!collectionsResult.ok && collectionsResult.failure.kind === "unauthenticated") redirect("/");
+  if (!collectionsResult.ok && collectionsResult.failure.kind === "unauthenticated")
+    redirect("/account");
 
   const question = result.data;
   const collections = collectionsResult.ok ? collectionsResult.data.items : [];
@@ -205,15 +210,18 @@ export async function QuestionDetailView({
               key={questionId}
               answer={<SavedAnswerPanel questionId={questionId} />}
               tutor={
-                <Suspense
-                  fallback={
-                    <p role="status" className="text-sm text-[var(--auth-muted)]">
-                      正在读取 AI 辅导记录…
-                    </p>
-                  }
-                >
-                  <TutorHistoryPanel questionId={questionId} />
-                </Suspense>
+                <>
+                  <TutorRequestHistory questionId={questionId} />
+                  <Suspense
+                    fallback={
+                      <p role="status" className="text-sm text-[var(--auth-muted)]">
+                        正在读取 AI 辅导记录…
+                      </p>
+                    }
+                  >
+                    <TutorHistoryPanel questionId={questionId} />
+                  </Suspense>
+                </>
               }
             />
           </section>

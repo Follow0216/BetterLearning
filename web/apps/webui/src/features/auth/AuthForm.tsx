@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObjec
 
 import { useFeedbackRouteScope } from "@/components/feedback/FeedbackProvider";
 import type { AuthUserProfile } from "@/lib/api/auth-contract";
+import { announceSessionChange, subscribeSessionChanges } from "./session-events";
 
 import {
   discardAuthNavigationNotice,
@@ -235,6 +236,16 @@ export function AuthForm() {
   const [profileError, setProfileError] = useState("");
   const [retryMessage, setRetryMessage] = useState("");
 
+  const ownAnnouncement = useRef(false);
+  const notifySessionChange = useCallback((kind: "changed" | "ended") => {
+    ownAnnouncement.current = true;
+    try {
+      announceSessionChange(kind);
+    } finally {
+      ownAnnouncement.current = false;
+    }
+  }, []);
+
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
@@ -391,6 +402,17 @@ export function AuthForm() {
     };
   }, []);
 
+  useEffect(
+    () =>
+      subscribeSessionChanges(() => {
+        if (ownAnnouncement.current) return;
+        setProfile(null);
+        setStage("checking");
+        void loadSession();
+      }),
+    [loadSession],
+  );
+
   const focusFirstError = (nextErrors: Partial<Record<AuthFieldName, string>>) => {
     if (nextErrors.username) {
       usernameRef.current?.focus();
@@ -461,6 +483,7 @@ export function AuthForm() {
         applyFailure(failure, scope);
         return;
       }
+      notifySessionChange("changed");
       setPassword("");
       setConfirmPassword("");
       setErrors({});
@@ -652,6 +675,7 @@ export function AuthForm() {
         setFormNotice("");
         setLoggingOut(false);
         rememberAuthNavigationNotice({ event: "logout" });
+        notifySessionChange("ended");
         // Start a new document so this session's retained App Router views cannot be reused.
         window.location.replace("/account");
         return;

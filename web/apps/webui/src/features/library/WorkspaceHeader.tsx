@@ -9,7 +9,7 @@ export function WorkspaceHeader({
   username,
   showAccount = true,
 }: {
-  active?: "home" | "library" | "account";
+  active?: "home" | "library" | "notes" | "account";
   username?: string;
   showAccount?: boolean;
 }) {
@@ -38,6 +38,15 @@ export function WorkspaceHeader({
             className={styles.headerLink}
           >
             题库
+          </Link>
+          <Link
+            href="/workspace/notes"
+            aria-label="我的笔记"
+            prefetch={false}
+            aria-current={active === "notes" ? "page" : undefined}
+            className={styles.headerLink}
+          >
+            <span className="hidden sm:inline">我的</span>笔记
           </Link>
         </nav>
         {showAccount ? (

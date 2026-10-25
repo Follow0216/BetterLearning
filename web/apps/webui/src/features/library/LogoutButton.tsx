@@ -1,13 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { useFeedbackRequest } from "@/components/feedback/use-feedback-request";
 import { BlIcon } from "@/components/icons/BlIcon";
+import { rememberAuthNavigationNotice } from "@/features/auth/auth-navigation-notice";
+import { announceSessionChange, returnToAccount } from "@/features/auth/session-events";
 
 export function LogoutButton() {
-  const router = useRouter();
   const { toast, begin } = useFeedbackRequest();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -29,8 +29,9 @@ export function LogoutButton() {
       if (!request.isCurrent()) return;
       if (response.status === 204 || response.status === 401) {
         toast.clearScope();
-        router.replace("/");
-        router.refresh();
+        rememberAuthNavigationNotice({ event: "logout" });
+        announceSessionChange("ended");
+        returnToAccount();
         return;
       }
       setError("退出失败，请重试");

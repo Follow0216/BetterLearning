@@ -11,7 +11,7 @@ export async function TutorHistoryPanel({ questionId }: { questionId: string }) 
   const result = await getTutorTurns(questionId);
   if (!result.ok) {
     if (result.failure.kind === "unauthenticated") {
-      redirect("/");
+      redirect("/account");
     }
     const message =
       result.failure.kind === "forbidden"

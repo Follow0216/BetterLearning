@@ -499,3 +499,14 @@
 .root :where(main, [id="workspace-content"]) {
   scroll-margin-top: 88px;
 }
+
+/* 新增笔记入口后，窄屏仍保留三个导航和账号的可点击范围。 */
+@media (max-width: 380px) {
+  .headerInner {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+  .headerLink {
+    padding-inline: 8px;
+  }
+}
