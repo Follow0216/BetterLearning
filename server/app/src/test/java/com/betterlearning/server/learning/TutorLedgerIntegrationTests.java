@@ -17,8 +17,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import com.betterlearning.server.ServerApplication;
+import com.betterlearning.server.agent.LedgerStepExecutor;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.service.TutorTurnService;
@@ -30,6 +32,9 @@ import com.betterlearning.server.multiagent.MultiAgentModels.Attempt;
 import com.betterlearning.server.multiagent.MultiAgentModels.CreateRequest;
 import com.betterlearning.server.multiagent.MultiAgentModels.Evidence;
 import com.betterlearning.server.multiagent.MultiAgentModels.Execution;
+import com.betterlearning.server.multiagent.MultiAgentModels.Image;
+import com.betterlearning.server.multiagent.MultiAgentModels.PipelineContext;
+import com.betterlearning.server.multiagent.MultiAgentModels.PipelineResult;
 import com.betterlearning.server.multiagent.MultiAgentModels.Mode;
 import com.betterlearning.server.multiagent.MultiAgentModels.PublishSource;
 import com.betterlearning.server.multiagent.MultiAgentModels.Request;
@@ -38,10 +43,13 @@ import com.betterlearning.server.multiagent.MultiAgentModels.ResultDraft;
 import com.betterlearning.server.multiagent.MultiAgentModels.Role;
 import com.betterlearning.server.multiagent.MultiAgentModels.SnapshotBinding;
 import com.betterlearning.server.multiagent.MultiAgentModels.SnapshotInput;
+import com.betterlearning.server.multiagent.MultiAgentModels.Snapshot;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 import com.betterlearning.server.multiagent.MultiAgentModels.Status;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
 import com.betterlearning.server.multiagent.SourceStore;
+import com.betterlearning.server.multiagent.RolePipeline;
 import com.betterlearning.server.multiagent.TutorLedger;
 import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.IntegrationProperties;
@@ -95,6 +103,9 @@ class TutorLedgerIntegrationTests {
         registry.add("app.files.root", FILE_ROOT::toString);
         registry.add("app.multi-agent.rollout.mode", () -> "V2");
         registry.add("app.multi-agent.rollout.transition-from", () -> "LEGACY");
+        registry.add("app.agent.tutoring.api-key", () -> "");
+        registry.add("app.agent.tutoring.base-url", () -> "");
+        registry.add("app.agent.tutoring.model", () -> "");
     }
 
     @Autowired
@@ -105,6 +116,9 @@ class TutorLedgerIntegrationTests {
 
     @Autowired
     private TutorLedger ledger;
+
+    @Autowired
+    private RolePipeline rolePipeline;
 
     @Autowired
     private TutorTurnService legacy;
@@ -251,6 +265,90 @@ class TutorLedgerIntegrationTests {
                 .isEqualTo(Status.SUCCEEDED);
         assertThat(ledger.detail(otherAccount, otherQuestion, second.requestId()).result().bodyMarkdown())
                 .isEqualTo("已核验的提示");
+    }
+
+    @Test
+    void oversizedStrokeLocationsPublishFixedGuidanceWithoutStepsOrAttempts() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        Execution running = start(account, request.currentRunId());
+        PipelineResult result = locationLimitResult(account, running);
+        ResultDraft draft = new ResultDraft(result.bodyMarkdown(), result.evidenceIds());
+
+        assertThat(result.verified()).isTrue();
+        assertThat(result.reason()).isNull();
+        assertThat(result.bodyMarkdown()).contains("定位数据超过当前处理范围", "重试同一份内容");
+        assertThat(result.evidenceIds()).isEmpty();
+        assertNoLocationLimitSteps(account, question, request.requestId(), running.runId());
+        assertThat(ledger.publish(account, running.runId(), running.revision() - 1, draft)).isFalse();
+        assertNoResult(running.runId());
+        assertThat(ledger.publish(account, running.runId(), running.revision(), draft)).isTrue();
+        assertThat(ledger.publish(account, running.runId(), running.revision(), draft)).isFalse();
+        var detail = ledger.detail(account, question, request.requestId());
+        assertThat(detail.run().status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(detail.result().status()).isEqualTo("VERIFIED");
+        assertThat(detail.result().bodyMarkdown()).isEqualTo(result.bodyMarkdown());
+        assertThat(detail.result().citations()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_result WHERE run_id = ?", Integer.class,
+                running.runId())).isEqualTo(1);
+        assertNoLocationLimitSteps(account, question, request.requestId(), running.runId());
+    }
+
+    @Test
+    void cancelledLocationLimitRunRejectsLateFixedGuidance() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        Execution running = start(account, request.currentRunId());
+        PipelineResult result = locationLimitResult(account, running);
+        ResultDraft draft = new ResultDraft(result.bodyMarkdown(), result.evidenceIds());
+
+        assertThat(ledger.cancel(account, question, request.requestId(), running.runId()).status())
+                .isIn(Status.CANCELLING, Status.CANCELLED);
+        assertThat(ledger.publish(account, running.runId(), running.revision(), draft)).isFalse();
+        assertNoResult(running.runId());
+        assertNoLocationLimitSteps(account, question, request.requestId(), running.runId());
+    }
+
+    @Test
+    void retriedLocationLimitRunFencesOldFixedGuidance() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        Execution running = start(account, request.currentRunId());
+        PipelineResult result = locationLimitResult(account, running);
+        ResultDraft draft = new ResultDraft(result.bodyMarkdown(), result.evidenceIds());
+
+        assertThat(ledger.fail(account, running.runId(), running.revision(), "MODEL_UNAVAILABLE")).isTrue();
+        Request retried = ledger.retry(account, question, request.requestId(), id(), running.runId());
+        assertThat(retried.currentRunId()).isNotEqualTo(running.runId());
+        assertThat(ledger.publish(account, running.runId(), running.revision(), draft)).isFalse();
+        assertThat(ledger.get(account, question, request.requestId()).currentRunId())
+                .isEqualTo(retried.currentRunId());
+        assertNoResult(running.runId());
+        assertNoLocationLimitSteps(account, question, request.requestId(), running.runId());
+    }
+
+    private PipelineResult locationLimitResult(long account, Execution running) {
+        List<String> strokeIds = IntStream.rangeClosed(1, 2001).mapToObj(index -> "stroke-" + index).toList();
+        Snapshot snapshot = new Snapshot(running.snapshotFileRef(), "题目",
+                List.of(new Image(new byte[] {1, 2}, "image/png", "x=0,y=0,width=1,height=1")),
+                strokeIds, true, null, null, StrokeLocationsStatus.TOO_LARGE, List.of());
+        return rolePipeline.execute(new PipelineContext(running, snapshot, List.of()),
+                new LedgerStepExecutor(ledger, account, running.runId()));
+    }
+
+    private void assertNoLocationLimitSteps(long account, String question, String requestId, String runId) {
+        assertThat(ledger.execution(account, runId).modelCalls()).isZero();
+        var run = ledger.detail(account, question, requestId).runs().stream()
+                .filter(item -> item.runId().equals(runId)).findFirst().orElseThrow();
+        assertThat(run.steps()).isEmpty();
+        assertThat(run.attempts()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_step WHERE run_id = ?", Integer.class, runId))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_attempt a JOIN ma_step s "
+                + "ON a.step_id = s.step_id WHERE s.run_id = ?", Integer.class, runId)).isZero();
     }
 
     @Test
