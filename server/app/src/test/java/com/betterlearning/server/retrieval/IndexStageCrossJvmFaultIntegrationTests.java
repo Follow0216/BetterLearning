@@ -2,8 +2,14 @@ package com.betterlearning.server.retrieval;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -19,6 +25,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.sql.DataSource;
+import javax.imageio.ImageIO;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
@@ -33,6 +41,10 @@ import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageKey;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageResult;
+import com.betterlearning.server.agent.config.EmbeddingProperties;
+import com.betterlearning.server.agent.config.HandwritingMethodsProperties;
+import com.betterlearning.server.agent.embedding.HttpEmbeddingClient;
+import com.betterlearning.server.agent.model.ModelImage;
 import com.betterlearning.server.agent.retrieval.handwriting.HandwritingOcrValidator;
 import com.betterlearning.server.agent.retrieval.handwriting.HandwritingMethodMetadata;
 import com.betterlearning.server.agent.retrieval.ranking.HandwritingMethodTaxonomy;
@@ -43,6 +55,8 @@ import com.betterlearning.server.learning.retention.DeletionJournal;
 import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
 import com.betterlearning.server.learning.validation.SourceAnchorValidator;
+import com.betterlearning.server.retrieval.HandwritingSourceReader.AnchorDraft;
+import com.betterlearning.server.retrieval.HandwritingSourceReader.PreparedStep;
 import com.betterlearning.server.multiagent.MultiAgentModels.Anchor;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.SourceStore;
@@ -51,6 +65,7 @@ import com.sun.net.httpserver.HttpServer;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -71,7 +86,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import tools.jackson.databind.json.JsonMapper;
 
-/** Draft only: seven bounded cross-JVM stage and publication checks; no external provider. */
+/** Draft only: eight bounded cross-JVM stage and publication checks; no external provider. */
 @Testcontainers
 @Tag("integration")
 class IndexStageCrossJvmFaultIntegrationTests {
@@ -80,6 +95,8 @@ class IndexStageCrossJvmFaultIntegrationTests {
     private static JdbcTemplate jdbc;
     private static HttpServer paidStub;
     private static final AtomicInteger CALLS = new AtomicInteger();
+    private static final AtomicInteger OCR_CALLS = new AtomicInteger();
+    private static final AtomicInteger EMBEDDING_CALLS = new AtomicInteger();
     private static String stubUrl;
 
     @TempDir(cleanup = CleanupMode.NEVER)
@@ -89,6 +106,7 @@ class IndexStageCrossJvmFaultIntegrationTests {
     private String source;
     private String event;
     private String file;
+    private final List<ChildJvm> children = new ArrayList<>();
 
     @BeforeAll
     static void infrastructure() throws IOException {
@@ -99,6 +117,28 @@ class IndexStageCrossJvmFaultIntegrationTests {
         paidStub.createContext("/paid", exchange -> {
             CALLS.incrementAndGet();
             byte[] body = exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        paidStub.createContext("/ocr", exchange -> {
+            OCR_CALLS.incrementAndGet();
+            CALLS.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = IndexStageFaultChildMain.ocrOutput().getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        paidStub.createContext("/embeddings", exchange -> {
+            EMBEDDING_CALLS.incrementAndGet();
+            CALLS.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = ("{\"data\":[{\"index\":0,\"embedding\":[1,0]}],"
+                    + "\"model\":\"unit-model\",\"usage\":{\"prompt_tokens\":3,"
+                    + "\"total_tokens\":7}}").getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) {
                 output.write(body);
@@ -121,6 +161,8 @@ class IndexStageCrossJvmFaultIntegrationTests {
         jdbc.execute("TRUNCATE TABLE ma_source_deletion");
         jdbc.update("UPDATE ma_deletion_replay SET sequence=0,hash=repeat('0',64),replayed_at=NULL");
         CALLS.set(0);
+        OCR_CALLS.set(0);
+        EMBEDDING_CALLS.set(0);
         account = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) "
                 + "VALUES (?,?) RETURNING account_id", Long.class,
                 UUID.randomUUID().toString().replace("-", ""), "test");
@@ -135,6 +177,26 @@ class IndexStageCrossJvmFaultIntegrationTests {
                 + "aggregate_version,kind,payload_digest,status,index_revision) "
                 + "VALUES (?,?,'SOURCE',?,1,'SOURCE_VERSION_CREATED',?,'PENDING',1)",
                 event, account, source, "a".repeat(64));
+    }
+
+    @AfterEach
+    void cleanupChildren() throws Exception {
+        Exception aggregated = null;
+        for (ChildJvm child : children) {
+            if (child.process().isAlive()) {
+                try {
+                    stopChild(child, "AFTER_EACH_TERMINATED");
+                } catch (Exception failure) {
+                    if (aggregated == null) {
+                        aggregated = new IOException("One or more child JVMs were not cleaned up");
+                    }
+                    aggregated.addSuppressed(failure);
+                }
+            }
+        }
+        if (aggregated != null) {
+            throw aggregated;
+        }
     }
 
     @Test
@@ -205,6 +267,45 @@ class IndexStageCrossJvmFaultIntegrationTests {
     }
 
     @Test
+    void structuredIndexerRecoversBothConfirmedPhasesAcrossJvmRestarts() throws Exception {
+        child("structured-ocr-crash");
+        assertThat(Files.readString(logs.resolve("structured-ocr-crash-confirmation.marker")))
+                .contains("phase=OCR_STEP");
+        assertThat(OCR_CALLS.get()).isEqualTo(1);
+        assertThat(EMBEDDING_CALLS.get()).isZero();
+        expireLease();
+        child("structured-embed-crash");
+        assertThat(Files.readString(logs.resolve("structured-embed-crash-confirmation.marker")))
+                .contains("phase=EMBED_BATCH");
+        assertThat(OCR_CALLS.get()).isEqualTo(1);
+        assertThat(EMBEDDING_CALLS.get()).isEqualTo(1);
+        expireLease();
+        child("structured-publish");
+        assertThat(OCR_CALLS.get()).isEqualTo(1);
+        assertThat(EMBEDDING_CALLS.get()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_source_version "
+                + "WHERE source_id=? AND status='READY' AND index_revision=1", Integer.class,
+                source)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_source_version WHERE source_id=?",
+                Integer.class, source)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_anchor WHERE source_id=?",
+                Integer.class, source)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_retrieval_chunk WHERE source_id=?",
+                Integer.class, source)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_index_job WHERE event_id=?",
+                String.class, event)).isEqualTo("DONE");
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_outbox WHERE event_id=?",
+                String.class, event)).isEqualTo("DELIVERED");
+        assertThat(jdbc.queryForObject("SELECT ocr_calls FROM ma_index_job WHERE event_id=?",
+                Integer.class, event)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT embedding_requests FROM ma_index_job WHERE event_id=?",
+                Integer.class, event)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT embedding_tokens FROM ma_index_job WHERE event_id=?",
+                Long.class, event)).isEqualTo(7L);
+        assertThat(CALLS.get()).isEqualTo(2);
+    }
+
+    @Test
     void unknownOcrAfterCrashCannotIssueSecondPaidCall() throws Exception {
         child("ocr-intent-only");
         assertThat(CALLS.get()).isEqualTo(1);
@@ -217,6 +318,10 @@ class IndexStageCrossJvmFaultIntegrationTests {
                 Boolean.class, event)).isTrue();
         assertThat(jdbc.queryForObject("SELECT failure_reason FROM ma_index_job WHERE event_id=?",
                 String.class, event)).isEqualTo("OUTCOME_UNKNOWN");
+        assertUnknownHasNoPublishedIndex();
+        expireLease();
+        child("ocr-resume-unknown");
+        assertThat(CALLS.get()).isEqualTo(1);
     }
 
     @Test
@@ -234,6 +339,23 @@ class IndexStageCrossJvmFaultIntegrationTests {
                 Integer.class, event)).isZero();
         assertThat(jdbc.queryForObject("SELECT failure_reason FROM ma_index_job WHERE event_id=?",
                 String.class, event)).isEqualTo("OUTCOME_UNKNOWN");
+        assertUnknownHasNoPublishedIndex();
+        expireLease();
+        child("embed-resume-unknown");
+        assertThat(CALLS.get()).isEqualTo(1);
+    }
+
+    private void assertUnknownHasNoPublishedIndex() {
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_index_job WHERE event_id=?",
+                String.class, event)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_outbox WHERE event_id=?",
+                String.class, event)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_source_version "
+                + "WHERE source_id=? AND status='READY'", Integer.class, source)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_retrieval_chunk WHERE source_id=?",
+                Integer.class, source)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_anchor WHERE source_id=?",
+                Integer.class, source)).isZero();
     }
 
     @Test
@@ -293,14 +415,18 @@ class IndexStageCrossJvmFaultIntegrationTests {
                 awaitAccountLockWait(late);
                 connection.commit();
             } catch (Exception failure) {
-                if (late != null && late.process().isAlive()) {
-                    late.process().destroyForcibly();
-                    late.process().waitFor(5, TimeUnit.SECONDS);
-                }
                 if (late != null) {
-                    recordChildState(late, "ABORTED");
+                    try {
+                        stopChild(late, "ABORTED");
+                    } catch (Exception cleanup) {
+                        failure.addSuppressed(cleanup);
+                    }
                 }
-                connection.rollback();
+                try {
+                    connection.rollback();
+                } catch (Exception rollback) {
+                    failure.addSuppressed(rollback);
+                }
                 throw failure;
             }
         }
@@ -326,7 +452,14 @@ class IndexStageCrossJvmFaultIntegrationTests {
     }
 
     private void child(String action) throws Exception {
-        awaitChild(startChild(action, -1, -1));
+        ChildJvm started = startChild(action, -1, -1);
+        try {
+            awaitChild(started);
+        } finally {
+            if (started.process().isAlive()) {
+                stopChild(started, "FINALLY_TERMINATED");
+            }
+        }
     }
 
     private ChildJvm startChild(String action, long fence, int attempts) throws IOException {
@@ -348,6 +481,8 @@ class IndexStageCrossJvmFaultIntegrationTests {
         environment.put("FAULT_EVENT", event);
         environment.put("FAULT_FILE", file);
         environment.put("FAULT_STUB_URL", stubUrl);
+        environment.put("FAULT_STUB_BASE", stubUrl.substring(0, stubUrl.length() - "/paid".length()));
+        environment.put("FAULT_MARKER_PATH", logs.resolve(action + "-confirmation.marker").toString());
         String appName = "bl_fault_" + UUID.randomUUID().toString().replace("-", "");
         environment.put("FAULT_APP_NAME", appName);
         if (fence >= 0) {
@@ -358,14 +493,14 @@ class IndexStageCrossJvmFaultIntegrationTests {
         ChildJvm child = new ChildJvm(process, output,
                 logs.resolve(action + "-" + process.pid() + ".meta"), action,
                 appName, Instant.now(), System.nanoTime());
+        children.add(child);
         try {
             recordChildState(child, "RUNNING");
         } catch (IOException failure) {
-            process.destroyForcibly();
             try {
-                process.waitFor(5, TimeUnit.SECONDS);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
+                stopChild(child, "METADATA_WRITE_FAILED");
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
             }
             throw failure;
         }
@@ -383,14 +518,13 @@ class IndexStageCrossJvmFaultIntegrationTests {
             try {
                 Files.writeString(logs.resolve(child.action() + "-timeout.txt"), details);
             } finally {
-                process.destroyForcibly();
-                process.waitFor(5, TimeUnit.SECONDS);
-                recordChildState(child, "TIMED_OUT");
+                stopChild(child, "TIMED_OUT");
             }
             throw new AssertionError(details);
         }
         recordChildState(child, "EXITED");
         int expectedExit = child.action().endsWith("intent-only") ? 72
+                : child.action().endsWith("-crash") ? 71
                 : child.action().endsWith("-confirm")
                 && !child.action().contains("old-") && !child.action().contains("late-") ? 71 : 0;
         assertThat(process.exitValue()).as(child.action() + ": " + logTail(child.output()))
@@ -436,6 +570,41 @@ class IndexStageCrossJvmFaultIntegrationTests {
         Files.writeString(child.metadata(), metadata);
     }
 
+    private static void stopChild(ChildJvm child, String state) throws Exception {
+        Process process = child.process();
+        Exception failure = null;
+        if (process.isAlive()) {
+            process.destroyForcibly();
+            try {
+                process.waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                failure = interrupted;
+            }
+        }
+        if (process.isAlive()) {
+            IOException unreaped = new IOException("Child JVM remains alive: pid=" + process.pid()
+                    + " action=" + child.action() + " applicationName=" + child.appName());
+            if (failure == null) {
+                failure = unreaped;
+            } else {
+                failure.addSuppressed(unreaped);
+            }
+        }
+        try {
+            recordChildState(child, process.isAlive() ? "REAP_FAILED" : state);
+        } catch (IOException metadata) {
+            if (failure == null) {
+                failure = metadata;
+            } else {
+                failure.addSuppressed(metadata);
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
     private record ChildJvm(Process process, Path output, Path metadata, String action,
             String appName, Instant startedAt, long startedNanos) {
     }
@@ -463,11 +632,12 @@ final class IndexStageFaultChildMain {
         DriverManagerDataSource dataSource = new DriverManagerDataSource(url,
                 required("FAULT_DB_USER"), required("FAULT_DB_PASSWORD"));
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            JsonMapper json = JsonMapper.builder().build();
             context.registerBean(DataSource.class, () -> dataSource);
             context.registerBean(PlatformTransactionManager.class, () -> {
                 return new DataSourceTransactionManager(dataSource);
             });
-            context.registerBean(JsonMapper.class, () -> JsonMapper.builder().build());
+            context.registerBean(JsonMapper.class, () -> json);
             context.registerBean(SourceAnchorValidator.class, () -> mock(SourceAnchorValidator.class));
             context.registerBean(SourceDeletionService.class, () -> mock(SourceDeletionService.class));
             context.register(MybatisConfiguration.class, LearningMapperConfiguration.class,
@@ -476,6 +646,11 @@ final class IndexStageFaultChildMain {
             context.refresh();
             RetrievalIndexStore index = context.getBean(RetrievalIndexStore.class);
             SourceStore sources = context.getBean(SourceStore.class);
+            if (action.startsWith("structured-")) {
+                Job job = index.claim().orElseThrow();
+                processStructured(index, sources, job, action, json);
+                return;
+            }
             boolean embedding = action.startsWith("embed-");
             StageKey key = stageKey(embedding);
             StageResult expected = stageResult(embedding);
@@ -532,6 +707,80 @@ final class IndexStageFaultChildMain {
                 Integer.parseInt(required("FAULT_ATTEMPTS")));
     }
 
+    private static void processStructured(RetrievalIndexStore index, SourceStore sources,
+            Job job, String action, JsonMapper json) throws Exception {
+        BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        require(ImageIO.write(image, "png", png), "synthetic PNG encoder unavailable");
+        byte[] pixels = png.toByteArray();
+        PreparedStep step = new PreparedStep(0,
+                new ModelImage("image/png", pixels, "synthetic-step"), 1, 1,
+                IndexStagePayloads.sha256(pixels), "{}");
+        HandwritingSourceReader reader = mock(HandwritingSourceReader.class);
+        when(reader.prepare(anyString())).thenReturn(List.of(step));
+        AnchorDraft draft = new AnchorDraft("HANDWRITING_STEP", 0, "synthetic step",
+                IndexStagePayloads.sha256("synthetic step"), "{}");
+        when(reader.anchorDraft(step, "synthetic step")).thenReturn(draft);
+        HandwritingIndexOcr ocr = new HandwritingIndexOcr() {
+            @Override
+            public String model() {
+                return "unit-model";
+            }
+
+            @Override
+            public HandwritingIndexOcr.Result recognize(ModelImage input, int ordinal,
+                    int width, int height) {
+                try {
+                    HttpRequest request = HttpRequest.newBuilder(
+                            URI.create(required("FAULT_STUB_BASE") + "/ocr"))
+                            .timeout(Duration.ofSeconds(5))
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(input.bytes())).build();
+                    String response = HttpClient.newHttpClient().send(request,
+                            HttpResponse.BodyHandlers.ofString()).body();
+                    return HandwritingOcrValidator.parse(response, ordinal, width, height);
+                } catch (IOException | InterruptedException failure) {
+                    throw new IllegalStateException("Loopback OCR unavailable", failure);
+                }
+            }
+        };
+        EmbeddingProperties embeddings = new EmbeddingProperties();
+        embeddings.setEnabled(true);
+        embeddings.setBaseUrl(required("FAULT_STUB_BASE"));
+        embeddings.setApiKey("synthetic-test-key");
+        embeddings.setModel("unit-model");
+        embeddings.setDimensions(2);
+        embeddings.setBatchSize(1);
+        embeddings.setTimeoutSeconds(5);
+        HandwritingMethodsProperties methods = new HandwritingMethodsProperties();
+        methods.setEnabled(true);
+        RetrievalIndexStore guarded = (RetrievalIndexStore) Proxy.newProxyInstance(
+                RetrievalIndexStore.class.getClassLoader(), new Class<?>[] {RetrievalIndexStore.class},
+                (proxy, method, arguments) -> {
+                    Object result;
+                    try {
+                        result = method.invoke(index, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                    if ("confirmIndexStage".equals(method.getName()) && Boolean.TRUE.equals(result)) {
+                        StageKey key = (StageKey) arguments[1];
+                        boolean crash = "structured-ocr-crash".equals(action)
+                                && "OCR_STEP".equals(key.phase())
+                                || "structured-embed-crash".equals(action)
+                                && "EMBED_BATCH".equals(key.phase());
+                        if (crash) {
+                            Files.writeString(Path.of(required("FAULT_MARKER_PATH")),
+                                    "phase=" + key.phase() + "\nfence=" + job.fence() + "\n");
+                            Runtime.getRuntime().halt(71);
+                        }
+                    }
+                    return result;
+                });
+        StructuredHandwritingIndexer structured = new StructuredHandwritingIndexer(guarded,
+                new HttpEmbeddingClient(embeddings), embeddings, methods, reader, ocr, json);
+        structured.process(job, sources.get(job.accountId(), job.sourceId(), job.version()));
+    }
+
     private static void publishConfirmed(RetrievalIndexStore index, SourceStore sources, Job job) {
         RetrievalIndexStore.StageDecision ocr = index.beginIndexStage(job, stageKey(false));
         require(!ocr.shouldCall() && stageResult(false).equals(ocr.confirmed()),
@@ -569,7 +818,7 @@ final class IndexStageFaultChildMain {
                 embedding ? 7L : null);
     }
 
-    private static String ocrOutput() {
+    static String ocrOutput() {
         HandwritingIndexOcr.Result result = new HandwritingIndexOcr.Result(
                 HandwritingIndexOcr.SCHEMA_VERSION, HandwritingMethodTaxonomy.VERSION,
                 0, "synthetic step", "CLEAR", List.of());
