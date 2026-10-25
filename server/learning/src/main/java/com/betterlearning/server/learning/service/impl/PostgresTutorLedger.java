@@ -33,7 +33,7 @@ public class PostgresTutorLedger implements TutorLedger {
     private static final int MAX_PUBLISHED_CITATIONS = 3;
     private static final Set<String> TERMINAL = Set.of("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT");
     private static final Set<String> REASONS = Set.of("OUTCOME_UNKNOWN", "MODEL_UNAVAILABLE", "INPUT_TIMEOUT",
-            "QUEUE_TIMEOUT", "RUN_TIMEOUT", "BUDGET_EXCEEDED", "REVIEW_REJECTED");
+            "QUEUE_TIMEOUT", "RUN_TIMEOUT", "BUDGET_EXCEEDED", "REVIEW_REJECTED", "RETRIEVAL_FAILED");
     private final MultiAgentMapper db;
     private final LearningDao questions;
     private final SourceStore sources;
