@@ -78,7 +78,7 @@ class IndexStageRetentionNegativeTests {
     void withdrawnSavedAnswerScrubsConfirmedOcrAndEmbeddingPayloadButKeepsUsageAndUnknownAudit()
             throws IOException {
         long account = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) VALUES (?,?) "
-                + "RETURNING account_id", Long.class, "stage-retention-" + UUID.randomUUID(), "test-hash");
+                + "RETURNING account_id", Long.class, "stage-retention-" + UUID.randomUUID().toString().substring(0, 8), "test-hash");
         String fileRef = UUID.randomUUID().toString();
         Path object = FILE_ROOT.resolve("objects").resolve(fileRef);
         Files.createDirectories(object);
@@ -137,7 +137,7 @@ class IndexStageRetentionNegativeTests {
     void unreferencedRetiredVersionScrubsStagePayloadWithoutWithdrawingCurrentVersion()
             throws IOException {
         long account = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) VALUES (?,?) "
-                + "RETURNING account_id", Long.class, "stage-retired-" + UUID.randomUUID(), "test-hash");
+                + "RETURNING account_id", Long.class, "stage-retired-" + UUID.randomUUID().toString().substring(0, 8), "test-hash");
         String origin = UUID.randomUUID().toString();
         String oldRef = UUID.randomUUID().toString();
         Path oldObject = FILE_ROOT.resolve("objects").resolve(oldRef);
