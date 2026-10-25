@@ -67,6 +67,8 @@ export struct PhoneTutorV2Page {
   private confirmSeq: number = 0;
   private errorSource: string = '';
   private errorRequestId: string = '';
+  private errorActionKind: string = '';
+  private errorTargetRunId: string | null = null;
   private errorSelectionEpoch: number = 0;
   private errorVersion: number = 0;
   private errorRecoverable: boolean = false;
@@ -541,12 +543,14 @@ export struct PhoneTutorV2Page {
   }
 
   private set_error(text: string, source: string = 'action', requestId: string = '',
-    recoverable: boolean = false): void {
+    recoverable: boolean = false, actionKind: string = '', targetRunId: string | null = null): void {
     // 后续 GET 不能盖住创建/取消/重试失败；只有显式操作或上下文重置能解除。
     if (source !== 'action' && this.errorSource === 'action' && this.errorMessage.length > 0) { return; }
     this.errorMessage = text;
     this.errorSource = text.length > 0 ? source : '';
     this.errorRequestId = requestId;
+    this.errorActionKind = actionKind;
+    this.errorTargetRunId = targetRunId;
     this.errorSelectionEpoch = this.selectionEpoch;
     this.errorRecoverable = recoverable;
     this.errorVersion++;
@@ -562,6 +566,18 @@ export struct PhoneTutorV2Page {
     if (this.errorRecoverable && this.errorSource === source && this.errorRequestId === requestId &&
       this.errorVersion === version &&
       (source !== 'detail' || this.errorSelectionEpoch === this.selectionEpoch)) {
+      this.clear_error();
+    }
+  }
+
+  private action_failed(error: AuthError | null, token: string, kind: string,
+    requestId: string, targetRunId: string | null): void {
+    this.set_error(this.failed(error, token), 'action', requestId, false, kind, targetRunId);
+  }
+
+  private clear_action_error(kind: string, requestId: string, targetRunId: string | null, version: number): void {
+    if (this.errorSource === 'action' && this.errorActionKind === kind && this.errorRequestId === requestId &&
+      this.errorTargetRunId === targetRunId && this.errorVersion === version) {
       this.clear_error();
     }
   }
@@ -670,12 +686,16 @@ export struct PhoneTutorV2Page {
       if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId ||
         this.detailSeqs.get(requestId) !== detailSeq) { return; }
       if (!result.isSuccess || result.data === null) {
-        if (selectionEpoch === this.selectionEpoch) { this.refresh_failed(result.error, token, 'detail', requestId); }
+        if (result.error !== null && result.error.is_unauthorized()) {
+          this.failed(result.error, token);
+        } else if (selectionEpoch === this.selectionEpoch && this.selectedRequestId === requestId) {
+          this.refresh_failed(result.error, token, 'detail', requestId);
+        }
         return;
       }
       if (result.data.request.questionId !== questionId || result.data.request.requestId !== requestId) { return; }
       if (selectionEpoch === this.selectionEpoch) {
-        this.clear_refresh_error('detail', requestId, errorVersion);
+        if (this.selectedRequestId === requestId) { this.clear_refresh_error('detail', requestId, errorVersion); }
         this.receive_detail(result.data);
       } else {
         // 已离开的选择只合并单调摘要，不回写当前详情或顶部反馈。
@@ -684,7 +704,8 @@ export struct PhoneTutorV2Page {
       }
     } catch (error) {
       if (this.valid_context(seq, token, accountId) && this.questionId === questionId &&
-        this.detailSeqs.get(requestId) === detailSeq && selectionEpoch === this.selectionEpoch) {
+        this.detailSeqs.get(requestId) === detailSeq && selectionEpoch === this.selectionEpoch &&
+        this.selectedRequestId === requestId) {
         this.set_error('网络暂不可用，恢复后按原 requestId 查询', 'detail', requestId, true);
       }
     }
@@ -733,6 +754,7 @@ export struct PhoneTutorV2Page {
     const token: string | null = this.session();
     if (token === null) { return; }
     const accountId: string = this.accountId;
+    const questionId: string = this.questionId;
     const text: string = this.prompt.trim();
     if (text.length === 0 || text.length > V2_PROMPT_MAX) { return; }
     const mode: V2TutorMode = this.fullSolution ? V2TutorMode.FULL_SOLUTION : V2TutorMode.HINT;
@@ -750,25 +772,28 @@ export struct PhoneTutorV2Page {
     const seq: number = ++this.seq;
     const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
-    this.clear_error();
+    if (this.errorSource !== 'action') { this.clear_error(); }
+    const errorVersion: number = this.errorVersion;
     try {
-      const result: AuthResult<V2TutorRequest> = await this.api.createRequest(token, this.questionId,
+      const result: AuthResult<V2TutorRequest> = await this.api.createRequest(token, questionId,
         requestId, text, mode, snapshotInput);
-      if (!this.valid_context(seq, token, accountId)) { return; }
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId) { return; }
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.httpStatus === 409) {
           this.createIntent.clear();
-          this.set_error(this.failed(result.error, token));
+          this.action_failed(result.error, token, 'create', requestId, null);
         } else {
           this.message = '创建结果未知，正在查询原 requestId；再次操作仍使用原请求标识';
           this.confirm_create(requestId);
         }
         return;
       }
+      if (result.data.questionId !== questionId || result.data.requestId !== requestId) { return; }
+      this.clear_action_error('create', requestId, null, errorVersion);
       this.on_created(result.data);
       this.toast?.show({ key: 'phone-v2-create', type: 'success', message: '新版辅导请求已发送' }, toastScope);
     } catch (error) {
-      if (this.valid_context(seq, token, accountId)) {
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId) {
         this.message = '创建结果未知，正在查询原 requestId';
         this.confirm_create(requestId);
       }
@@ -831,21 +856,27 @@ export struct PhoneTutorV2Page {
     if (token === null) { return; }
     const seq: number = ++this.seq;
     const accountId: string = this.accountId;
+    const questionId: string = this.questionId;
+    const requestId: string = request.requestId;
+    const targetRunId: string | null = request.currentRunId;
+    const errorVersion: number = this.errorVersion;
     const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
     try {
-      const result: AuthResult<V2TutorRequestDetail> = await this.api.cancelRequest(token, this.questionId,
-        request.requestId, request.currentRunId);
-      if (!this.valid_context(seq, token, accountId)) { return; }
+      const result: AuthResult<V2TutorRequestDetail> = await this.api.cancelRequest(token, questionId,
+        requestId, targetRunId);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId) { return; }
       if (result.isSuccess && result.data !== null) {
+        if (result.data.request.questionId !== questionId || result.data.request.requestId !== requestId) { return; }
+        this.clear_action_error('cancel', requestId, targetRunId, errorVersion);
         this.receive_detail(result.data);
         this.toast?.show({ key: 'phone-v2-cancel', type: 'info', message: '本次辅导状态已更新' }, toastScope);
       }
-      else { this.set_error(this.failed(result.error, token)); this.refresh_detail(request.requestId); }
+      else { this.action_failed(result.error, token, 'cancel', requestId, targetRunId); this.refresh_detail(requestId); }
     } catch (error) {
-      if (this.valid_context(seq, token, accountId)) {
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId) {
         this.message = '取消结果未知，按原 requestId 查询状态';
-        this.refresh_detail(request.requestId);
+        this.refresh_detail(requestId);
       }
     } finally {
       if (seq === this.seq) { this.busy = false; }
@@ -857,6 +888,9 @@ export struct PhoneTutorV2Page {
     const token: string | null = this.session();
     if (token === null) { return; }
     const accountId: string = this.accountId;
+    const questionId: string = this.questionId;
+    const requestId: string = request.requestId;
+    const errorVersion: number = this.errorVersion;
     const targetRunId: string = request.currentRunId;
     if (this.retryKey.length === 0 || this.retryTargetRunId !== targetRunId) {
       this.retryKey = util.generateRandomUUID(true).toLowerCase();
@@ -866,23 +900,25 @@ export struct PhoneTutorV2Page {
     const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
     try {
-      const result: AuthResult<V2TutorRequestDetail> = await this.api.retryRequest(token, this.questionId,
-        request.requestId, targetRunId, this.retryKey);
-      if (!this.valid_context(seq, token, accountId)) { return; }
+      const result: AuthResult<V2TutorRequestDetail> = await this.api.retryRequest(token, questionId,
+        requestId, targetRunId, this.retryKey);
+      if (!this.valid_context(seq, token, accountId) || this.questionId !== questionId) { return; }
       if (result.isSuccess && result.data !== null) {
+        if (result.data.request.questionId !== questionId || result.data.request.requestId !== requestId) { return; }
+        this.clear_action_error('retry', requestId, targetRunId, errorVersion);
         this.retryKey = '';
         this.retryTargetRunId = '';
         this.receive_detail(result.data);
         this.start_poll();
         this.toast?.show({ key: 'phone-v2-retry', type: 'info', message: '已重试本次辅导' }, toastScope);
       } else {
-        this.set_error(this.failed(result.error, token));
-        this.refresh_detail(request.requestId);
+        this.action_failed(result.error, token, 'retry', requestId, targetRunId);
+        this.refresh_detail(requestId);
       }
     } catch (error) {
-      if (this.valid_context(seq, token, accountId)) {
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId) {
         this.message = '重试结果未知，按原 requestId 查询；不会自动再次发起重试';
-        this.refresh_detail(request.requestId);
+        this.refresh_detail(requestId);
       }
     } finally {
       if (seq === this.seq) { this.busy = false; }
