@@ -101,6 +101,8 @@ public final class AnswerManifestValidator {
         }
         require(blocks != null && blocks.size() == columns * rows);
         long pixels = 0;
+        double density = 1;
+        boolean questionRaster = "question_".equals(prefix);
         for (int index = 0; index < blocks.size(); index++) {
             AnswerModels.Block block = blocks.get(index);
             int x = (int) (index % columns) * TILE;
@@ -111,10 +113,24 @@ public final class AnswerManifestValidator {
             require((prefix + String.format(java.util.Locale.ROOT, "%04d", index)).equals(block.partName())
                     && names.add(block.partName()));
             require(Double.valueOf(originX + x).equals(block.x()) && Double.valueOf(originY + y).equals(block.y())
-                    && Double.valueOf(w).equals(block.width()) && Double.valueOf(h).equals(block.height())
-                    && Integer.valueOf(w).equals(block.pixelWidth()) && Integer.valueOf(h).equals(block.pixelHeight()));
+                    && Double.valueOf(w).equals(block.width()) && Double.valueOf(h).equals(block.height()));
+            require(block.pixelWidth() != null && block.pixelHeight() != null);
+            int pixelWidth = block.pixelWidth();
+            int pixelHeight = block.pixelHeight();
+            if (questionRaster) {
+                require(pixelWidth >= w && pixelWidth <= 2L * w && pixelHeight >= h && pixelHeight <= 2L * h);
+                if (index == 0) {
+                    // 首块较长轴可减少窄高/宽短题面推导密度时的取整误差。
+                    density = w >= h ? (double) pixelWidth / w : (double) pixelHeight / h;
+                    require(Double.isFinite(density) && density >= 1 && density <= 2);
+                }
+                require(Math.abs(pixelWidth - Math.round(w * density)) <= 1
+                        && Math.abs(pixelHeight - Math.round(h * density)) <= 1);
+            } else {
+                require(pixelWidth == w && pixelHeight == h);
+            }
             require(block.sha256() != null && block.sha256().matches("[0-9a-f]{64}"));
-            pixels += (long) w * h;
+            pixels += (long) pixelWidth * pixelHeight;
         }
         return pixels;
     }
