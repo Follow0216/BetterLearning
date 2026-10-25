@@ -29,6 +29,7 @@ import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceVersion;
 import com.betterlearning.server.multiagent.SourceStore;
+import com.betterlearning.server.multiagent.StepExecutionException;
 import com.betterlearning.server.retrieval.HandwritingSourceReader.HandwritingReadException;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +60,39 @@ class RetrievalIndexWorkerTests {
                 JsonMapper.builder().build(), handwriting);
         when(indexes.beginExternalCall(any())).thenReturn(true);
         when(indexes.confirmExternalCall(any())).thenReturn(true);
+    }
+
+    @Test
+    void structuredSavedAnswerPathDoesNotEnterLegacyOcrOrEmbedding() {
+        StructuredHandwritingIndexer structured = mock(StructuredHandwritingIndexer.class);
+        SourceContent saved = content(SourceType.SAVED_ANSWER, 1, 1, null, List.of());
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(saved);
+        when(structured.shouldHandle(job, saved)).thenReturn(true);
+        RetrievalIndexWorker configured = new RetrievalIndexWorker(sources, indexes, embedding,
+                properties, JsonMapper.builder().build(), handwriting, structured);
+
+        configured.process(job);
+
+        verify(structured).process(job, saved);
+        verifyNoInteractions(embedding, handwriting);
+        verify(indexes, times(0)).beginExternalCall(any());
+    }
+
+    @Test
+    void structuredUnknownReasonRemainsVisibleWithoutLegacyFallback() {
+        StructuredHandwritingIndexer structured = mock(StructuredHandwritingIndexer.class);
+        SourceContent saved = content(SourceType.SAVED_ANSWER, 1, 1, null, List.of());
+        when(sources.get(ACCOUNT, SOURCE, 1)).thenReturn(saved);
+        when(structured.shouldHandle(job, saved)).thenReturn(true);
+        doThrow(new StepExecutionException("OUTCOME_UNKNOWN")).when(structured).process(job, saved);
+        RetrievalIndexWorker configured = new RetrievalIndexWorker(sources, indexes, embedding,
+                properties, JsonMapper.builder().build(), handwriting, structured);
+
+        configured.process(job);
+
+        verify(indexes).fail(job, "OUTCOME_UNKNOWN");
+        verifyNoInteractions(embedding, handwriting);
+        verify(indexes, times(0)).beginExternalCall(any());
     }
 
     @Test

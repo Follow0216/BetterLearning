@@ -2,15 +2,36 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.betterlearning.server.retrieval.mapper.RetrievalMapper">
     <insert id="prepareJobs">
-        INSERT INTO ma_index_job(event_id)
-        SELECT event_id FROM ma_outbox WHERE aggregate_type = 'SOURCE'
-            AND kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN') AND status IN ('PENDING','FAILED')
-            AND NOT EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = ma_outbox.event_id)
-        ORDER BY created_at,event_id LIMIT 100 ON CONFLICT DO NOTHING
+        WITH accounts AS MATERIALIZED (
+            SELECT u.account_id FROM app_user u WHERE EXISTS (SELECT 1 FROM ma_outbox e
+                WHERE e.account_id = u.account_id AND e.aggregate_type = 'SOURCE'
+                    AND e.kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN')
+                    AND e.status IN ('PENDING','FAILED')
+                    AND NOT EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = e.event_id))
+            ORDER BY u.account_id FOR UPDATE OF u SKIP LOCKED LIMIT 100
+        ), pending AS MATERIALIZED (
+            SELECT e.event_id FROM accounts locked_owner JOIN ma_outbox e
+                ON e.account_id = locked_owner.account_id
+            WHERE e.aggregate_type = 'SOURCE'
+                AND e.kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN')
+                AND e.status IN ('PENDING','FAILED')
+                AND NOT EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = e.event_id)
+            ORDER BY e.created_at,e.event_id LIMIT 100
+        ) INSERT INTO ma_index_job(event_id)
+        SELECT event_id FROM pending WHERE TRUE ON CONFLICT DO NOTHING
     </insert>
     <select id="claim" resultType="map" affectData="true" flushCache="true">
-        WITH chosen AS (
-            SELECT j.event_id FROM ma_index_job j JOIN ma_outbox e USING(event_id)
+        WITH account_candidate AS MATERIALIZED (
+            SELECT u.account_id FROM ma_index_job j JOIN ma_outbox e USING(event_id)
+            JOIN app_user u ON u.account_id = e.account_id
+            WHERE e.aggregate_type = 'SOURCE' AND e.status IN ('PENDING','FAILED')
+                AND (j.status = 'PROCESSING' OR (j.status = 'PENDING' AND j.attempts &lt; 3)) AND j.next_attempt_at &lt;= CURRENT_TIMESTAMP
+                AND (j.status != 'PROCESSING' OR j.lease_until &lt; CURRENT_TIMESTAMP)
+            ORDER BY e.created_at,e.event_id FOR UPDATE OF u SKIP LOCKED LIMIT 1
+        ), chosen AS MATERIALIZED (
+            SELECT j.event_id FROM account_candidate locked_owner
+            JOIN ma_outbox e ON e.account_id = locked_owner.account_id
+            JOIN ma_index_job j ON j.event_id = e.event_id
             WHERE e.aggregate_type = 'SOURCE' AND e.status IN ('PENDING','FAILED')
                 AND (j.status = 'PROCESSING' OR (j.status = 'PENDING' AND j.attempts &lt; 3)) AND j.next_attempt_at &lt;= CURRENT_TIMESTAMP
                 AND (j.status != 'PROCESSING' OR j.lease_until &lt; CURRENT_TIMESTAMP)
@@ -19,7 +40,7 @@
             UPDATE ma_index_job SET status = 'PROCESSING', fence = fence + 1, attempts = LEAST(attempts + 1, 4),
                 lease_until = CURRENT_TIMESTAMP + INTERVAL '15 minutes'
             WHERE event_id IN (SELECT event_id FROM chosen) RETURNING event_id,fence,attempts
-        ) SELECT e.*,c.fence,c.attempts,j.call_state FROM claimed c JOIN ma_outbox e USING(event_id)
+        ) SELECT e.*,c.fence,c.attempts,j.call_state,j.index_protocol FROM claimed c JOIN ma_outbox e USING(event_id)
             JOIN ma_index_job j USING(event_id)
     </select>
     <select id="lockAccount" resultType="long">
@@ -29,16 +50,165 @@
         SELECT event_id FROM ma_index_job WHERE event_id = #{eventId} AND fence = #{fence}
             AND status = 'PROCESSING' AND lease_until > CURRENT_TIMESTAMP FOR UPDATE
     </select>
+    <select id="lockJobForUnknown" resultType="string">
+        SELECT j.event_id FROM ma_index_job j JOIN ma_outbox e USING(event_id)
+        WHERE j.event_id = #{eventId} AND e.account_id = #{accountId} FOR UPDATE OF j
+    </select>
+    <select id="indexProtocol" resultType="string">
+        SELECT index_protocol FROM ma_index_job WHERE event_id = #{eventId} AND fence = #{fence}
+            AND status = 'PROCESSING' AND lease_until > CURRENT_TIMESTAMP
+    </select>
+    <update id="beginIndexProtocol">
+        UPDATE ma_index_job SET index_protocol = #{protocol}
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+            AND lease_until > CURRENT_TIMESTAMP AND call_state = 'NOT_SENT'
+            AND (index_protocol IS NULL OR index_protocol = #{protocol})
+            AND EXISTS (SELECT 1 FROM ma_outbox e JOIN ma_source s
+                ON s.source_id = e.aggregate_id AND s.account_id = e.account_id
+                JOIN ma_source_version v ON v.source_id = s.source_id
+                    AND v.version = e.aggregate_version
+                WHERE e.event_id = ma_index_job.event_id AND e.aggregate_type = 'SOURCE'
+                    AND e.kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX')
+                    AND s.type = 'SAVED_ANSWER' AND s.status = 'ACTIVE'
+                    AND s.current_version = e.aggregate_version
+                    AND v.status = 'INDEX_PENDING' AND v.purged_at IS NULL
+                    AND v.index_revision = e.index_revision
+                    AND v.content_sha256 = e.payload_digest)
+    </update>
+    <select id="unconfirmedStageCount" resultType="int">
+        SELECT COUNT(*) FROM ma_index_stage WHERE event_id = #{eventId} AND call_state != 'CONFIRMED'
+    </select>
+    <select id="indexStage" resultType="map">
+        SELECT event_id,phase,ordinal,account_id,source_id,source_version,index_revision,
+            source_sha256,file_ref,input_sha256,model,dimensions,schema_version,call_state,
+            intent_fence,output_json,output_sha256,request_count,total_tokens,purged_at
+        FROM ma_index_stage WHERE event_id = #{eventId} AND phase = #{phase} AND ordinal = #{ordinal}
+    </select>
+    <insert id="insertIndexStage">
+        INSERT INTO ma_index_stage(event_id,phase,ordinal,account_id,source_id,source_version,
+            index_revision,source_sha256,file_ref,input_sha256,model,dimensions,schema_version,
+            call_state,intent_fence)
+        SELECT #{eventId},#{phase},#{ordinal},#{accountId},#{sourceId},#{version},
+            #{indexRevision},#{sourceSha256},#{fileRef,jdbcType=VARCHAR},#{inputSha256},
+            #{model},#{dimensions},#{schemaVersion},'CALL_INTENT',#{fence}
+        WHERE EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = #{eventId}
+            AND j.fence = #{fence} AND j.status = 'PROCESSING' AND j.lease_until > CURRENT_TIMESTAMP
+            AND j.index_protocol = 'HANDWRITING_METHODS_V1')
+            AND EXISTS (SELECT 1 FROM ma_outbox e JOIN ma_source s
+                ON s.source_id = e.aggregate_id AND s.account_id = e.account_id
+                JOIN ma_source_version v ON v.source_id = s.source_id
+                    AND v.version = e.aggregate_version
+                WHERE e.event_id = #{eventId} AND e.account_id = #{accountId}
+                    AND s.source_id = #{sourceId} AND s.type = 'SAVED_ANSWER'
+                    AND s.status = 'ACTIVE'
+                    AND s.current_version = #{version} AND v.status = 'INDEX_PENDING'
+                    AND v.purged_at IS NULL
+                    AND v.index_revision = #{indexRevision} AND e.index_revision = #{indexRevision}
+                    AND v.content_sha256 = #{sourceSha256} AND e.payload_digest = #{sourceSha256}
+                    AND v.file_ref IS NOT DISTINCT FROM #{fileRef,jdbcType=VARCHAR})
+        ON CONFLICT (event_id,phase,ordinal) DO NOTHING
+    </insert>
+    <update id="confirmIndexStage">
+        UPDATE ma_index_stage s SET call_state = 'CONFIRMED',output_json = #{outputJson},
+            output_sha256 = #{outputSha256},request_count = #{requestCount},
+            total_tokens = #{totalTokens,jdbcType=BIGINT},confirmed_at = CURRENT_TIMESTAMP
+        WHERE s.event_id = #{eventId} AND s.phase = #{phase} AND s.ordinal = #{ordinal}
+            AND s.call_state = 'CALL_INTENT' AND s.purged_at IS NULL
+            AND s.intent_fence = #{fence}
+            AND s.account_id = #{accountId} AND s.source_id = #{sourceId}
+            AND s.source_version = #{version} AND s.index_revision = #{indexRevision}
+            AND s.source_sha256 = #{sourceSha256} AND s.file_ref IS NOT DISTINCT FROM #{fileRef,jdbcType=VARCHAR}
+            AND s.input_sha256 = #{inputSha256} AND s.model = #{model}
+            AND s.dimensions = #{dimensions} AND s.schema_version = #{schemaVersion}
+            AND EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = s.event_id
+                AND j.fence = #{fence} AND j.status = 'PROCESSING'
+                AND j.lease_until > CURRENT_TIMESTAMP AND j.index_protocol = 'HANDWRITING_METHODS_V1')
+            AND EXISTS (SELECT 1 FROM ma_outbox e JOIN ma_source src
+                ON src.source_id = e.aggregate_id AND src.account_id = e.account_id
+                JOIN ma_source_version v ON v.source_id = src.source_id
+                    AND v.version = e.aggregate_version
+                WHERE e.event_id = s.event_id AND e.account_id = #{accountId}
+                    AND src.source_id = #{sourceId} AND src.type = 'SAVED_ANSWER'
+                    AND src.status = 'ACTIVE'
+                    AND src.current_version = #{version} AND v.status = 'INDEX_PENDING'
+                    AND v.purged_at IS NULL
+                    AND v.index_revision = #{indexRevision} AND e.index_revision = #{indexRevision}
+                    AND v.content_sha256 = #{sourceSha256} AND e.payload_digest = #{sourceSha256}
+                    AND v.file_ref IS NOT DISTINCT FROM #{fileRef,jdbcType=VARCHAR})
+    </update>
+    <update id="unknownIndexStage">
+        WITH changed AS (
+            UPDATE ma_index_stage SET call_state = 'UNKNOWN'
+            WHERE event_id = #{eventId} AND phase = #{phase} AND ordinal = #{ordinal}
+                AND account_id = #{accountId} AND source_id = #{sourceId}
+                AND source_version = #{version} AND index_revision = #{indexRevision}
+                AND source_sha256 = #{sourceSha256}
+                AND file_ref IS NOT DISTINCT FROM #{fileRef,jdbcType=VARCHAR}
+                AND input_sha256 = #{inputSha256} AND model = #{model}
+                AND dimensions = #{dimensions} AND schema_version = #{schemaVersion}
+                AND call_state = 'CALL_INTENT' AND intent_fence = #{fence}
+            RETURNING event_id
+        ) UPDATE ma_index_job SET usage_uncertain = TRUE
+            WHERE event_id IN (SELECT event_id FROM changed)
+    </update>
+    <update id="unknownUnconfirmedStages">
+        WITH changed AS (
+            UPDATE ma_index_stage SET call_state = 'UNKNOWN'
+            WHERE event_id = #{eventId} AND call_state = 'CALL_INTENT'
+            RETURNING event_id
+        ) UPDATE ma_index_job SET usage_uncertain = TRUE
+            WHERE event_id IN (SELECT event_id FROM changed)
+    </update>
+    <select id="currentIndexEvent" resultType="int">
+        SELECT COUNT(*) FROM ma_outbox e JOIN ma_source s
+            ON s.source_id = e.aggregate_id AND s.account_id = e.account_id
+        JOIN ma_source_version v ON v.source_id = s.source_id AND v.version = e.aggregate_version
+        WHERE e.event_id = #{eventId} AND e.account_id = #{accountId}
+            AND e.aggregate_id = #{sourceId} AND e.aggregate_version = #{version}
+            AND e.index_revision = #{indexRevision} AND e.aggregate_type = 'SOURCE'
+            AND e.kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX')
+            AND s.status = 'ACTIVE' AND s.current_version = #{version}
+            AND v.status = 'INDEX_PENDING' AND v.purged_at IS NULL
+            AND v.index_revision = #{indexRevision}
+            AND v.content_sha256 = e.payload_digest
+    </select>
+    <select id="invalidIndexStageBindings" resultType="int">
+        SELECT COUNT(*) FROM ma_index_stage stage JOIN ma_outbox e ON e.event_id = stage.event_id
+        JOIN ma_source_version v ON v.source_id = stage.source_id
+            AND v.version = stage.source_version
+        WHERE stage.event_id = #{eventId} AND (stage.purged_at IS NOT NULL
+            OR stage.account_id != e.account_id
+            OR stage.source_id != e.aggregate_id OR stage.source_version != e.aggregate_version
+            OR stage.index_revision != e.index_revision OR stage.source_sha256 != e.payload_digest
+            OR stage.source_sha256 != v.content_sha256
+            OR stage.file_ref IS DISTINCT FROM v.file_ref
+            OR (stage.phase = 'EMBED_BATCH' AND (stage.model != #{model}
+                OR stage.dimensions != #{dimensions})))
+    </select>
+    <select id="confirmedEmbeddingStages" resultType="map">
+        SELECT event_id,phase,ordinal,account_id,source_id,source_version,index_revision,
+            source_sha256,file_ref,input_sha256,model,dimensions,schema_version,call_state,
+            intent_fence,output_json,output_sha256,request_count,total_tokens,purged_at
+        FROM ma_index_stage WHERE event_id = #{eventId} AND phase = 'EMBED_BATCH'
+            AND call_state = 'CONFIRMED' ORDER BY ordinal
+    </select>
+    <select id="confirmedOcrStageCount" resultType="int">
+        SELECT COUNT(*) FROM ma_index_stage WHERE event_id = #{eventId}
+            AND phase = 'OCR_STEP' AND call_state = 'CONFIRMED'
+    </select>
     <delete id="deleteChunks">
         DELETE FROM ma_retrieval_chunk WHERE account_id = #{accountId} AND source_id = #{sourceId}
         <if test="version != null">AND version = #{version}</if>
     </delete>
     <insert id="insertChunk">
         INSERT INTO ma_retrieval_chunk(chunk_id,account_id,source_id,version,anchor_id,question_id,
-            text,method_tags,terms,embedding,embedding_model,dimensions,index_revision)
+            text,method_tags,terms,embedding,embedding_model,dimensions,index_revision,method_metadata,
+            inferred_method_tags,method_projection_hash)
         VALUES(#{id},#{accountId},#{sourceId},#{version},#{anchorId},#{questionId},#{text},
             CAST(#{methodTags} AS jsonb),CAST(#{terms} AS jsonb),CAST(#{vector} AS vector),
-            #{model},#{dimensions},#{indexRevision})
+            #{model},#{dimensions},#{indexRevision},CAST(#{methodMetadata,jdbcType=VARCHAR} AS jsonb),
+            CAST(#{inferredMethodTags} AS jsonb),
+            md5(CAST(CAST(#{methodMetadata,jdbcType=VARCHAR} AS jsonb) AS text)))
     </insert>
     <update id="finish">
         UPDATE ma_index_job SET status = 'DONE',completed_at = CURRENT_TIMESTAMP,failure_reason = NULL
@@ -47,7 +217,10 @@
     <update id="failure">
         UPDATE ma_index_job SET status = 'FAILED',failure_reason = #{reason},
             attempts = attempts - CASE WHEN #{reason} = 'EMBEDDING_DISABLED' THEN 1 ELSE 0 END,
-            usage_uncertain = usage_uncertain OR (#{reason} = 'OUTCOME_UNKNOWN' AND call_state = 'CALL_INTENT'),
+            usage_uncertain = usage_uncertain OR call_state = 'CALL_INTENT'
+                OR EXISTS (SELECT 1 FROM ma_index_stage st
+                    WHERE st.event_id = ma_index_job.event_id
+                        AND st.call_state IN ('CALL_INTENT','UNKNOWN')),
             next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '60 seconds'
         WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
     </update>
@@ -59,7 +232,8 @@
     <update id="beginExternalCall">
         UPDATE ma_index_job j SET call_state = 'CALL_INTENT'
         WHERE j.event_id = #{eventId} AND j.fence = #{fence} AND j.status = 'PROCESSING'
-            AND j.lease_until > CURRENT_TIMESTAMP AND j.call_state IN ('NOT_SENT','CONFIRMED')
+            AND j.lease_until > CURRENT_TIMESTAMP AND j.index_protocol IS NULL
+            AND j.call_state IN ('NOT_SENT','CONFIRMED')
             AND EXISTS (SELECT 1 FROM ma_outbox e JOIN ma_source s
                 ON s.source_id = e.aggregate_id AND s.account_id = e.account_id
                 JOIN ma_source_version v ON v.source_id = s.source_id
@@ -123,7 +297,7 @@
     </sql>
     <select id="candidates" resultType="map">
         WITH authorized AS MATERIALIZED (
-            SELECT c.*,s.type,v.answer_state,
+            SELECT c.*,s.type,v.answer_state,a.content_sha256 AS anchor_sha256,
                 lower(regexp_replace(normalize(c.text, NFKC), '[[:space:]]+', '', 'g')) AS method_text,
                 CASE WHEN s.type = 'TUTOR_REPLY' THEN (
                     SELECT reply_request.question_id::text FROM ma_result reply_result
@@ -142,17 +316,41 @@
                     WHERE CASE WHEN jsonb_exists(CAST(#{literalPatterns} AS jsonb), query_method.key)
                         THEN method_text ~ (CAST(#{literalPatterns} AS jsonb) -> query_method.key ->> 'positive')
                             AND method_text !~ (CAST(#{literalPatterns} AS jsonb) -> query_method.key ->> 'negative')
+                        WHEN type = 'SAVED_ANSWER' AND method_metadata IS NOT NULL
+                            THEN jsonb_exists(method_tags, query_method.key)
                         ELSE jsonb_exists(method_tags, query_method.key) OR EXISTS (
                             SELECT 1 FROM jsonb_array_elements_text(query_method.value) method_alias(value)
                             WHERE strpos(method_text, method_alias.value) > 0
-                        ) END) AS lexical_score
+                        ) END)
+                + CASE WHEN #{handwritingRecallEnabled} = TRUE AND type = 'SAVED_ANSWER'
+                    AND method_metadata IS NOT NULL
+                    AND method_projection_hash = md5(method_metadata::text)
+                    AND method_metadata ->> 'formatVersion' = '1'
+                    AND method_metadata ->> 'accountId' = account_id::text
+                    AND method_metadata ->> 'sourceId' = source_id
+                    AND method_metadata ->> 'sourceVersion' = version::text
+                    AND method_metadata ->> 'indexRevision' = index_revision::text
+                    AND method_metadata ->> 'anchorId' = anchor_id
+                    AND method_metadata ->> 'anchorSha256' = anchor_sha256
+                    AND method_metadata -> 'result' ->> 'schemaVersion' = 'handwriting-ocr-v1'
+                    AND method_metadata -> 'result' ->> 'taxonomyVersion' = 'math-methods-v1'
+                    AND method_metadata -> 'result' ->> 'uncertainty' = 'CLEAR'
+                    AND jsonb_typeof(method_metadata -> 'result' -> 'methodCandidates') = 'array'
+                    THEN 3 * (SELECT COUNT(DISTINCT method)
+                        FROM jsonb_array_elements_text(inferred_method_tags) projected(method)
+                        WHERE jsonb_exists(CAST(#{inferredMethodTags} AS jsonb), method))
+                    ELSE 0 END AS lexical_score
             FROM authorized
         ), picked AS (
             (SELECT chunk_id FROM scores ORDER BY vector_score DESC,chunk_id LIMIT 40)
             UNION
             (SELECT chunk_id FROM scores WHERE lexical_score > 0 ORDER BY lexical_score DESC,chunk_id LIMIT 40)
-        ) SELECT source_id,version,anchor_id,type,actual_question_id AS question_id,
-            answer_state,text,method_tags::text AS method_tags,vector_score,lexical_score
+        ) SELECT account_id,source_id,version,index_revision,anchor_id,anchor_sha256,
+            type,actual_question_id AS question_id,answer_state,text,
+            method_tags::text AS method_tags,method_metadata::text AS method_metadata,
+            inferred_method_tags::text AS inferred_method_tags,
+            method_projection_hash = md5(method_metadata::text) AS method_projection_valid,
+            vector_score,lexical_score
             FROM scores WHERE chunk_id IN (SELECT chunk_id FROM picked)
             ORDER BY lexical_score DESC,vector_score DESC,chunk_id
     </select>

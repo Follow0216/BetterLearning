@@ -128,7 +128,8 @@ class OutboxRetirementMigrationIntegrationTests {
         OriginalEvent sourceOriginal = original(jdbc, sourceToKeep.sourceEvent());
         OriginalEvent runOriginal = original(jdbc, runEvent);
 
-        Flyway flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
+        Flyway flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("2026102507")).load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history "
                 + "WHERE version = '2026102507' AND success", Integer.class)).isEqualTo(1);

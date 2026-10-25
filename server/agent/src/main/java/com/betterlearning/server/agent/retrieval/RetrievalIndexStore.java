@@ -20,11 +20,20 @@ public interface RetrievalIndexStore {
         }
     }
     record Chunk(Anchor anchor, String questionId, String text, Set<String> methodTags,
-            Set<String> terms, double[] embedding) { }
+            Set<String> terms, double[] embedding, String methodMetadataJson) {
+        public Chunk(Anchor anchor, String questionId, String text, Set<String> methodTags,
+                Set<String> terms, double[] embedding) {
+            this(anchor, questionId, text, methodTags, terms, embedding, null);
+        }
+    }
     record QueryEmbeddingKey(long accountId, String runId, String stepId, String querySha256,
             String model, int dimensions) { }
     record QueryEmbeddingResult(double[] vector, int requestCount, Long totalTokens) { }
     record QueryEmbeddingDecision(boolean shouldCall, QueryEmbeddingResult confirmed) { }
+    record StageKey(String phase, int ordinal, String sourceSha256, String fileRef,
+            String inputSha256, String model, int dimensions, String schemaVersion) { }
+    record StageResult(String outputJson, String outputSha256, int requestCount, Long totalTokens) { }
+    record StageDecision(boolean shouldCall, StageResult confirmed) { }
 
     Optional<Job> claim();
     boolean complete(Job job, List<Chunk> chunks, String model, int dimensions);
@@ -35,6 +44,11 @@ public interface RetrievalIndexStore {
     /** 已拿到外呼结果且已记录可确认用量后确认本次外呼。 */
     boolean confirmExternalCall(Job job);
     void recordUsage(Job job, int ocrCalls, int embeddingRequests, Long tokens, boolean uncertain);
+    Optional<String> indexProtocol(Job job);
+    boolean beginIndexProtocol(Job job, String protocol);
+    StageDecision beginIndexStage(Job job, StageKey key);
+    boolean confirmIndexStage(Job job, StageKey key, StageResult result);
+    void unknownIndexStage(Job job, StageKey key);
     /** 唯一新插入的 step 才获得外呼权；已有意图必须按未知结果失败。 */
     QueryEmbeddingDecision beginQueryEmbedding(QueryEmbeddingKey key);
     /** 仅已确认记录可读；缺失返回 empty，未确认或参数不符抛 OUTCOME_UNKNOWN。 */

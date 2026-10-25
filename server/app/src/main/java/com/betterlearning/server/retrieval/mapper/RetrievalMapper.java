@@ -11,6 +11,24 @@ public interface RetrievalMapper {
     Map<String, Object> claim();
     Long lockAccount(long accountId);
     String lockJob(@Param("eventId") String eventId, @Param("fence") long fence);
+    String lockJobForUnknown(@Param("eventId") String eventId, @Param("accountId") long accountId);
+    String indexProtocol(@Param("eventId") String eventId, @Param("fence") long fence);
+    int beginIndexProtocol(@Param("eventId") String eventId, @Param("fence") long fence,
+            @Param("protocol") String protocol);
+    int unconfirmedStageCount(@Param("eventId") String eventId);
+    Map<String, Object> indexStage(@Param("eventId") String eventId, @Param("phase") String phase,
+            @Param("ordinal") int ordinal);
+    int insertIndexStage(Map<String, Object> row);
+    int confirmIndexStage(Map<String, Object> row);
+    int unknownIndexStage(Map<String, Object> row);
+    int unknownUnconfirmedStages(@Param("eventId") String eventId);
+    int currentIndexEvent(@Param("eventId") String eventId, @Param("accountId") long accountId,
+            @Param("sourceId") String sourceId, @Param("version") long version,
+            @Param("indexRevision") long indexRevision);
+    int invalidIndexStageBindings(@Param("eventId") String eventId, @Param("model") String model,
+            @Param("dimensions") int dimensions);
+    List<Map<String, Object>> confirmedEmbeddingStages(@Param("eventId") String eventId);
+    int confirmedOcrStageCount(@Param("eventId") String eventId);
     int deleteChunks(@Param("accountId") long accountId, @Param("sourceId") String sourceId,
             @Param("version") Long version);
     int insertChunk(Map<String, Object> row);

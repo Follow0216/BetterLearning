@@ -25,7 +25,9 @@ import com.betterlearning.server.multiagent.MultiAgentModels.MarkdownLocator;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
 import com.betterlearning.server.multiagent.SourceStore;
+import com.betterlearning.server.multiagent.StepExecutionException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -40,16 +42,25 @@ public class RetrievalIndexWorker {
     private final EmbeddingProperties properties;
     private final JsonMapper json;
     private final HandwritingSourceReader handwriting;
+    private final StructuredHandwritingIndexer structured;
 
     public RetrievalIndexWorker(SourceStore sources, RetrievalIndexStore indexes,
             HttpEmbeddingClient embedding, EmbeddingProperties properties, JsonMapper json,
             HandwritingSourceReader handwriting) {
+        this(sources, indexes, embedding, properties, json, handwriting, null);
+    }
+
+    @Autowired
+    public RetrievalIndexWorker(SourceStore sources, RetrievalIndexStore indexes,
+            HttpEmbeddingClient embedding, EmbeddingProperties properties, JsonMapper json,
+            HandwritingSourceReader handwriting, StructuredHandwritingIndexer structured) {
         this.sources = sources;
         this.indexes = indexes;
         this.embedding = embedding;
         this.properties = properties;
         this.json = json;
         this.handwriting = handwriting;
+        this.structured = structured;
     }
 
     @Scheduled(fixedDelay = 1000, initialDelay = 5000)
@@ -90,6 +101,10 @@ public class RetrievalIndexWorker {
             }
             if (!properties.isEnabled()) {
                 throw new EmbeddingException(EmbeddingException.Reason.DISABLED);
+            }
+            if (structured != null && structured.shouldHandle(job, content)) {
+                structured.process(job, content);
+                return;
             }
             List<Anchor> anchors = parse(job, content);
             if (anchors.size() > 100) {
@@ -133,6 +148,8 @@ public class RetrievalIndexWorker {
         } catch (HandwritingSourceReader.HandwritingReadException exception) {
             indexes.recordUsage(job, exception.ocrCalls(), 0, null, exception.ocrCalls() > 0);
             indexes.fail(job, "HANDWRITING_" + exception.reason());
+        } catch (StepExecutionException exception) {
+            indexes.fail(job, exception.reason());
         } catch (RuntimeException exception) {
             // 原文、供应商响应和文件路径不进入 outbox 诊断。
             indexes.fail(job, "INDEX_PROCESSING_FAILED");
