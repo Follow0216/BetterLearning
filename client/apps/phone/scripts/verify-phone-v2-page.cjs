@@ -149,8 +149,11 @@ async function check(name, run) {
     const oldFailed = detail(request('r1', 2, 'run1', status.FAILED), 1, 2);
     const newer = detail(request('r1', 3, 'run2', status.QUEUED), 2, 1, 'run1', [oldFailed.run]);
     value.requests = [newer.request]; value.selectedRequestId = 'r1'; value.detail = newer;
-    const confirm = deferred(); api.getRequest = () => confirm.promise;
+    value.adopt_intent(); value.createIntent.requestId = 'r1';
+    const confirm = deferred(); let confirms = 0;
+    api.getRequest = () => { confirms++; return confirm.promise; };
     const pending = value.confirm_create('r1');
+    assert.equal(confirms, 1, 'confirm the original pending create intent');
     confirm.resolve(ok(detail(request('r1', 1, 'run1', status.RUNNING))));
     await pending;
     assert.equal(value.detail.request.currentRunId, 'run2');
