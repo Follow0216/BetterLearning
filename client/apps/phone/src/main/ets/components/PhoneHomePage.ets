@@ -101,8 +101,11 @@ export struct PhoneHomePage {
           } else if (this.mode === PhoneHomeMode.COLLABORATION) {
             this.no_tablet_question()
           }
-          this.single_device()
-            .visibility(this.mode === PhoneHomeMode.SINGLE_DEVICE ? Visibility.Visible : Visibility.None)
+          Column() {
+            this.single_device()
+          }
+          .width('100%').height('100%')
+          .visibility(this.mode === PhoneHomeMode.SINGLE_DEVICE ? Visibility.Visible : Visibility.None)
         }
         .width('100%').layoutWeight(1)
       }
