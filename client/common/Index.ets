@@ -99,5 +99,9 @@ export {
   V2WorldBounds, V2MarkdownLocator, V2HandwritingSegment, V2HandwritingLocator, V2CitationResolution
 } from './src/main/ets/features/multiagent/LearningV2Models';
 export { accept_v2_detail, v2_detail_is_active } from './src/main/ets/features/multiagent/LearningV2State';
+export { V2CitationMarker, citation_marker_ids, citation_marker_metadata }
+  from './src/main/ets/features/multiagent/CitationMarkers';
 export { LearningNotesView } from './src/main/ets/features/multiagent/LearningNotesView';
 export { CitationModal } from './src/main/ets/features/multiagent/CitationModal';
+
+export { CitationFocusController, citationFocusController } from './src/main/ets/features/multiagent/CitationFocusController';

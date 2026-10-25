@@ -4,6 +4,8 @@
   var content = document.getElementById('question-content');
   var parser = null;
   var formulaErrors = 0;
+  var citationLabels = Object.create(null);
+  var lastCitationButton = null;
 
   function renderMath(tokens, index, displayMode, numbered, inline) {
     var token = tokens[index];
@@ -71,6 +73,17 @@
     md.renderer.rules.math_inline_double = function (tokens, index) { return renderMath(tokens, index, true, false, true); };
     md.renderer.rules.math_block = function (tokens, index) { return renderMath(tokens, index, true, false, false); };
     md.renderer.rules.math_block_eqno = function (tokens, index) { return renderMath(tokens, index, true, true, false); };
+    md.inline.ruler.before('text', 'citation_marker', function (state, silent) {
+      var match = /^\[\[citation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/.exec(state.src.slice(state.pos));
+      if (!match || !Object.prototype.hasOwnProperty.call(citationLabels, match[1])) { return false; }
+      if (!silent) { var token = state.push('citation_marker', '', 0); token.content = match[1]; }
+      state.pos += match[0].length; return true;
+    });
+    md.renderer.rules.citation_marker = function (tokens, index) {
+      var id = tokens[index].content;
+      return '<button type="button" class="citation-marker" data-citation-id="' + id + '">' +
+        md.utils.escapeHtml(citationLabels[id]) + '</button>';
+    };
     // M1 只读题面不打开链接或加载外部图片，保留安全转义后的可读文字。
     md.renderer.rules.link_open = function () { return '<span class="markdown-link">'; };
     md.renderer.rules.link_close = function () { return '</span>'; };
@@ -81,8 +94,27 @@
     return md;
   }
 
+  if (content && typeof content.addEventListener === 'function') {
+    content.addEventListener('click', function (event) {
+      var button = event.target && event.target.closest ? event.target.closest('button[data-citation-id]') : null;
+      var id = button ? button.getAttribute('data-citation-id') : '';
+      if (!button || !Object.prototype.hasOwnProperty.call(citationLabels, id)) { return; }
+      event.preventDefault(); lastCitationButton = button;
+      if (window.BetterLearningCitations && typeof window.BetterLearningCitations.open === 'function') {
+        window.BetterLearningCitations.open(id);
+      }
+    });
+  }
+
   window.BetterLearningQuestion = {
-    render: function (markdown, fontSize, highlightBlock) {
+    restoreCitationFocus: function (id) {
+      if (lastCitationButton && lastCitationButton.getAttribute('data-citation-id') === id &&
+          Object.prototype.hasOwnProperty.call(citationLabels,id)) {
+        lastCitationButton.focus({ preventScroll: true }); return true;
+      }
+      return false;
+    },
+    render: function (markdown, fontSize, highlightBlock, citations) {
       if (!content || typeof markdown !== 'string' || markdown.length > 65536) {
         return false;
       }
@@ -93,6 +125,13 @@
         if (!parser) {
           content.textContent = '题面渲染资源暂时不可用';
           return false;
+        }
+        citationLabels = Object.create(null); lastCitationButton = null;
+        if (Array.isArray(citations)) {
+          citations.slice(0,256).forEach(function (citation) {
+            if (citation && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(citation.citationId) &&
+                typeof citation.label === 'string') { citationLabels[citation.citationId] = citation.label; }
+          });
         }
         formulaErrors = 0;
         var html = parser.render(markdown);

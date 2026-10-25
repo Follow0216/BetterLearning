@@ -1,6 +1,16 @@
 import { common } from '@kit.AbilityKit';
 import { webview } from '@kit.ArkWeb';
 import { MAX_QUESTION_MARKDOWN_LENGTH } from './LearningModels';
+import { V2Citation } from '../multiagent/LearningV2Models';
+import { citation_marker_ids } from '../multiagent/CitationMarkers';
+import { citationFocusController } from '../multiagent/CitationFocusController';
+
+interface MarkdownCitationLabel { citationId: string; label: string; }
+class MarkdownCitationBridge {
+  private handler: (citationId: string) => void;
+  constructor(handler: (citationId: string) => void) { this.handler = handler; }
+  open(citationId: string): void { this.handler(citationId); }
+}
 
 /** 仅用于拦截并映射本地资源；此域名不会作为远端服务访问。 */
 const RENDERER_ORIGIN: string = 'https://question-markdown.betterlearning.invalid/';
@@ -44,14 +54,28 @@ export struct QuestionMarkdownView {
   @Prop @Watch('content_changed') fontSize: number = 16;
   @Prop @Watch('content_changed') maxLength: number = MAX_QUESTION_MARKDOWN_LENGTH;
   @Prop @Watch('content_changed') highlightBlock: boolean = false;
+  @Prop @Watch('content_changed') citations: V2Citation[] = [];
+  onCitation: (citationId: string) => void = () => {};
   onRenderError: () => void = () => {
   };
   @State private hasRenderError: boolean = false;
   private controller: webview.WebviewController = new webview.WebviewController();
+  private citationBridge: MarkdownCitationBridge = new MarkdownCitationBridge((citationId: string) => {
+    if (this.pageReady && citation_marker_ids(this.bodyMarkdown,this.citations).includes(citationId)) {
+      citationFocusController.attach(citationId,this.restoreCitationFocus); this.onCitation(citationId);
+    }
+  });
+  private restoreCitationFocus: (citationId: string) => void = (citationId: string) => {
+    if (this.pageReady) {
+      this.controller.runJavaScript('window.BetterLearningQuestion.restoreCitationFocus(' + JSON.stringify(citationId) + ')');
+    }
+  };
   private pageReady: boolean = false;
   private renderRevision: number = 0;
+  private lastRenderKey: string = '';
 
   aboutToDisappear(): void {
+    citationFocusController.detach(this.restoreCitationFocus);
     this.pageReady = false;
     this.renderRevision++;
   }
@@ -105,12 +129,18 @@ export struct QuestionMarkdownView {
       this.report_error(revision);
       return;
     }
-    this.hasRenderError = false;
     const size: number = Number.isFinite(this.fontSize) ? Math.max(12, Math.min(32, this.fontSize)) : 16;
     // JSON 序列化仅作为 JS 字符串值传参，不把题面插入 HTML 或模板字符串。
     const markdownLiteral: string = JSON.stringify(this.bodyMarkdown)
       .split(String.fromCharCode(0x2028)).join('\\u2028').split(String.fromCharCode(0x2029)).join('\\u2029');
-    const script: string = 'window.BetterLearningQuestion.render(' + markdownLiteral + ',' + size.toString() + ',' + (this.highlightBlock ? 'true' : 'false') + ')';
+    const labels: MarkdownCitationLabel[] = this.citations.map((citation: V2Citation): MarkdownCitationLabel =>
+      ({ citationId: citation.citationId, label: citation.label }));
+    const citationsLiteral: string = JSON.stringify(labels).split(String.fromCharCode(0x2028)).join('\\u2028')
+      .split(String.fromCharCode(0x2029)).join('\\u2029');
+    const renderKey: string = markdownLiteral + '\n' + citationsLiteral + '\n' + size.toString() + ':' + this.highlightBlock.toString();
+    if (renderKey === this.lastRenderKey && !this.hasRenderError) { return; }
+    this.hasRenderError = false;
+    const script: string = 'window.BetterLearningQuestion.render(' + markdownLiteral + ',' + size.toString() + ',' + (this.highlightBlock ? 'true' : 'false') + ',' + citationsLiteral + ')';
     try {
       const result: string = await this.controller.runJavaScript(script);
       if (revision !== this.renderRevision || !this.pageReady) {
@@ -118,7 +148,7 @@ export struct QuestionMarkdownView {
       }
       if (result !== 'true') {
         this.report_error(revision);
-      }
+      } else { this.lastRenderKey = renderKey; }
     } catch (error) {
       this.report_error(revision);
     }
@@ -139,6 +169,7 @@ export struct QuestionMarkdownView {
         .height('100%')
         .backgroundColor('#FFFFFF')
         .javaScriptAccess(true)
+        .javaScriptProxy({ object: this.citationBridge, name: 'BetterLearningCitations', methodList: ['open'], controller: this.controller })
         .domStorageAccess(false)
         .databaseAccess(false)
         .fileAccess(false)
@@ -154,6 +185,7 @@ export struct QuestionMarkdownView {
         })
         .onPageEnd(() => {
           this.pageReady = true;
+          this.lastRenderKey = '';
           this.render_content();
         })
         .onErrorReceive((event) => {

@@ -1,4 +1,4 @@
-import { V2TutorRequestDetail, V2TutorRequestStatus, V2RunStatus } from './LearningV2Models';
+import { V2TutorRequestDetail, V2TutorRequestStatus, V2Run, V2RunStatus } from './LearningV2Models';
 
 /**
  * 请求详情只接受相同 request 的新 revision。
@@ -20,20 +20,52 @@ export function accept_v2_detail(current: V2TutorRequestDetail | null,
   if (incoming.request.revision === current.request.revision &&
     (incoming.request.currentRunId !== current.request.currentRunId ||
       incoming.request.status !== current.request.status)) { return false; }
-  if (current.run === null && incoming.run !== null &&
-    (current.request.status !== V2TutorRequestStatus.WAITING_INPUT ||
-      incoming.run.runNo !== 1 || incoming.run.retryOfRunId !== undefined &&
-        incoming.run.retryOfRunId !== null)) { return false; }
   if (current.run !== null && incoming.run === null) { return false; }
   if (current.run !== null && incoming.run !== null) {
     if (current.run.runId === incoming.run.runId) {
       if (incoming.run.revision < current.run.revision ||
         incoming.run.revision === current.run.revision && incoming.run.status !== current.run.status ||
         terminal(current.run.status) && incoming.run.status !== current.run.status) { return false; }
-    } else if ((current.run.status !== V2RunStatus.FAILED && current.run.status !== V2RunStatus.TIMED_OUT) ||
-      incoming.run.runNo !== current.run.runNo + 1 ||
-      incoming.run.retryOfRunId !== current.run.runId ||
+    } else {
+      if (current.run.status === V2RunStatus.SUCCEEDED || current.run.status === V2RunStatus.CANCELLED ||
+        incoming.request.revision <= current.request.revision) { return false; }
+      let previous: V2Run | null = null;
+      let found: boolean = false;
+      for (let index: number = 0; index < incoming.runs.length; index++) {
+        const candidate: V2Run = incoming.runs[index];
+        if (!found) {
+          if (candidate.runId !== current.run.runId) { continue; }
+          if (candidate.runNo !== current.run.runNo || candidate.revision < current.run.revision ||
+            candidate.status !== V2RunStatus.FAILED && candidate.status !== V2RunStatus.TIMED_OUT ||
+            terminal(current.run.status) && candidate.status !== current.run.status) { return false; }
+          found = true;
+        } else if (previous !== null) {
+          if (previous.status !== V2RunStatus.FAILED && previous.status !== V2RunStatus.TIMED_OUT ||
+            candidate.runNo !== previous.runNo + 1 || candidate.retryOfRunId !== previous.runId) {
+            return false;
+          }
+        }
+        previous = candidate;
+      }
+      if (!found || previous === null || previous.runId !== incoming.run.runId ||
+        previous.runNo !== incoming.run.runNo || previous.revision !== incoming.run.revision ||
+        previous.status !== incoming.run.status || previous.runId === current.run.runId) { return false; }
+    }
+  }
+  if (current.run === null && incoming.run !== null) {
+    if (current.request.status !== V2TutorRequestStatus.WAITING_INPUT ||
       incoming.request.revision <= current.request.revision) { return false; }
+    let previous: V2Run | null = null;
+    for (let index: number = 0; index < incoming.runs.length; index++) {
+      const candidate: V2Run = incoming.runs[index];
+      if (previous === null) {
+        if (candidate.runNo !== 1 || candidate.retryOfRunId !== undefined &&
+          candidate.retryOfRunId !== null) { return false; }
+      } else if ((previous.status !== V2RunStatus.FAILED && previous.status !== V2RunStatus.TIMED_OUT) ||
+        candidate.runNo !== previous.runNo + 1 || candidate.retryOfRunId !== previous.runId) { return false; }
+      previous = candidate;
+    }
+    if (previous === null || previous.runId !== incoming.run.runId) { return false; }
   }
   if (terminal(current.request.status) && current.request.currentRunId === incoming.request.currentRunId &&
     incoming.request.status !== current.request.status) { return false; }
