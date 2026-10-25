@@ -8,7 +8,8 @@ import {
   QuestionCollection,
   QuestionListQuery,
   QuestionPage,
-  QuestionSummary
+  QuestionSummary,
+  ToastStore
 } from 'common';
 import {
   describe_answer_state,
@@ -66,6 +67,8 @@ class CollectionRow {
  */
 @Component
 export struct QuestionLibrary {
+  toast?: ToastStore;
+  onContextChanged: (context: string) => void = () => {};
   @Prop @Watch('on_refresh_token_changed') refreshToken: number = 0;
   onOpenQuestion: (questionId: string) => void = () => {
   };
@@ -430,7 +433,7 @@ export struct QuestionLibrary {
         .borderRadius(12)
         .margin({ top: 12 })
         .onClick(() => {
-          this.reload_from_first_page();
+          this.reload_from_first_page(true);
         })
     }
     .width('100%')
@@ -559,14 +562,14 @@ export struct QuestionLibrary {
   /**
    * 回到第一页并清空旧列表，供刷新、范围切换与账号刷新使用。
    */
-  private reload_from_first_page(): void {
+  private reload_from_first_page(manual: boolean = false): void {
     this.reset_list_position();
     this.page = 1;
     this.items = [];
     this.total = 0;
     this.hasLoaded = false;
     this.failedPage = 0;
-    this.load_page(1);
+    this.load_page(1, manual);
   }
 
   /**
@@ -577,7 +580,8 @@ export struct QuestionLibrary {
    *
    * @param targetPage 目标页码
    */
-  private async load_page(targetPage: number): Promise<void> {
+  private async load_page(targetPage: number, manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const token: string | null = authSession.read_access_token();
     if (token === null) {
       this.onUnauthorized('');
@@ -630,6 +634,11 @@ export struct QuestionLibrary {
     } finally {
       if (seq === this.requestSeq) {
         this.loading = false;
+        if (manual && this.is_current_request(seq, token) && authSession.has_valid_session() &&
+          (this.errorText.length > 0 || this.collectionsError.length > 0)) {
+          this.toast?.show({ key: 'phone-library-refresh', type: 'error', message: '题库刷新未完成',
+            description: '请查看页面提示后重试' }, toast_scope);
+        }
       }
     }
   }
@@ -642,7 +651,8 @@ export struct QuestionLibrary {
    *
    * @param token 访问令牌
    */
-  private async load_collections(token: string): Promise<void> {
+  private async load_collections(token: string, manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.collectionsSeq;
     this.collectionsLoading = true;
     this.collectionsError = '';
@@ -677,6 +687,10 @@ export struct QuestionLibrary {
     } finally {
       if (seq === this.collectionsSeq) {
         this.collectionsLoading = false;
+        if (manual && this.is_current_collections_request(seq, token) && authSession.has_valid_session()) {
+          this.toast?.show({ key: 'phone-collections-refresh', type: this.collectionsError.length > 0 ? 'error' : 'success',
+            message: this.collectionsError.length > 0 ? '题集刷新未完成' : '题集已刷新' }, toast_scope);
+        }
       }
     }
   }
@@ -842,7 +856,7 @@ export struct QuestionLibrary {
       this.onUnauthorized('');
       return;
     }
-    this.load_collections(token);
+    this.load_collections(token, true);
   }
 
   private switch_scope(nextScope: string): void {
@@ -850,7 +864,8 @@ export struct QuestionLibrary {
       return;
     }
     this.scope = nextScope;
-    this.reload_from_first_page();
+    this.onContextChanged(nextScope);
+    this.reload_from_first_page(true);
   }
 
   private go_page(delta: number): void {
@@ -866,7 +881,7 @@ export struct QuestionLibrary {
     this.total = 0;
     this.hasLoaded = false;
     this.failedPage = 0;
-    this.load_page(target);
+    this.load_page(target, true);
   }
 
   /**
@@ -878,7 +893,7 @@ export struct QuestionLibrary {
     }
     const target: number = this.failedPage > 0 ? this.failedPage : this.page;
     this.hasLoaded = false;
-    this.load_page(target);
+    this.load_page(target, true);
   }
 
   /** 显式刷新／范围切换／翻页才归零；打开详情不触碰 Scroller。 */

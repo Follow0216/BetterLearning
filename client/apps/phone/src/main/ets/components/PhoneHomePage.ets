@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
-import { authSession } from 'common';
+import { authSession, ToastStore } from 'common';
 import { discardPendingPhoto, loadPreview, selectImage, takePhoto } from '../features/ocr/QuestionImageSource';
 import { PhoneBackController, PhoneHomeMode, PhoneTutorSession, PhoneTutorSessionStore } from '../model/PhoneHomeState';
 import {
@@ -14,6 +14,8 @@ import { PhoneTutorPage } from './PhoneTutorPage';
 /** AI 首页。当前题与独立图文服务尚无契约，未知状态不作为成功连接呈现。 */
 @Component
 export struct PhoneHomePage {
+  toast?: ToastStore;
+  onContextChanged: (context: string) => void = () => {};
   @Prop requestedQuestionId: string = '';
   @Prop @Watch('on_requested_question') requestSerial: number = 0;
   @Prop @Watch('on_active_changed') active: boolean = true;
@@ -24,17 +26,17 @@ export struct PhoneHomePage {
   onOpenFrozenAnswer: (questionId: string, turnId: string) => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
 
-  @State mode: PhoneHomeMode = PhoneHomeMode.COLLABORATION;
-  @State selectedQuestionId: string = '';
+  @State @Watch('report_toast_context') mode: PhoneHomeMode = PhoneHomeMode.COLLABORATION;
+  @State @Watch('report_toast_context') selectedQuestionId: string = '';
   @State modePickerVisible: boolean = false;
-  @State historyVisible: boolean = false;
+  @State @Watch('report_toast_context') historyVisible: boolean = false;
   @State historyItems: PhoneTutorSession[] = [];
   @State currentQuestionNotice: string = '';
   @State singleDraft: string = '';
   @State singleNotice: string = '';
   @State imageBusy: boolean = false;
   @State singlePreview: image.PixelMap | null = null;
-  @State readingVisible: boolean = false;
+  @State @Watch('report_toast_context') readingVisible: boolean = false;
   @State readingTitle: string = '';
   @State readingBody: string = '';
   @State readingPlainText: boolean = false;
@@ -74,6 +76,7 @@ export struct PhoneHomePage {
   }
 
   on_active_changed(): void {
+    if (this.active) { this.report_toast_context(); }
     if (!this.active) {
       this.stop_editing();
       this.imageGeneration++;
@@ -90,6 +93,7 @@ export struct PhoneHomePage {
         Stack() {
           if (this.selectedQuestionId.length > 0) {
             PhoneTutorPage({
+              toast: this.toast,
               questionId: this.selectedQuestionId,
               embedded: true,
               sessionStore: this.sessions,
@@ -188,6 +192,8 @@ export struct PhoneHomePage {
               .backgroundColor(PHONE_COLOR_CARD).border({ width: 1, color: PHONE_COLOR_PRIMARY }).borderRadius(16)
               .onClick(() => {
                 this.currentQuestionNotice = '暂时还不能获取平板当前题目。请先从题库选择，或切换单设备问答。';
+                this.toast?.show({ key: 'phone-current-question', type: 'info', message: '暂时无法获取平板当前题目',
+                  description: '请先从题库选择题目' });
               })
             Button('切换单设备问答').layoutWeight(1).height(46).fontSize(14).fontColor(PHONE_COLOR_WHITE)
               .backgroundColor(PHONE_COLOR_PRIMARY).borderRadius(16)
@@ -256,7 +262,11 @@ export struct PhoneHomePage {
             PHONE_COLOR_PRIMARY : '#C7D0DF')
           .accessibilityText('发送单设备提问')
           .enabled(!this.imageBusy && (this.singleDraft.trim().length > 0 || this.singlePreview !== null))
-          .onClick(() => { this.singleNotice = '单设备问答暂未开通，暂时无法发送。你的文字和图片仍保留。'; })
+          .onClick(() => {
+            this.singleNotice = '单设备问答暂未开通，暂时无法发送。你的文字和图片仍保留。';
+            this.toast?.show({ key: 'phone-single-unavailable', type: 'info', message: '单设备问答暂未开通',
+              description: '文字和图片仍保留在本次草稿中' });
+          })
         }
         .width('100%')
       }
@@ -388,6 +398,12 @@ export struct PhoneHomePage {
     this.onComposingChanged(this.active && (this.singleFocused || this.tutorComposing));
   }
 
+  report_toast_context(): void {
+    if (!this.alive || !this.active) { return; }
+    this.onContextChanged(this.mode + ':' + this.selectedQuestionId + ':' +
+      (this.readingVisible ? 'reading' : (this.historyVisible ? 'history' : 'conversation')));
+  }
+
   private stop_editing(): void {
     this.singleEditor.stopEditing();
     this.singleFocused = false;
@@ -442,6 +458,7 @@ export struct PhoneHomePage {
     this.stop_editing();
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const generation: number = ++this.imageGeneration;
     this.imageBusy = true;
     this.singleNotice = '';
@@ -460,9 +477,13 @@ export struct PhoneHomePage {
       this.singlePreview = loaded;
       loaded = null;
       this.singleNotice = '图片已加入本次草稿，单设备问答开通后才可发送。';
+      this.toast?.show({ key: 'phone-single-image', type: 'info', message: '图片已加入本次草稿',
+        description: '单设备问答暂未开通' }, toast_scope);
     } catch (error) {
       if (!this.image_stale(generation, token)) {
         this.singleNotice = fromCamera ? '暂时无法读取拍摄的图片，请重试。' : '暂时无法读取所选图片，请重试。';
+        this.toast?.show({ key: 'phone-single-image', type: 'error', message: '暂时无法读取图片',
+          description: '原有草稿已保留，请重试' }, toast_scope);
       }
     } finally {
       if (loaded !== null) { await loaded.release(); }
