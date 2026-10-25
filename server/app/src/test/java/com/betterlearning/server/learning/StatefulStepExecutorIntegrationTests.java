@@ -20,6 +20,7 @@ import com.betterlearning.server.multiagent.MultiAgentModels.SnapshotInput;
 import com.betterlearning.server.multiagent.MultiAgentModels.Status;
 import com.betterlearning.server.multiagent.MultiAgentModels.StepInvocation;
 import com.betterlearning.server.multiagent.MultiAgentModels.StepOutput;
+import com.betterlearning.server.multiagent.StepExecutionException;
 import com.betterlearning.server.multiagent.TutorLedger;
 import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.IntegrationProperties;
@@ -171,6 +172,86 @@ class StatefulStepExecutorIntegrationTests {
             // 已取消运行可拒绝执行；不能进入 action。
         }
         assertThat(calls).hasValue(1);
+    }
+
+    @Test
+    void controlledRetrievalUnknownClosesRunAndReplayNeverCallsAction() {
+        Fixture fixture = running();
+        LedgerStepExecutor executor = new LedgerStepExecutor(ledger, fixture.account(), fixture.runId());
+        StepInvocation retrieve = new StepInvocation(Role.RETRIEVE, 1, digest("controlled-query"));
+        AtomicInteger calls = new AtomicInteger();
+        assertThatThrownBy(() -> executor.execute(retrieve, () -> {
+            calls.incrementAndGet();
+            StepExecutionException failure = new StepExecutionException("OUTCOME_UNKNOWN");
+            failure.initCause(new IllegalStateException("private query provider diagnostic"));
+            throw failure;
+        })).isInstanceOfSatisfying(StepExecutionException.class, failure -> {
+            assertThat(failure.reason()).isEqualTo("OUTCOME_UNKNOWN");
+            assertThat(failure.getMessage()).isEqualTo("OUTCOME_UNKNOWN");
+            assertThat(failure.getCause()).isNull();
+        });
+        assertThat(calls).hasValue(1);
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().status())
+                .isEqualTo(Status.FAILED);
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().reason())
+                .isEqualTo("OUTCOME_UNKNOWN");
+        assertThatThrownBy(() -> executor.execute(retrieve, () -> {
+            calls.incrementAndGet();
+            return output("must not retry retrieval");
+        })).isInstanceOf(StepExecutionException.class);
+        assertThat(calls).hasValue(1);
+        assertThat(ledger.execution(fixture.account(), fixture.runId()).modelCalls()).isZero();
+        assertThat(ledger.providerCallsInFlight(fixture.account())).isZero();
+    }
+
+    @Test
+    void ordinaryRetrievalFailureIsSanitizedAndNotRetried() {
+        Fixture fixture = running();
+        LedgerStepExecutor executor = new LedgerStepExecutor(ledger, fixture.account(), fixture.runId());
+        String sensitive = "provider-token-sk-secret-123";
+        AtomicInteger calls = new AtomicInteger();
+        StepInvocation retrieve = new StepInvocation(Role.RETRIEVE, 1, digest("ordinary-query"));
+        assertThatThrownBy(() -> executor.execute(retrieve, () -> {
+            calls.incrementAndGet();
+            throw new IllegalStateException(sensitive);
+        })).isInstanceOfSatisfying(StepExecutionException.class, failure -> {
+            assertThat(failure.reason()).isEqualTo("RETRIEVAL_FAILED");
+            assertThat(failure.getMessage()).doesNotContain(sensitive);
+            assertThat(failure.getCause()).isNull();
+        });
+        assertThat(calls).hasValue(1);
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().reason())
+                .isEqualTo("RETRIEVAL_FAILED");
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().status())
+                .isEqualTo(Status.FAILED);
+        assertThatThrownBy(() -> executor.execute(retrieve, () -> {
+            calls.incrementAndGet();
+            return output("must not retry retrieval");
+        })).isInstanceOf(StepExecutionException.class);
+        assertThat(calls).hasValue(1);
+        assertThat(ledger.execution(fixture.account(), fixture.runId()).modelCalls()).isZero();
+        assertThat(ledger.providerCallsInFlight(fixture.account())).isZero();
+    }
+
+    @Test
+    void unknownControlledRetrievalReasonIsSanitizedToRetrievalFailed() {
+        Fixture fixture = running();
+        LedgerStepExecutor executor = new LedgerStepExecutor(ledger, fixture.account(), fixture.runId());
+        String sensitive = "unapproved-provider-reason-sk-secret-456";
+        StepInvocation retrieve = new StepInvocation(Role.RETRIEVE, 1, digest("unapproved-query"));
+        assertThatThrownBy(() -> executor.execute(retrieve, () -> {
+            throw new StepExecutionException(sensitive);
+        })).isInstanceOfSatisfying(StepExecutionException.class, failure -> {
+            assertThat(failure.reason()).isEqualTo("RETRIEVAL_FAILED");
+            assertThat(failure.getMessage()).doesNotContain(sensitive);
+            assertThat(failure.getCause()).isNull();
+        });
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().status())
+                .isEqualTo(Status.FAILED);
+        assertThat(ledger.detail(fixture.account(), fixture.question(), fixture.requestId()).run().reason())
+                .isEqualTo("RETRIEVAL_FAILED");
+        assertThat(ledger.execution(fixture.account(), fixture.runId()).modelCalls()).isZero();
+        assertThat(ledger.providerCallsInFlight(fixture.account())).isZero();
     }
 
     private Fixture running() {

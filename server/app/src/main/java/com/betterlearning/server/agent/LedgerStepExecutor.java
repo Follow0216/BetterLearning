@@ -42,10 +42,16 @@ public final class LedgerStepExecutor implements StepExecutor {
             output = action.call();
         } catch (RuntimeException exception) {
             if (charged) {
+                // 异常不证明供应商已结束；保留执行预算直至明确确认或执行deadline。
                 ledger.unknown(accountId, runId, attempt.attemptId(), attempt.fence());
+                throw new StepExecutionException("OUTCOME_UNKNOWN");
             }
-            // 异常不证明供应商已结束；保留执行预算直至明确确认或执行deadline。
-            throw new StepExecutionException(charged ? "OUTCOME_UNKNOWN" : "RETRIEVAL_FAILED");
+            // 检索有独立收费账本；只传播明确允许的原因，不复制供应商异常链。
+            String reason = exception instanceof StepExecutionException controlled
+                    && "OUTCOME_UNKNOWN".equals(controlled.reason()) ? "OUTCOME_UNKNOWN" : "RETRIEVAL_FAILED";
+            Execution current = ledger.execution(accountId, runId);
+            ledger.fail(accountId, runId, current.revision(), reason);
+            throw new StepExecutionException(reason);
         }
         try {
             if (output == null || !ledger.confirm(accountId, runId, attempt.attemptId(), attempt.fence(),

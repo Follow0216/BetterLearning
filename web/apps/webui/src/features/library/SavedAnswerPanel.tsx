@@ -124,20 +124,17 @@ export function SavedAnswerPanel({ questionId }: SavedAnswerPanelProps) {
   );
 
   return (
-    <section
-      aria-labelledby="saved-answer-heading"
-      className="mt-4 rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7"
-    >
+    <section aria-labelledby="saved-answer-heading" className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2
             id="saved-answer-heading"
             className="text-base leading-6 font-semibold text-[var(--auth-text)]"
           >
-            已保存作答
+            云端当前作答
           </h2>
           <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
-            只读查看云端当前作答；Web 端不保存、不标记完成。
+            只读查看当前保存版本，继续作答请在平板端完成。
           </p>
         </div>
         {outcome.status === "ready" ? <AnswerStateBadge state={outcome.answer.state} /> : null}
@@ -150,7 +147,7 @@ export function SavedAnswerPanel({ questionId }: SavedAnswerPanelProps) {
       ) : null}
 
       {outcome.status === "failed" ? (
-        <div className="mt-4 rounded-xl border border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 py-4">
+        <div className="mt-4 border-l-2 border-[var(--auth-danger)] bg-[var(--auth-bg)] px-4 py-4">
           <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
             {outcome.message}
           </p>
@@ -207,10 +204,10 @@ function SavedAnswerBody({
   const { fileRef, savedAt, completedAt, manifest } = answer;
   if (fileRef === null || savedAt === null || manifest === null) {
     return (
-      <div className="mt-4 rounded-xl border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-5 py-8 text-center">
+      <div className="mt-4 rounded-lg bg-[var(--auth-bg)] px-5 py-8 text-center">
         <p className="text-sm font-medium text-[var(--auth-text)]">尚未保存作答</p>
         <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
-          当前没有云端已保存的完整作答；在平板完成并导出保存后，这里会显示只读图片。
+          在平板端保存作答后，可以在这里查看。
         </p>
       </div>
     );
@@ -231,12 +228,11 @@ function SavedAnswerBody({
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--auth-muted)]">
         <span>保存于 {formatQuestionTime(savedAt)}</span>
         {completedAt === null ? null : <span>完成于 {formatQuestionTime(completedAt)}</span>}
-        <span>图块 {manifest.blocks.length} 块</span>
       </div>
 
       {tileError === null ? null : (
         <p role="alert" className="mt-3 text-xs leading-5 text-[var(--auth-danger)]">
-          第 {tileError + 1} 块作答图片加载失败。重新加载会重新读取当前作答，不会混用旧图块。
+          作答图片加载失败，请重新加载当前作答。
         </p>
       )}
 

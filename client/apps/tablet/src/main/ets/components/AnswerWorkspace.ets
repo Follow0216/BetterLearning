@@ -1,3 +1,4 @@
+import { ToastStore } from 'common';
 import { AnswerState, QuestionDetail } from 'common';
 import { TabletTutorPhase } from '../features/tutor/TabletTutorBridge';
 import {
@@ -28,6 +29,7 @@ import {
  */
 @Component
 export struct AnswerWorkspace {
+  toast?: ToastStore;
   @Prop question: QuestionDetail | null = null;
   @Prop collection_name: string = '';
   @Prop question_ordinal: string = '';
@@ -99,6 +101,7 @@ export struct AnswerWorkspace {
       }
 
       TabletCanvasWorkspace({
+        toast: this.toast,
         question: this.question,
         controller: this.controller,
         onStateChange: (state: CanvasWorkspaceState) => {

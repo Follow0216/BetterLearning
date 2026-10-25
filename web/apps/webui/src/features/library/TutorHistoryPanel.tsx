@@ -21,20 +21,17 @@ export async function TutorHistoryPanel({ questionId }: { questionId: string }) 
           : "加载辅导记录失败，请稍后重试";
 
     return (
-      <section
-        aria-labelledby="tutor-history-heading"
-        className="mt-4 rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7"
-      >
+      <section aria-labelledby="tutor-history-heading" className="min-w-0">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2
               id="tutor-history-heading"
               className="text-base leading-6 font-semibold text-[var(--auth-text)]"
             >
-              AI 辅导记录
+              辅导记录
             </h2>
             <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
-              只读查看同题最近 50 轮辅导；提问与重试请在手机端发起。
+              最近 50 轮，只读查看。提问与重试请在手机端完成。
             </p>
           </div>
           <RefreshButton />
@@ -50,34 +47,31 @@ export async function TutorHistoryPanel({ questionId }: { questionId: string }) 
   const ordered = turns.map((turn, index) => ({ turn, index })).reverse();
 
   return (
-    <section
-      aria-labelledby="tutor-history-heading"
-      className="mt-4 rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7"
-    >
+    <section aria-labelledby="tutor-history-heading" className="min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2
             id="tutor-history-heading"
             className="text-base leading-6 font-semibold text-[var(--auth-text)]"
           >
-            AI 辅导记录
+            辅导记录
           </h2>
           <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
-            只读查看同题最近 50 轮辅导；提问、重试与取消请在手机端发起。
+            最近 50 轮，最新在前。提问、重试与取消请在手机端完成。
           </p>
         </div>
         <RefreshButton />
       </div>
 
       {turns.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-5 py-8 text-center">
+        <div className="mt-4 rounded-lg bg-[var(--auth-bg)] px-5 py-8 text-center">
           <p className="text-sm font-medium text-[var(--auth-text)]">暂无辅导记录</p>
           <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
-            在手机端发起提问后，这里会显示最近 50 轮只读记录。
+            在手机端发起提问后，可以在这里查看。
           </p>
         </div>
       ) : (
-        <ol className="mt-4 space-y-3">
+        <ol className="mt-5">
           {ordered.map(({ turn, index }) => {
             const hasAnswer =
               turn.status === "SUCCEEDED" &&
