@@ -431,7 +431,7 @@ class IndexStageCrossJvmFaultIntegrationTests {
                 + "\nendedAt=" + (process.isAlive() ? "PENDING" : Instant.now())
                 + "\nexitCode=" + exitCode
                 + "\nelapsedMs=" + TimeUnit.NANOSECONDS.toMillis(
-                        System.nanoTime() - child.startedNanos())
+                System.nanoTime() - child.startedNanos())
                 + "\nstate=" + state + "\n";
         Files.writeString(child.metadata(), metadata);
     }
