@@ -66,6 +66,8 @@ public final class DefaultRolePipeline implements RolePipeline {
             return failure(Reason.INVALID_INPUT);
         }
         try {
+            // 在创建模型图片副本和任何step/attempt前预检旧快照；不裁剪后继续执行。
+            TutoringInputBudget.validateSnapshot(snapshot);
             List<ModelImage> images = snapshot.images().stream()
                     .map(image -> new ModelImage(image.mediaType(), image.bytes(), image.position())).toList();
             boolean known = snapshot.hasHandwriting() != null;
@@ -94,7 +96,7 @@ public final class DefaultRolePipeline implements RolePipeline {
     private static PipelineResult failure(Reason reason) {
         String externalReason = switch (reason) {
             case OUTCOME_UNKNOWN -> "OUTCOME_UNKNOWN";
-            case BUDGET_EXCEEDED -> "BUDGET_EXCEEDED";
+            case BUDGET_EXCEEDED, MODEL_INPUT_TOO_LARGE -> "BUDGET_EXCEEDED";
             case MODEL_NOT_CONFIGURED -> "MODEL_UNAVAILABLE";
             default -> "REVIEW_REJECTED";
         };

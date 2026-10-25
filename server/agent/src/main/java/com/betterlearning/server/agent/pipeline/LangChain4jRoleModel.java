@@ -32,20 +32,13 @@ public final class LangChain4jRoleModel {
     }
 
     public Reply generate(Call call) {
+        // 预算先于配置、Base64编码和SDK网络调用；与流水线使用同一完整图预算。
+        TutoringInputBudget.validateModelImages(call.snapshot().images());
         validateConfiguration();
         List<Content> content = new ArrayList<>();
         content.add(TextContent.from(call.inputJson()));
-        long totalBytes = 0;
-        if (call.snapshot().images().isEmpty() || call.snapshot().images().size() > 256) {
-            throw new PipelineFailure(Reason.INVALID_INPUT);
-        }
         for (int index = 0; index < call.snapshot().images().size(); index++) {
             ModelImage image = call.snapshot().images().get(index);
-            totalBytes += image.byteCount();
-            if (image.byteCount() == 0 || totalBytes > 32L * 1024 * 1024
-                    || (!"image/png".equals(image.mediaType()) && !"image/jpeg".equals(image.mediaType()))) {
-                throw new PipelineFailure(Reason.INVALID_INPUT);
-            }
             content.add(TextContent.from(call.imageCaption(index)));
             content.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()),
                     image.mediaType(), ImageContent.DetailLevel.HIGH));

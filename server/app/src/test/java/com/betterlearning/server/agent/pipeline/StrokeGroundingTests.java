@@ -92,6 +92,30 @@ class StrokeGroundingTests {
     }
 
     @Test
+    void oversizedLocationTableExplainsCapacityWithoutPretendingToDiagnoseOrTruncatingStrokes() {
+        Set<String> manyStrokes = java.util.stream.IntStream.rangeClosed(1, 2001)
+                .mapToObj(index -> "s" + index).collect(java.util.stream.Collectors.toSet());
+        for (Set<String> ids : List.of(Set.of("s1"), manyStrokes)) {
+            for (Double confidence : new Double[] {null, 0.4}) {
+                Input oversized = input(StrokeLocationsStatus.TOO_LARGE, List.of(), ids, true, confidence, images());
+                StubBoundary boundary = new StubBoundary(false);
+                var result = new TutoringPipeline().run(oversized, boundary);
+                assertThat(result.diagnosis().get("status").asString()).isEqualTo("UNCERTAIN");
+                assertThat(result.diagnosis().get("observations")).isEmpty();
+                assertThat(result.bodyMarkdown()).contains("定位数据超过", "保留原作答", "不能解除容量限制", "独立作答")
+                        .doesNotContain("移项后的常数项符号", "补充清晰作答图片", "有误");
+                assertThat(result.evidenceIds()).isEmpty();
+                assertThat(boundary.calls).hasSize(4).allSatisfy(call -> {
+                    JsonNode envelope = RoleOutputValidator.JSON.readTree(call.inputJson());
+                    assertThat(envelope.get("strokeIds").size()).isEqualTo(ids.size());
+                    assertThat(envelope.get("strokeLocations")).isEmpty();
+                    assertThat(call.snapshot().images()).isEqualTo(oversized.snapshot().images());
+                });
+            }
+        }
+    }
+
+    @Test
     void unavailableGroundingDiscardsInventedIdsButStillRejectsUnexpectedFields() {
         Input legacy = input(StrokeLocationsStatus.UNAVAILABLE, List.of(), Set.of("s1"), true, null, images());
         StubBoundary invented = new StubBoundary(OBSERVED_ERROR.replace("s1", "invented"));

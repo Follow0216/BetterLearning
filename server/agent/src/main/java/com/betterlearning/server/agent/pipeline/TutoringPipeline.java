@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-import com.betterlearning.server.agent.model.ModelImage;
 import com.betterlearning.server.multiagent.CitationMarkers;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Audit;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Call;
@@ -30,7 +29,7 @@ public final class TutoringPipeline {
     private static final Pattern LINK = Pattern.compile("(?i)(https?://|data:|javascript:|<[^>]+>|!?\\[[^]]*]\\s*\\(|\\[[0-9]+])");
 
     public Candidate run(Input input, GenerationBoundary boundary) {
-        validateImages(input);
+        TutoringInputBudget.validateModelImages(input.snapshot().images());
         Session session = new Session(input, boundary);
         JsonNode solve = session.call(Role.SOLVE, Map.of());
         JsonNode diagnosis = session.call(Role.DIAGNOSE, Map.of("solve", solve));
@@ -85,23 +84,6 @@ public final class TutoringPipeline {
         }
         boundary.checkActive();
         return new Candidate(input.mode(), body(teach), selected, solve, diagnosis, review, session.audit);
-    }
-
-    private static void validateImages(Input input) {
-        if (input.snapshot().images().size() > 256) {
-            throw new PipelineFailure(Reason.INVALID_INPUT);
-        }
-        long bytes = 0;
-        for (ModelImage image : input.snapshot().images()) {
-            if (image.byteCount() == 0 || (!"image/png".equals(image.mediaType())
-                    && !"image/jpeg".equals(image.mediaType()))) {
-                throw new PipelineFailure(Reason.INVALID_INPUT);
-            }
-            bytes += image.byteCount();
-        }
-        if (bytes > 32L * 1024 * 1024) {
-            throw new PipelineFailure(Reason.INVALID_INPUT);
-        }
     }
 
     private static Map<String, Object> context(JsonNode solve, JsonNode diagnosis, Object evidence) {
