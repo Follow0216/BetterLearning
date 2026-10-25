@@ -1,4 +1,5 @@
 import { http } from '@kit.NetworkKit';
+import { rcp } from '@kit.RemoteCommunicationKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import {
@@ -518,7 +519,7 @@ export class AuthApi {
     if (input.email !== undefined) {
       payload.email = input.email;
     }
-    const outcome: RequestOutcome = await this.send_request(http.RequestMethod.PATCH,
+    const outcome: RequestOutcome = await this.send_account_patch(
       CURRENT_USER_PATH, token, JSON.stringify(payload));
     const transportError: AuthError | null = this.transport_error(outcome);
     if (transportError !== null) {
@@ -555,7 +556,7 @@ export class AuthApi {
       newPassword: newPassword,
       confirmPassword: confirmPassword
     };
-    const outcome: RequestOutcome = await this.send_request(http.RequestMethod.PATCH,
+    const outcome: RequestOutcome = await this.send_account_patch(
       CHANGE_PASSWORD_PATH, token, JSON.stringify(payload));
     const transportError: AuthError | null = this.transport_error(outcome);
     if (transportError !== null) {
@@ -659,6 +660,47 @@ export class AuthApi {
       return AuthResult.failure<string>(this.http_error(response));
     }
     return AuthResult.success<string>(response.body);
+  }
+
+  /**
+   * 账号 PATCH 使用 API 11 起支持该方法的系统 RCP。
+   * NetworkKit.RequestMethod.PATCH 仅 API 26 起提供，不能用于最低 API 24 的设备。
+   * 每次独立 session 单次 fetch，不安装重试处理器，禁重定向，无持久化 Cookie；JSON 原样传递。
+   */
+  private async send_account_patch(path: string, token: string, body: string): Promise<RequestOutcome> {
+    let session: rcp.Session | null = null;
+    try {
+      session = rcp.createSession();
+      const headers: rcp.RequestHeaders = {
+        'content-type': JSON_CONTENT_TYPE,
+        'authorization': 'Bearer ' + token
+      };
+      const request: rcp.Request = new rcp.Request(this.baseUrl + path, 'PATCH', headers, body);
+      request.configuration = {
+        transfer: {
+          autoRedirect: false,
+          timeout: { connectMs: REQUEST_TIMEOUT_MILLIS, transferMs: REQUEST_TIMEOUT_MILLIS }
+        }
+      };
+      const response: rcp.Response = await session.fetch(request);
+      // 已确认 204 即为成功，不因空响应体解码或 session 释放失败丢失提交确认。
+      const responseBody: string | null = response.statusCode === STATUS_NO_CONTENT ? '' : response.toString();
+      return RequestOutcome.received(new RawHttpResponse(response.statusCode,
+        responseBody === null ? '' : responseBody));
+    } catch (error) {
+      const businessError: BusinessError = error as BusinessError;
+      const code: number = businessError.code;
+      return RequestOutcome.failed(AuthError.network_failure('网络连接失败，请检查网络后重试',
+        typeof code === 'number' ? 'code=' + code.toString() : 'code=unknown'));
+    } finally {
+      if (session !== null) {
+        try {
+          session.close();
+        } catch (error) {
+          // 不记录可能含口令/令牌的底层异常，也不覆盖已经收到的 HTTP 结果。
+        }
+      }
+    }
   }
 
   /**
