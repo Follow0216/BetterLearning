@@ -208,3 +208,15 @@
   font-size: 13px;
   line-height: 1.6;
 }
+
+.content :global(.citation-marker) {
+  color: var(--auth-primary);
+  text-decoration: underline;
+  cursor: pointer;
+  border-radius: 0.2rem;
+  padding: 0 0.2rem;
+}
+.content :global(.citation-marker:focus-visible) {
+  outline: 2px solid var(--auth-primary);
+  outline-offset: 2px;
+}

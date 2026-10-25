@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { BlIcon } from "@/components/icons/BlIcon";
+import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import { AnswerStateBadge } from "@/features/library/AnswerStateBadge";
 import {
   buildHomeQuestionHref,
@@ -324,18 +325,20 @@ export async function LearningHomeView() {
   if (requiresHomeSignIn({ profile, questions, collections })) redirect("/account");
   if (!profile.ok)
     return (
-      <div className={workspace.root}>
-        <HomeAccountScope accountId={null} />
-        <WorkspaceHeader active="home" showAccount={false} />
-        <main tabIndex={-1} id="workspace-content" className={styles.main}>
-          <h1 className={`${styles.title} mb-7`}>暂时无法打开学习空间</h1>
-          <SectionFailure title="账号信息读取失败" message={profile.message} headingLevel={2} />
-          <Link href="/account" className={`${styles.textLink} mt-6`}>
-            前往账号页
-            <BlIcon name="chevron_right" size={14} />
-          </Link>
-        </main>
-      </div>
+      <SessionBoundary>
+        <div className={workspace.root}>
+          <HomeAccountScope accountId={null} />
+          <WorkspaceHeader active="home" showAccount={false} />
+          <main tabIndex={-1} id="workspace-content" className={styles.main}>
+            <h1 className={`${styles.title} mb-7`}>暂时无法打开学习空间</h1>
+            <SectionFailure title="账号信息读取失败" message={profile.message} headingLevel={2} />
+            <Link href="/account" className={`${styles.textLink} mt-6`}>
+              前往账号页
+              <BlIcon name="chevron_right" size={14} />
+            </Link>
+          </main>
+        </div>
+      </SessionBoundary>
     );
 
   const first = questions.ok ? questions.data.items[0] : undefined;
@@ -343,36 +346,38 @@ export async function LearningHomeView() {
   if (requiresHomeSignIn({ profile, questions, collections, preview })) redirect("/account");
 
   return (
-    <div className={workspace.root}>
-      <HomeAccountScope accountId={profile.user.accountId} />
-      <WorkspaceHeader active="home" username={profile.user.username} />
-      <main tabIndex={-1} id="workspace-content" className={styles.main}>
-        <header className={styles.intro}>
-          <div className="min-w-0">
-            <p className={styles.eyebrow}>
-              <span className="font-medium">{profile.user.username}</span> 的学习空间
-            </p>
-            <h1 className={styles.title}>从一道题开始。</h1>
-            <p className={styles.subtitle}>最近加入的题目、保存的作答，都在这里。</p>
+    <SessionBoundary>
+      <div className={workspace.root}>
+        <HomeAccountScope accountId={profile.user.accountId} />
+        <WorkspaceHeader active="home" username={profile.user.username} />
+        <main tabIndex={-1} id="workspace-content" className={styles.main}>
+          <header className={styles.intro}>
+            <div className="min-w-0">
+              <p className={styles.eyebrow}>
+                <span className="font-medium">{profile.user.username}</span> 的学习空间
+              </p>
+              <h1 className={styles.title}>从一道题开始。</h1>
+              <p className={styles.subtitle}>最近加入的题目、保存的作答，都在这里。</p>
+            </div>
+            <Link href="/workspace" className={styles.textLink}>
+              打开题库
+              <BlIcon name="chevron_right" size={15} />
+            </Link>
+          </header>
+          <div className={styles.grid}>
+            <RecentQuestions
+              items={questions.ok ? questions.data.items : []}
+              total={questions.ok ? questions.data.total : undefined}
+              preview={preview}
+              failure={questions.ok ? undefined : questions.failure}
+            />
+            <HomeCollections
+              collections={collections.ok ? collections.data.items : []}
+              failure={collections.ok ? undefined : collections.failure}
+            />
           </div>
-          <Link href="/workspace" className={styles.textLink}>
-            打开题库
-            <BlIcon name="chevron_right" size={15} />
-          </Link>
-        </header>
-        <div className={styles.grid}>
-          <RecentQuestions
-            items={questions.ok ? questions.data.items : []}
-            total={questions.ok ? questions.data.total : undefined}
-            preview={preview}
-            failure={questions.ok ? undefined : questions.failure}
-          />
-          <HomeCollections
-            collections={collections.ok ? collections.data.items : []}
-            failure={collections.ok ? undefined : collections.failure}
-          />
-        </div>
-      </main>
-    </div>
+        </main>
+      </div>
+    </SessionBoundary>
   );
 }

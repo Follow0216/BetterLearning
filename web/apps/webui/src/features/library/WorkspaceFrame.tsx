@@ -1,3 +1,4 @@
+import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import type { ReactNode } from "react";
 
 import type { CollectionSummary } from "@/lib/api/library-contract";
@@ -26,20 +27,22 @@ export function WorkspaceFrame({
   children,
 }: WorkspaceFrameProps) {
   return (
-    <div className={styles.root}>
-      <WorkspaceHeader />
-      <div className={styles.shell}>
-        <WorkspaceSidebar
-          view={view}
-          collections={collections}
-          collectionsFailure={collectionsFailure}
-          inboxCount={inboxCount}
-          allCount={allCount}
-        />
-        <main tabIndex={-1} id="workspace-content" className={styles.main}>
-          {children}
-        </main>
+    <SessionBoundary>
+      <div className={styles.root}>
+        <WorkspaceHeader />
+        <div className={styles.shell}>
+          <WorkspaceSidebar
+            view={view}
+            collections={collections}
+            collectionsFailure={collectionsFailure}
+            inboxCount={inboxCount}
+            allCount={allCount}
+          />
+          <main tabIndex={-1} id="workspace-content" className={styles.main}>
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </SessionBoundary>
   );
 }
