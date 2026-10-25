@@ -325,6 +325,7 @@ export async function LearningHomeView() {
   if (!profile.ok)
     return (
       <div className={workspace.root}>
+        <HomeAccountScope accountId={null} />
         <WorkspaceHeader active="home" showAccount={false} />
         <main tabIndex={-1} id="workspace-content" className={styles.main}>
           <h1 className={`${styles.title} mb-7`}>暂时无法打开学习空间</h1>

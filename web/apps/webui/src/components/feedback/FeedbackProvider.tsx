@@ -2,9 +2,16 @@
 
 import { ToastProvider, useToast } from "@betterlearning/ui-feedback";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, type ReactNode } from "react";
+import { createContext, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 
-function RouteScope() {
+interface ReadyRoute {
+  pathname: string;
+  key: string;
+}
+
+const ReadyRouteContext = createContext<ReadyRoute | null>(null);
+
+function RouteScope({ onReady }: { onReady: (route: ReadyRoute) => void }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const { onScopeChange } = useToast();
@@ -13,18 +20,30 @@ function RouteScope() {
     .map((key) => `${key}:${params.get(key) ?? ""}`)
     .join("|");
   useEffect(() => {
-    onScopeChange(`route:${pathname}:${context}`);
-  }, [pathname, context, onScopeChange]);
+    const key = `route:${pathname}:${context}`;
+    onScopeChange(key);
+    onReady({ pathname, key });
+  }, [pathname, context, onScopeChange, onReady]);
   return null;
 }
 
+/** A destination must wait for its own route scope, including delayed hydration. */
+export function useFeedbackRouteScope(pathname: string): string | null {
+  const route = useContext(ReadyRouteContext);
+  const currentPathname = usePathname();
+  return currentPathname === pathname && route?.pathname === currentPathname ? route.key : null;
+}
+
 export function FeedbackProvider({ children }: { children: ReactNode }) {
+  const [readyRoute, setReadyRoute] = useState<ReadyRoute | null>(null);
   return (
     <ToastProvider>
-      <Suspense fallback={null}>
-        <RouteScope />
-      </Suspense>
-      {children}
+      <ReadyRouteContext.Provider value={readyRoute}>
+        <Suspense fallback={null}>
+          <RouteScope onReady={setReadyRoute} />
+        </Suspense>
+        {children}
+      </ReadyRouteContext.Provider>
     </ToastProvider>
   );
 }

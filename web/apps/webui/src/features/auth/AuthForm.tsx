@@ -4,8 +4,14 @@ import { useToast } from "@betterlearning/ui-feedback";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 
+import { useFeedbackRouteScope } from "@/components/feedback/FeedbackProvider";
 import type { AuthUserProfile } from "@/lib/api/auth-contract";
 
+import {
+  discardAuthNavigationNotice,
+  rememberAuthNavigationNotice,
+  takeAuthNavigationNotice,
+} from "./auth-navigation-notice";
 import { validateLoginForm, validateRegisterForm, type AuthFieldName } from "./auth-validation";
 
 type Stage = "checking" | "form" | "profile" | "retry" | "opening-home";
@@ -212,6 +218,7 @@ function TextField({
 
 export function AuthForm() {
   const toast = useToast();
+  const routeScope = useFeedbackRouteScope("/account");
   const [stage, setStage] = useState<Stage>("checking");
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
@@ -236,18 +243,22 @@ export function AuthForm() {
   const controllerRef = useRef<AbortController | null>(null);
   const requestScopeRef = useRef(0);
 
-  const beginRequest = useCallback(() => {
-    sequenceRef.current += 1;
-    requestScopeRef.current = toast.captureScope();
-    controllerRef.current?.abort();
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    return {
-      sequence: sequenceRef.current,
-      signal: controller.signal,
-      scope: requestScopeRef.current,
-    };
-  }, [toast]);
+  const beginRequest = useCallback(
+    (preserveNavigationNotice = false) => {
+      if (!preserveNavigationNotice) discardAuthNavigationNotice();
+      sequenceRef.current += 1;
+      requestScopeRef.current = toast.captureScope();
+      controllerRef.current?.abort();
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      return {
+        sequence: sequenceRef.current,
+        signal: controller.signal,
+        scope: requestScopeRef.current,
+      };
+    },
+    [toast],
+  );
 
   const isCurrent = useCallback(
     (sequence: number) =>
@@ -257,7 +268,7 @@ export function AuthForm() {
 
   const loadSession = useCallback(
     async (options?: { loginJustCompleted?: boolean }) => {
-      const { sequence, signal, scope } = beginRequest();
+      const { sequence, signal, scope } = beginRequest(!options?.loginJustCompleted);
 
       try {
         const response = await fetch("/api/auth/session", {
@@ -274,7 +285,13 @@ export function AuthForm() {
           setProfile(null);
           setStage("form");
           if (options?.loginJustCompleted) {
+            discardAuthNavigationNotice();
             setFormError("登录状态校验失败，请重新登录");
+          } else if (takeAuthNavigationNotice({ event: "logout" }) === "logout") {
+            toast.show(
+              { key: "auth:logout", type: "success", message: "已退出登录" },
+              toast.captureScope(),
+            );
           }
           return;
         }
@@ -283,6 +300,7 @@ export function AuthForm() {
           if (!isCurrent(sequence)) {
             return;
           }
+          discardAuthNavigationNotice();
           setRetryMessage(
             failure.status === 503
               ? "服务暂时不可用，请稍后重试"
@@ -307,6 +325,7 @@ export function AuthForm() {
           return;
         }
         if (user === null) {
+          discardAuthNavigationNotice();
           setRetryMessage("账号信息格式异常，请稍后重试");
           setStage("retry");
           return;
@@ -315,18 +334,18 @@ export function AuthForm() {
         setProfile(user);
         setStage("profile");
         if (options?.loginJustCompleted) {
-          toast.show(
-            { key: "auth:login", type: "success", message: "登录成功" },
-            toast.captureScope(),
-          );
+          rememberAuthNavigationNotice({ event: "login", accountId: user.accountId });
           setStage("opening-home");
           // Start a fresh document for the new session, bypassing retained client navigation state.
           window.location.replace("/");
+        } else {
+          discardAuthNavigationNotice();
         }
       } catch {
         if (!isCurrent(sequence)) {
           return;
         }
+        discardAuthNavigationNotice();
         setRetryMessage("网络连接异常，请稍后重试");
         if (options?.loginJustCompleted) {
           toast.show(
@@ -346,15 +365,31 @@ export function AuthForm() {
   );
 
   useEffect(() => {
+    if (routeScope === null) return;
+    let pending: { sequence: number; controller: AbortController | null } | null = null;
     const timer = setTimeout(() => {
-      void loadSession();
+      const request = loadSession();
+      pending = { sequence: sequenceRef.current, controller: controllerRef.current };
+      void request.finally(() => {
+        pending = null;
+      });
     }, 0);
     return () => {
       clearTimeout(timer);
+      if (pending !== null && pending.sequence === sequenceRef.current) {
+        discardAuthNavigationNotice();
+        sequenceRef.current += 1;
+        pending.controller?.abort();
+      }
+    };
+  }, [loadSession, routeScope]);
+
+  useEffect(() => {
+    return () => {
       sequenceRef.current += 1;
       controllerRef.current?.abort();
     };
-  }, [loadSession]);
+  }, []);
 
   const focusFirstError = (nextErrors: Partial<Record<AuthFieldName, string>>) => {
     if (nextErrors.username) {
@@ -397,6 +432,7 @@ export function AuthForm() {
     if (submitting || submitInFlightRef.current) {
       return;
     }
+    discardAuthNavigationNotice();
     const nextErrors = validateLoginForm(username, password);
     setErrors(nextErrors);
     setFormError("");
@@ -451,6 +487,7 @@ export function AuthForm() {
     if (submitting || submitInFlightRef.current) {
       return;
     }
+    discardAuthNavigationNotice();
     const nextErrors = validateRegisterForm(username, password, confirmPassword);
     setErrors(nextErrors);
     setFormError("");
@@ -614,10 +651,7 @@ export function AuthForm() {
         setFormError("");
         setFormNotice("");
         setLoggingOut(false);
-        toast.show(
-          { key: "auth:logout", type: "success", message: "已退出登录" },
-          toast.captureScope(),
-        );
+        rememberAuthNavigationNotice({ event: "logout" });
         // Start a new document so this session's retained App Router views cannot be reused.
         window.location.replace("/account");
         return;
@@ -648,6 +682,7 @@ export function AuthForm() {
     }
     sequenceRef.current += 1;
     controllerRef.current?.abort();
+    discardAuthNavigationNotice();
     toast.onScopeChange(`auth:${mode === "login" ? "register" : "login"}:anonymous`);
     setMode(mode === "login" ? "register" : "login");
     setPassword("");
