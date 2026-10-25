@@ -1,6 +1,6 @@
 import {
   AnswerManifest, AuthError, AuthResult, FrozenAnswerUpload, LearningV2Api, UserProfile,
-  V2PendingRequest, V2TutorRequest, V2TutorRequestDetail, authSession
+  V2PendingRequest, V2TutorRequest, V2TutorRequestDetail, accept_v2_detail, authSession
 } from 'common';
 import { TabletCanvasController } from '../canvas/CanvasWorkspaceController';
 import { TabletTutorPhase, TabletTutorState } from './TabletTutorBridge';
@@ -26,7 +26,7 @@ export class SharedTabletV2TutorApi implements TabletV2TutorApiPort {
   }
 }
 
-/** 只在当前题前台读取 V2 pending；本机包以 requestId 固定，未知上传结果先查详情。 */
+/** 当前题前台优先接收新 pending，并持续读取已观察请求；未知上传结果先查详情。 */
 export class TabletV2TutorBridge {
   private timer: number = -1;
   private epoch: number = 0;
@@ -37,6 +37,7 @@ export class TabletV2TutorBridge {
   private accountId: string = '';
   private token: string = '';
   private requestId: string = '';
+  private observedDetail: V2TutorRequestDetail | null = null;
   private frozen: FrozenAnswerUpload | null = null;
   private readonly canvas: TabletCanvasController;
   private readonly api: TabletV2TutorApiPort;
@@ -53,12 +54,15 @@ export class TabletV2TutorBridge {
     const token: string | null = authSession.read_access_token();
     const user: UserProfile | null = authSession.read_user();
     if (token === null || user === null || !/^[1-9][0-9]{0,18}$/.test(questionId)) {
-      this.stop(); this.publish(TabletTutorPhase.ERROR,'请先登录并打开有效题目'); return;
+      this.stop(); this.requestId = ''; this.observedDetail = null;
+      this.publish(TabletTutorPhase.ERROR,'请先登录并打开有效题目'); return;
     }
     if (this.running && this.questionId === questionId && this.token === token && this.accountId === user.accountId) { return; }
+    const sameContext: boolean = this.questionId === questionId && this.token === token && this.accountId === user.accountId;
     this.stop();
+    if (!sameContext) { this.requestId = ''; this.observedDetail = null; }
     this.questionId = questionId; this.accountId = user.accountId; this.token = token;
-    this.requestId = ''; this.frozen = null; this.running = true;
+    this.running = true;
     const epoch: number = this.epoch;
     this.publish(TabletTutorPhase.READY,'正在接收本题辅导请求');
     this.timer = setInterval(() => { this.poll(epoch); },2000);
@@ -71,12 +75,14 @@ export class TabletV2TutorBridge {
     if (this.questionId.length > 0 && this.requestId.length > 0) {
       this.canvas.cancelV2Snapshot(this.questionId,this.requestId);
     }
-    this.requestId = ''; this.frozen = null;
+    // 暂停只失效异步代次和冻结包；同账号/题/token 回前台仍可观察显式 retry。
+    this.frozen = null;
     this.publish(TabletTutorPhase.STOPPED,'辅导请求已暂停');
   }
 
   dispose(): void {
     this.stop(); this.disposed = true; this.listener = null; this.token = ''; this.accountId = '';
+    this.requestId = ''; this.observedDetail = null;
   }
 
   private current(epoch: number): boolean {
@@ -84,7 +90,7 @@ export class TabletV2TutorBridge {
     const user: UserProfile | null = authSession.read_user();
     if (authSession.read_access_token() !== this.token || user === null || user.accountId !== this.accountId) {
       const previous: string = this.token;
-      this.stop();
+      this.stop(); this.requestId = ''; this.observedDetail = null;
       if (authSession.matches_access_token(previous) && authSession.clear_session_if_token(previous)) { this.onSessionExpired(); }
       return false;
     }
@@ -95,16 +101,25 @@ export class TabletV2TutorBridge {
     if (!this.current(epoch) || this.inFlightEpoch === epoch) { return; }
     this.inFlightEpoch = epoch;
     try {
-      if (this.requestId.length > 0) {
-        const detail: AuthResult<V2TutorRequestDetail> = await this.api.get(this.token,this.questionId,this.requestId);
-        if (!this.current(epoch)) { return; }
+      const pending: AuthResult<V2PendingRequest> = await this.api.pending(this.token,this.questionId);
+      if (!this.current(epoch)) { return; }
+      if (!pending.isSuccess || pending.data === null) { this.failure(pending.error); return; }
+      const next: V2TutorRequest | null = pending.data.request;
+      if (next !== null && next.requestId !== this.requestId) {
+        if (next.questionId !== this.questionId || next.requestId.length === 0) {
+          this.failure(AuthError.protocol_failure('辅导请求与当前题不一致')); return;
+        }
+        if (this.requestId.length > 0) { this.canvas.cancelV2Snapshot(this.questionId,this.requestId); }
+        this.requestId = next.requestId; this.observedDetail = null; this.frozen = null;
+        await this.consume(next,epoch);
+      } else if (this.requestId.length > 0) {
+        // 终态也保留观察：手机显式 retry 会更换 currentRun，而不会重新进入 pending。
+        // 同一 pending 也先查详情，避免迟到的 WAITING_INPUT 触发已绑定快照的重传。
+        const requestId: string = this.requestId;
+        const detail: AuthResult<V2TutorRequestDetail> = await this.api.get(this.token,this.questionId,requestId);
+        if (!this.current(epoch) || this.requestId !== requestId) { return; }
         if (!detail.isSuccess || detail.data === null) { this.failure(detail.error); return; }
-        await this.consume(detail.data.request,epoch);
-      } else {
-        const pending: AuthResult<V2PendingRequest> = await this.api.pending(this.token,this.questionId);
-        if (!this.current(epoch)) { return; }
-        if (!pending.isSuccess || pending.data === null) { this.failure(pending.error); return; }
-        if (pending.data.request !== null) { await this.consume(pending.data.request,epoch); }
+        if (this.accept_detail(detail.data)) { await this.consume(detail.data.request,epoch); }
       }
     } catch (error) {
       if (this.current(epoch)) { this.failure(AuthError.network_failure('辅导通信暂时失败，原冻结包仍保留','')); }
@@ -146,10 +161,23 @@ export class TabletV2TutorBridge {
       // 不重新冻结；下一轮先 GET，服务端若仍 WAITING_INPUT 才重传原包。
       this.failure(sent.error); return;
     }
-    if (sent.data.request.requestId !== this.requestId || sent.data.request.questionId !== this.questionId) {
-      this.failure(AuthError.protocol_failure('上传回执与当前请求不一致')); return;
+    if (this.accept_detail(sent.data)) { this.display(sent.data.request); }
+  }
+
+  private accept_detail(detail: V2TutorRequestDetail): boolean {
+    if (detail.request.requestId !== this.requestId || detail.request.questionId !== this.questionId) {
+      this.failure(AuthError.protocol_failure('辅导详情与当前请求不一致')); return false;
     }
-    this.display(sent.data.request);
+    if (!accept_v2_detail(this.observedDetail,detail)) { return false; }
+    this.observedDetail = detail;
+    return true;
+  }
+
+  private release_frozen(): void {
+    if (this.frozen !== null) {
+      this.canvas.cancelV2Snapshot(this.questionId,this.requestId);
+      this.frozen = null;
+    }
   }
 
   private display(request: V2TutorRequest): void {
@@ -157,10 +185,10 @@ export class TabletV2TutorBridge {
       this.publish(TabletTutorPhase.GENERATING,'完整画布已接收，正在生成辅导');
     } else if (request.status === 'SUCCEEDED') {
       this.publish(TabletTutorPhase.SUCCEEDED,'辅导已生成，可查看本题历史');
-      this.requestId = ''; this.frozen = null;
+      this.release_frozen();
     } else if (request.status === 'FAILED' || request.status === 'CANCELLED' || request.status === 'TIMED_OUT') {
       this.publish(TabletTutorPhase.FAILED,'本轮辅导已结束，可查看本题历史');
-      this.requestId = ''; this.frozen = null;
+      this.release_frozen();
     } else if (request.status === 'WAITING_INPUT' && request.snapshotFileRef !== null) {
       this.publish(TabletTutorPhase.GENERATING,'快照绑定确认中');
     }
@@ -170,7 +198,7 @@ export class TabletV2TutorBridge {
     const actual: AuthError = error ?? AuthError.protocol_failure('辅导响应无效');
     this.publish(TabletTutorPhase.ERROR,actual.message,actual);
     if (actual.is_unauthorized()) {
-      const token: string = this.token; this.stop();
+      const token: string = this.token; this.stop(); this.requestId = ''; this.observedDetail = null;
       if (authSession.clear_session_if_token(token)) { this.onSessionExpired(); }
     }
   }
