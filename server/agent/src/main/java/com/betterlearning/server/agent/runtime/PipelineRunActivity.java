@@ -13,10 +13,14 @@ import com.betterlearning.server.multiagent.TutorLedger;
 import io.temporal.failure.ApplicationFailure;
 import java.time.Duration;
 import java.time.Clock;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /** Sources and role output never cross the Activity result boundary into Temporal history. */
 public final class PipelineRunActivity implements RunStepActivities {
+    // Fixed TutorLedger.fail protocol; supplier diagnostics must never become persisted reasons.
+    private static final Set<String> PIPELINE_FAILURE_REASONS = Set.of("OUTCOME_UNKNOWN", "MODEL_UNAVAILABLE",
+            "INPUT_TIMEOUT", "QUEUE_TIMEOUT", "RUN_TIMEOUT", "BUDGET_EXCEEDED", "REVIEW_REJECTED");
     private final TutorLedger ledger;
     private final SnapshotPort snapshots;
     private final RolePipeline pipeline;
@@ -72,9 +76,9 @@ public final class PipelineRunActivity implements RunStepActivities {
             return;
         }
         if (result == null || !result.verified()) {
-            String reason = result != null && "BUDGET_EXCEEDED".equals(result.reason())
-                    ? "BUDGET_EXCEEDED" : "REVIEW_REJECTED";
-            ledger.fail(accountId, runId, latest.revision(), reason);
+            String reason = result == null ? null : result.reason();
+            ledger.fail(accountId, runId, latest.revision(),
+                    reason != null && PIPELINE_FAILURE_REASONS.contains(reason) ? reason : "REVIEW_REJECTED");
             return;
         }
         ledger.publish(accountId, runId, latest.revision(),
