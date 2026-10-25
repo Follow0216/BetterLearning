@@ -24,6 +24,8 @@ import com.betterlearning.server.security.IssuedToken;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -43,7 +45,6 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @Tag("integration")
@@ -56,8 +57,7 @@ class SessionManagerIntegrationTests {
 
     @Container
     static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+            IntegrationContainers.redis();
 
     private static LettuceConnectionFactory connectionFactory;
 

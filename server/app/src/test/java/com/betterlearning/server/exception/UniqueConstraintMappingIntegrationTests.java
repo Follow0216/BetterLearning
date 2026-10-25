@@ -30,6 +30,8 @@ import com.betterlearning.server.service.UserService;
 import com.betterlearning.server.service.impl.UserServiceImpl;
 import com.betterlearning.server.support.MybatisTestContext;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -49,24 +51,17 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @Tag("integration")
 class UniqueConstraintMappingIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = "password1";
 
     private static final RateLimitManager NO_LIMIT_MANAGER = mock(RateLimitManager.class);
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     private static DataSource dataSource;
 

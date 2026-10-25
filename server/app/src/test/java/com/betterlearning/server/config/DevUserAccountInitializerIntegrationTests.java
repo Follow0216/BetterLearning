@@ -15,6 +15,8 @@ import java.util.Map;
 import com.betterlearning.server.dao.UserDao;
 import com.betterlearning.server.exception.UserUniqueConflictException;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -32,7 +34,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -55,9 +56,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class DevUserAccountInitializerIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
-            .asCompatibleSubstituteFor("postgres");
-
     private static final String SECRET = Base64.getEncoder().encodeToString(
             "betterlearning-dev-seed-integration-secret".getBytes(StandardCharsets.UTF_8));
 
@@ -72,15 +70,11 @@ class DevUserAccountInitializerIntegrationTests {
     static final String PASSWORD_PROPERTY = "SPRING_SECURITY_USER_PASSWORD=" + PASSWORD;
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     @Container
     static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+            IntegrationContainers.redis();
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
