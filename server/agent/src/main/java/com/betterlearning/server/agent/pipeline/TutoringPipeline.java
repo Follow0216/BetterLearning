@@ -129,8 +129,8 @@ public final class TutoringPipeline {
                 violations.add("HINT_FULL_SOLUTION");
             }
             String answer = normalize(solve.get("answer").asString());
-            if (solve.get("sufficient").asBoolean() && answer.length() >= 3
-                    && normalize(body).contains(answer)) {
+            if (solve.get("sufficient").asBoolean() && ((answer.length() >= 3
+                    && normalize(body).contains(answer)) || explicitConclusion(body, answer))) {
                 violations.add("HINT_EXACT_ANSWER");
             }
         }
@@ -144,6 +144,9 @@ public final class TutoringPipeline {
         Set<String> allowed = new LinkedHashSet<>();
         for (Map<String, String> item : evidence) {
             allowed.add(item.get("evidenceId"));
+            if (contradictoryHistoricalBinding(body, item.get("claim"), solve.get("answer").asString())) {
+                violations.add("CONTRADICTORY_HISTORY_CONCLUSION");
+            }
             if (item.get("claim").length() >= 24 && body.contains(item.get("claim"))) {
                 violations.add("HISTORY_VERBATIM_COPY");
             }
@@ -181,6 +184,38 @@ public final class TutoringPipeline {
             }
         }
         return String.join("\n\n", sections);
+    }
+
+    private static boolean explicitConclusion(String body, String answer) {
+        String normalized = normalize(body);
+        if (answer.isBlank()) {
+            return false;
+        }
+        if (normalized.equals(answer)) {
+            return true;
+        }
+        String token = Pattern.quote(answer) + "(?![A-Za-z0-9_.])";
+        return Pattern.compile("(?:答案|结果|最终解|最终值)(?:是|为|等于|[:：])?" + token)
+                .matcher(normalized).find();
+    }
+
+    private static boolean contradictoryHistoricalBinding(String body, String claim, String answer) {
+        Pattern binding = Pattern.compile("^([a-zA-Z])=([+-]?[0-9]+(?:\\.[0-9]+)?)$");
+        var old = binding.matcher(normalize(claim));
+        var current = binding.matcher(normalize(answer));
+        if (!old.matches() || !current.matches() || !old.group(1).equals(current.group(1))
+                || new java.math.BigDecimal(old.group(2)).compareTo(new java.math.BigDecimal(current.group(2))) == 0) {
+            return false;
+        }
+        String expression = normalize(claim);
+        for (String sentence : body.split("[。！？!?;；\\n]")) {
+            if (normalize(sentence).contains(expression)
+                    && !Pattern.compile("错误|不成立|不对|不能|不应|不要|反例|并非|误写|有误")
+                    .matcher(sentence).find()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String normalize(String value) {

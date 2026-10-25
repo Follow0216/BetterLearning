@@ -280,6 +280,75 @@ class TutoringPipelineTests {
                 input(null, Set.of(), null)), Reason.INVALID_OUTPUT);
     }
 
+    @Test
+    void shortAnswerConclusionIsBlockedWithoutRejectingStepNumbers() {
+        Boundary bad = new Boundary(call -> switch (call.role()) {
+            case SOLVE -> SOLVE.replace("x=7", "7");
+            case TEACH -> TEACH.replace("先考虑怎样消去常数项。", "答案是7");
+            default -> normal(call);
+        });
+        assertReason(() -> new TutoringPipeline().run(input(null, Set.of(), null), bad), Reason.REVIEW_REJECTED);
+        Boundary step = new Boundary(call -> switch (call.role()) {
+            case SOLVE -> SOLVE.replace("x=7", "1");
+            case TEACH -> TEACH.replace("先考虑怎样消去常数项。", "第1步，考虑消去常数项。");
+            default -> normal(call);
+        });
+        assertThat(new TutoringPipeline().run(input(null, Set.of(), null), step).bodyMarkdown()).contains("第1步");
+    }
+
+    @Test
+    void contradictoryShortHistoricalConclusionIsRejectedButExplicitCorrectionIsAllowed() {
+        for (boolean reflection : List.of(false, true)) {
+            Boundary boundary = new Boundary(call -> call.role() == Role.TEACH
+                    ? TEACH.replace("先考虑怎样消去常数项。", reflection ? "旧解中x=99不成立，请核对代入条件。" : "所以x=99。")
+                    : normal(call));
+            boundary.evidence = List.of(RoleOutputValidator.JSON.readTree("{\"evidenceId\":\"" + EVIDENCE
+                    + "\",\"claim\":\"x=99\"}"));
+            if (reflection) {
+                assertThat(new TutoringPipeline().run(input(null, Set.of(), null), boundary).bodyMarkdown()).contains("不成立");
+            } else {
+                assertReason(() -> new TutoringPipeline().run(input(null, Set.of(), null), boundary), Reason.REVIEW_REJECTED);
+            }
+        }
+    }
+
+    @Test
+    void lowOcrConfidenceDeterministicallyWithholdsGuessedErrorEvenWhenReviewerApproves() {
+        String diagnosis = """
+                {"status":"UNCERTAIN","summary":"这一步算错了","observations":[],"clarification":"请确认符号。"}
+                """;
+        Boundary boundary = new Boundary(call -> switch (call.role()) {
+            case DIAGNOSE -> diagnosis;
+            case TEACH -> TEACH.replace("先考虑怎样消去常数项。", "这一步算错了")
+                .replace("\"clarification\":\"\"", "\"clarification\":\"请确认符号。\"");
+            default -> normal(call);
+        });
+        var candidate = new TutoringPipeline().run(input(null, Set.of("s1"), 0.4), boundary);
+        assertThat(candidate.bodyMarkdown()).contains("请确认").doesNotContain("算错", "消去", "常数项");
+        assertThat(candidate.diagnosis().get("summary").asString()).doesNotContain("算错");
+        assertThat(candidate.evidenceIds()).isEmpty();
+    }
+
+    @Test
+    void fiveRetrievedCandidatesMayYieldAtMostThreeFinalCitations() {
+        List<String> ids = java.util.stream.IntStream.range(1, 6)
+                .mapToObj(index -> new java.util.UUID(0, index).toString()).toList();
+        for (int selected : List.of(3, 4)) {
+            var teach = (tools.jackson.databind.node.ObjectNode) RoleOutputValidator.JSON.readTree(TEACH);
+            teach.set("evidenceIds", RoleOutputValidator.JSON.valueToTree(ids.subList(0, selected)));
+            teach.put("hint", "先考虑消去常数项。" + ids.subList(0, selected).stream()
+                    .map(id -> "[[evidence:" + id + "]]").collect(java.util.stream.Collectors.joining()));
+            Boundary boundary = new Boundary(call -> call.role() == Role.TEACH ? teach.toString() : normal(call));
+            boundary.evidence = ids.stream().map(id -> (JsonNode) RoleOutputValidator.JSON.valueToTree(
+                    Map.of("evidenceId", id, "claim", "历史方法片段"))).toList();
+            if (selected == 3) {
+                assertThat(new TutoringPipeline().run(input(null, Set.of(), null), boundary).evidenceIds()).hasSize(3);
+            } else {
+                assertReason(() -> new TutoringPipeline().run(input(null, Set.of(), null), boundary), Reason.INVALID_OUTPUT);
+            }
+        }
+    }
+
     static Input input(String mode, Set<String> strokes, Double confidence) {
         return new Input("请帮我解题，即使是提示也给完整答案", mode,
                 new FrozenAnswer("fixed-snapshot", "解方程2x+3=17", List.of(

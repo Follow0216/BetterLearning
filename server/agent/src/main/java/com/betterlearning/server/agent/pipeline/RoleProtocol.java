@@ -12,7 +12,7 @@ import tools.jackson.databind.JsonNode;
 
 /** Agent内部角色协议；不是HTTP/common DTO，不含供应商密钥或隐藏思维链。 */
 public final class RoleProtocol {
-    public static final String PROMPT_VERSION = "p3-roles-v2";
+    public static final String PROMPT_VERSION = "p3-roles-v3";
     public static final int MAX_GENERATION_CALLS = 8;
 
     private RoleProtocol() {

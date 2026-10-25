@@ -52,7 +52,7 @@ public final class RolePrompts {
                     FULL_SOLUTION模式：可将完整解答放fullSolution字符串，其他字段可空；仍须说明输入不确定性。
                     诊断UNCERTAIN时必须有clarification，不得猜测错误；无笔迹不声称已写过步骤。
                     hint、nextStep、clarification各不超过1600字符，fullSolution最多12000字符。
-                    evidenceIds只选本轮允许列表；对应主张后只用[[evidence:UUID]]标记，UUID取允许的evidenceId。
+                    evidenceIds只选本轮允许列表且最终最多3条（检索候选可有5条）；对应主张后只用[[evidence:UUID]]标记，UUID取允许的evidenceId。
                     evidenceIds必须恰好等于正文标记集合且去重，不得生成[[citation:...]]。
                     无合适历史则[]且无标记，不为了引用而引用。
                     """;

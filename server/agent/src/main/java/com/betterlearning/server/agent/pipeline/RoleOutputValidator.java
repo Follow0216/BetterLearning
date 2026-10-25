@@ -40,6 +40,20 @@ public final class RoleOutputValidator {
                 case REVIEW -> review(node);
                 default -> throw new PipelineFailure(Reason.INVALID_OUTPUT);
             }
+            boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8
+                    && !input.strokeIds().isEmpty();
+            if (uncertainOcr && role == Role.DIAGNOSE) {
+                return JSON.readTree("""
+                        {"status":"UNCERTAIN","summary":"当前笔迹识别不可靠，尚不能判断是否有误。",
+                        "observations":[],"clarification":"请确认不清晰的符号或补充清晰作答图，再检查具体步骤。"}
+                        """);
+            }
+            if (uncertainOcr && role == Role.TEACH) {
+                return JSON.readTree("""
+                        {"hint":"","nextStep":"","clarification":"当前笔迹识别不够可靠，请确认不清晰的符号或补充清晰作答图，再检查具体步骤。",
+                        "fullSolution":null,"evidenceIds":[]}
+                        """);
+            }
             return node;
         } catch (RuntimeException exception) {
             throw new PipelineFailure(Reason.INVALID_OUTPUT);
@@ -133,7 +147,7 @@ public final class RoleOutputValidator {
         if (!node.get("fullSolution").isNull()) {
             text(node, "fullSolution", 12000, false);
         }
-        textArray(node.get("evidenceIds"), 5, 36);
+        textArray(node.get("evidenceIds"), 3, 36);
         List<String> ids = strings(node.get("evidenceIds"));
         require(new HashSet<>(ids).size() == ids.size());
     }
