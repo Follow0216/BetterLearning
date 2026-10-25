@@ -9,5 +9,6 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    exclude: ["src/features/auth/auth-navigation-notice.test.ts"],
   },
 });

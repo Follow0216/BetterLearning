@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - packages/*
 
 catalog:
   next: 16.4.2

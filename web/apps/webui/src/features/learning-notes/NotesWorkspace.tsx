@@ -1,5 +1,6 @@
 "use client";
 
+import { useToast } from "@betterlearning/ui-feedback";
 import { useEffect, useRef, useState } from "react";
 
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
@@ -30,6 +31,7 @@ function NoteEditor({
   onDeleted: () => void;
   onBack: () => void;
 }) {
+  const toast = useToast();
   const [note, setNote] = useState<Note | null>(null);
   const [etag, setEtag] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -109,6 +111,7 @@ function NoteEditor({
       createBlocked
     )
       return;
+    const requestScope = toast.captureScope();
     setPending(true);
     setMessage("");
     const payload = JSON.stringify({ title, bodyMarkdown: body.replace(/\r\n/g, "\n") });
@@ -149,6 +152,10 @@ function NoteEditor({
           setConflict(true);
           setLatest(loaded);
           setMessage("原笔记已被更新，请核对服务器版本后明确合并本地改稿。");
+          toast.show(
+            { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
+            requestScope,
+          );
           return;
         }
         setNote(loaded.data);
@@ -175,6 +182,7 @@ function NoteEditor({
         }
       }
       setMessage("笔记已保存。索引状态可在列表中刷新查看。");
+      toast.show({ key: "note:save", type: "success", message: "笔记已保存" }, requestScope);
       onSaved();
     } catch (error) {
       if (lifetime.current?.signal.aborted) return;
@@ -206,6 +214,11 @@ function NoteEditor({
         setConflict(true);
       }
       setMessage(errorMessage(error));
+      if (!(error instanceof LearningApiError && error.status === 401))
+        toast.show(
+          { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
+          requestScope,
+        );
     } finally {
       setPending(false);
     }
@@ -245,6 +258,7 @@ function NoteEditor({
 
   async function remove() {
     if (!note || !etag || pending || !window.confirm("删除此笔记？已有引用将立即失效。")) return;
+    const requestScope = toast.captureScope();
     setPending(true);
     setMessage("");
     try {
@@ -253,11 +267,18 @@ function NoteEditor({
         headers: { "If-Match": etag },
         signal: lifetime.current?.signal,
       });
+      if (lifetime.current?.signal.aborted) return;
+      toast.show({ key: "note:delete", type: "success", message: "笔记已删除" }, requestScope);
       onDeleted();
     } catch (error) {
       if (lifetime.current?.signal.aborted) return;
       if (error instanceof LearningApiError && error.status === 412) setConflict(true);
       setMessage(errorMessage(error));
+      if (!(error instanceof LearningApiError && error.status === 401))
+        toast.show(
+          { key: "note:delete", type: "error", message: "笔记删除未完成，请查看编辑器提示" },
+          requestScope,
+        );
     } finally {
       setPending(false);
     }

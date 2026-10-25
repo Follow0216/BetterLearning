@@ -1,36 +1,64 @@
-import Link from "next/link";
-
 import { BlIcon } from "@/components/icons/BlIcon";
-import type { QuestionSummary } from "@/lib/api/library-contract";
+import {
+  SUBJECT_LABELS,
+  type CollectionSummary,
+  type QuestionSummary,
+} from "@/lib/api/library-contract";
 
 import { AnswerStateBadge } from "./AnswerStateBadge";
-import { buildQuestionHref, formatQuestionTime } from "./library-params";
-import { SubjectBadge } from "./SubjectBadge";
+import { QuestionListLink } from "./LibraryNavigation";
+import {
+  buildQuestionHref,
+  buildWorkspaceHref,
+  formatQuestionTime,
+  type LibraryView,
+} from "./library-params";
+import styles from "./workspace.module.css";
 
-export function QuestionList({ items }: { items: QuestionSummary[] }) {
+export function QuestionList({
+  items,
+  collections,
+  view,
+  page,
+}: {
+  items: QuestionSummary[];
+  collections: CollectionSummary[];
+  view: LibraryView;
+  page: number;
+}) {
+  const sourceHref = buildWorkspaceHref(view, page);
+  const collectionNames = new Map(
+    collections.map((collection) => [collection.collectionId, collection.name]),
+  );
   return (
-    <ul className="divide-y divide-[var(--auth-divider)] overflow-hidden rounded-2xl border border-[var(--auth-border)] bg-white">
-      {items.map((question) => (
-        <li key={question.questionId}>
-          <Link
-            href={buildQuestionHref(question.questionId)}
-            className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--auth-hover)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none focus-visible:ring-inset"
-          >
-            <SubjectBadge subject={question.subject} />
-            <span className="min-w-0 flex-1 text-sm leading-6 break-words text-[var(--auth-text)]">
-              {question.summary}
-            </span>
-            <AnswerStateBadge state={question.answerState} />
-            <time
-              dateTime={question.createdAt}
-              className="hidden shrink-0 text-xs text-[var(--auth-muted)] tabular-nums sm:block"
+    <ul className={styles.questionList}>
+      {items.map((question) => {
+        const collectionName = collectionNames.get(question.collectionId);
+        return (
+          <li key={question.questionId} className={styles.questionRow}>
+            <QuestionListLink
+              href={buildQuestionHref(question.questionId, { view, page })}
+              sourceHref={sourceHref}
+              className={styles.questionLink}
             >
-              {formatQuestionTime(question.createdAt)}
-            </time>
-            <BlIcon name="chevron_right" size={16} className="text-[var(--auth-muted)]" />
-          </Link>
-        </li>
-      ))}
+              <span className="min-w-0 flex-1">
+                <span className={styles.questionSummary}>{question.summary}</span>
+                <span className={styles.questionMeta}>
+                  <span>{SUBJECT_LABELS[question.subject]}</span>
+                  <AnswerStateBadge state={question.answerState} />
+                  <time dateTime={question.createdAt}>
+                    {formatQuestionTime(question.createdAt)}
+                  </time>
+                  {collectionName === undefined ? null : (
+                    <span className="max-w-full truncate">{collectionName}</span>
+                  )}
+                </span>
+              </span>
+              <BlIcon name="chevron_right" size={16} className="text-[var(--auth-muted)]" />
+            </QuestionListLink>
+          </li>
+        );
+      })}
     </ul>
   );
 }

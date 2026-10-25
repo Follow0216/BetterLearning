@@ -2,7 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const learningRequestMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => ({ show: vi.fn(), captureScope: vi.fn(() => 17) }));
 
+vi.mock("@betterlearning/ui-feedback", () => ({ useToast: () => toastMock }));
 vi.mock("@/lib/api/learning-v2-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/learning-v2-client")>()),
   learningRequest: learningRequestMock,
@@ -40,9 +42,65 @@ function deferred<T>() {
 afterEach(() => {
   cleanup();
   learningRequestMock.mockReset();
+  toastMock.show.mockReset();
+  toastMock.captureScope.mockReset();
+  toastMock.captureScope.mockReturnValue(17);
+  vi.restoreAllMocks();
 });
 
 describe("NotesWorkspace", () => {
+  it("shows scoped save and delete results without replacing persistent edit state", async () => {
+    let updates = 0;
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20") return Promise.resolve(page([]));
+      if (path === "notes?limit=20") return Promise.resolve(page([note("原稿")]));
+      if (path === `notes/${id}` && options?.method === "PUT") {
+        updates += 1;
+        return updates === 1
+          ? Promise.resolve({ data: note("已保存", 2), etag: '"v2"' })
+          : Promise.reject(new LearningApiError(503, "W0001", "服务暂不可用", "trace-2"));
+      }
+      if (path === `notes/${id}` && options?.method === "DELETE")
+        return Promise.resolve({ data: undefined, etag: null });
+      if (path === `notes/${id}`) return Promise.resolve({ data: note("原稿"), etag: '"v1"' });
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<NotesWorkspace />);
+    fireEvent.click(await screen.findByRole("button", { name: "原稿" }));
+    const title = (await screen.findByLabelText("标题")) as HTMLInputElement;
+    fireEvent.change(title, { target: { value: "已保存" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await waitFor(() =>
+      expect(toastMock.show).toHaveBeenCalledWith(
+        { key: "note:save", type: "success", message: "笔记已保存" },
+        17,
+      ),
+    );
+    expect(screen.getByText(/笔记已保存。索引状态/)).toBeTruthy();
+
+    fireEvent.change(title, { target: { value: "失败后保留的改稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await waitFor(() =>
+      expect(toastMock.show).toHaveBeenCalledWith(
+        { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
+        17,
+      ),
+    );
+    expect(title.value).toBe("失败后保留的改稿");
+    expect(screen.getByText("服务暂不可用")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除笔记" }));
+    await waitFor(() =>
+      expect(toastMock.show).toHaveBeenCalledWith(
+        { key: "note:delete", type: "success", message: "笔记已删除" },
+        17,
+      ),
+    );
+    expect(toastMock.captureScope).toHaveBeenCalledTimes(3);
+  });
+
   it.each([400, 422])(
     "uses a new key and revised payload after a definite first-create %i rejection",
     async (status) => {
@@ -223,6 +281,12 @@ describe("NotesWorkspace", () => {
     expect(title.value).toBe("仍保留的改稿");
     fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
     expect(creates).toHaveLength(1);
+    if (status === 401) expect(toastMock.show).not.toHaveBeenCalled();
+    else
+      expect(toastMock.show).toHaveBeenCalledWith(
+        { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
+        17,
+      );
   });
 
   it("retries an uncertain creation with its original key and body, then saves later edits with ETag", async () => {

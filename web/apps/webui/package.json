@@ -9,9 +9,10 @@
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run && node --experimental-strip-types --test src/features/auth/auth-navigation-notice.test.ts"
   },
   "dependencies": {
+    "@betterlearning/ui-feedback": "workspace:*",
     "katex": "catalog:",
     "markdown-it": "catalog:",
     "markdown-it-texmath": "catalog:",

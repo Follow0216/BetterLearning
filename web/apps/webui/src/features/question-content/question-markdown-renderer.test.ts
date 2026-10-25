@@ -8,7 +8,7 @@ const citations = [{ label: "7", citationId: id }];
 const marker = `[[citation:${id}]]`;
 
 function html(markdown: string, items?: typeof citations): string {
-  const result = renderQuestionMarkdown(markdown, items);
+  const result = renderQuestionMarkdown(markdown, { citations: items });
   if (!result.ok) throw new Error("render failed");
   return result.html;
 }
@@ -75,6 +75,14 @@ describe("Markdown citation rendering", () => {
   it("does not share citation state across documents", () => {
     html(marker, citations);
     expect(html(marker)).not.toContain("data-citation-id=");
+  });
+
+  it("rebases preview headings without losing citation identity or changing other documents", () => {
+    const preview = renderQuestionMarkdown(`# 标题\n\n${marker}`, { headingLevel: 3, citations });
+    expect(preview.ok && preview.html).toContain("<h3>标题</h3>");
+    expect(preview.ok && preview.html).toContain(`data-citation-id="${id}"`);
+    const detail = renderQuestionMarkdown("# 标题");
+    expect(detail.ok && detail.html).toContain("<h1>标题</h1>");
   });
 
   it("renders bracket block math immediately after a paragraph", () => {

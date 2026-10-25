@@ -70,7 +70,7 @@ export function announceSessionChange(kind: SessionChangeKind): string {
 }
 
 export function returnToAccount(): void {
-  window.location.replace("/");
+  window.location.replace("/account");
 }
 
 /** 监听本标签、其他标签及恢复前漏掉的会话世代变化；每个新世代通知一次。 */

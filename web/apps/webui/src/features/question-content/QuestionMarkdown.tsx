@@ -1,7 +1,7 @@
 import "katex/dist/katex.min.css";
 import "markdown-it-texmath/css/texmath.css";
 
-import { renderQuestionMarkdown } from "./question-markdown-renderer";
+import { renderQuestionMarkdown, type QuestionRenderOptions } from "./question-markdown-renderer";
 import styles from "./question-markdown.module.css";
 
 export interface QuestionMarkdownProps {
@@ -9,7 +9,8 @@ export interface QuestionMarkdownProps {
   className?: string;
   ariaLabel?: string;
   failureMessage?: string;
-  citations?: readonly { citationId: string; label: string }[];
+  headingLevel?: QuestionRenderOptions["headingLevel"];
+  citations?: QuestionRenderOptions["citations"];
   onCitationClick?: (citationId: string) => void;
 }
 
@@ -22,12 +23,13 @@ function joinClassNames(...values: Array<string | undefined>): string {
 export function QuestionMarkdown({
   bodyMarkdown,
   className,
-  ariaLabel = "题目正文",
-  failureMessage = "题面暂时无法显示，请稍后重试。",
+  headingLevel,
   citations,
   onCitationClick,
+  ariaLabel = "题目正文",
+  failureMessage = "题面暂时无法显示，请稍后重试。",
 }: QuestionMarkdownProps) {
-  const rendered = renderQuestionMarkdown(bodyMarkdown, citations);
+  const rendered = renderQuestionMarkdown(bodyMarkdown, { headingLevel, citations });
   const rootClassName = joinClassNames(styles.content, className);
 
   if (!rendered.ok) {

@@ -8,6 +8,8 @@ import {
   UserProfile
 } from './AuthModels';
 import { authSession } from './AuthSession';
+import { ToastStore } from '../../components/feedback/ToastStore';
+import { ToastType } from '../../components/feedback/ToastModels';
 import {
   AUTH_COLOR_BACKGROUND,
   AUTH_COLOR_BORDER,
@@ -120,6 +122,8 @@ struct AuthInputField {
  */
 @Component
 export struct AuthScreen {
+  /** 由窗口根传入同一 Store；初次挂载不清 scope，保留返回登录后的结果通知。 */
+  toast?: ToastStore = undefined;
   /** 登录后资料校验通过；外层可切换到真实题库。 */
   onAuthenticated: (user: UserProfile) => void = () => {
   };
@@ -144,11 +148,13 @@ export struct AuthScreen {
   @State profileLoading: boolean = false;
   @State isLoggingOut: boolean = false;
 
+  private active: boolean = false;
   private api: AuthApi = AuthApi.create_default();
   private wideQuery: mediaquery.MediaQueryListener | null = null;
   private shortQuery: mediaquery.MediaQueryListener | null = null;
 
   aboutToAppear(): void {
+    this.active = true;
     this.wideQuery = this.getUIContext().getMediaQuery().matchMediaSync(AUTH_WIDE_QUERY);
     this.isWide = this.wideQuery.matches;
     this.wideQuery.on('change', (result: mediaquery.MediaQueryResult) => {
@@ -162,6 +168,7 @@ export struct AuthScreen {
   }
 
   aboutToDisappear(): void {
+    this.active = false;
     if (this.wideQuery !== null) {
       this.wideQuery.off('change');
       this.wideQuery = null;
@@ -582,12 +589,17 @@ export struct AuthScreen {
       this.apply_local_errors(formErrors);
       return;
     }
+    const scope: number | undefined = this.toast?.captureScope();
     const startedAt: number = Date.now();
     this.isSubmitting = true;
     try {
       const result: AuthResult<AuthSessionData> = await this.api.login(this.username, this.password);
+      if (!this.is_current_scope(scope)) {
+        return;
+      }
       if (!result.isSuccess || result.data === null) {
         this.apply_auth_error(result.error, true);
+        this.notify_form_error(scope);
         return;
       }
       authSession.save_session(result.data, startedAt);
@@ -598,9 +610,15 @@ export struct AuthScreen {
       this.profileError = '';
       await this.load_profile(result.data.accessToken, false);
     } catch (error) {
+      if (!this.is_current_scope(scope)) {
+        return;
+      }
       this.formError = '登录请求异常，请稍后重试';
+      this.notify_form_error(scope);
     } finally {
-      this.isSubmitting = false;
+      if (this.active) {
+        this.isSubmitting = false;
+      }
     }
   }
 
@@ -616,25 +634,38 @@ export struct AuthScreen {
       this.apply_local_errors(formErrors);
       return;
     }
+    const scope: number | undefined = this.toast?.captureScope();
     const trimmedUsername: string = this.username.trim();
     this.isSubmitting = true;
     try {
       const result: AuthResult<UserProfile> =
         await this.api.register(trimmedUsername, this.password, this.confirmPassword);
-      if (!result.isSuccess || result.data === null) {
-        this.apply_auth_error(result.error, false);
+      if (!this.is_current_scope(scope)) {
         return;
       }
+      if (!result.isSuccess || result.data === null) {
+        this.apply_auth_error(result.error, false);
+        this.notify_form_error(scope);
+        return;
+      }
+      this.toast?.clearScope();
       this.mode = AuthMode.LOGIN;
       this.username = trimmedUsername;
       this.password = '';
       this.confirmPassword = '';
       this.clear_errors();
       this.formNotice = '注册成功，请登录';
+      this.notify_result('auth-register', 'success', this.formNotice, this.toast?.captureScope());
     } catch (error) {
+      if (!this.is_current_scope(scope)) {
+        return;
+      }
       this.formError = '注册请求异常，请稍后重试';
+      this.notify_form_error(scope);
     } finally {
-      this.isSubmitting = false;
+      if (this.active) {
+        this.isSubmitting = false;
+      }
     }
   }
 
@@ -645,6 +676,7 @@ export struct AuthScreen {
     if (this.isSubmitting) {
       return;
     }
+    this.toast?.clearScope();
     this.mode = this.mode === AuthMode.LOGIN ? AuthMode.REGISTER : AuthMode.LOGIN;
     this.password = '';
     this.confirmPassword = '';
@@ -727,11 +759,12 @@ export struct AuthScreen {
    * @param isRefresh 是否为已登录状态下的刷新
    */
   private async load_profile(token: string, isRefresh: boolean): Promise<void> {
+    const scope: number | undefined = this.toast?.captureScope();
     this.profileLoading = true;
     this.profileError = '';
     try {
       const result: AuthResult<UserProfile> = await this.api.getCurrentUser(token);
-      if (!authSession.matches_access_token(token)) {
+      if (!this.is_current_scope(scope) || !authSession.matches_access_token(token)) {
         return;
       }
       if (!authSession.has_valid_session()) {
@@ -740,20 +773,25 @@ export struct AuthScreen {
         return;
       }
       if (!result.isSuccess || result.data === null) {
-        this.handle_profile_failure(result.error, isRefresh, token);
+        this.handle_profile_failure(result.error, isRefresh, token, scope);
         return;
       }
       this.profile = result.data;
       this.stage = AuthStage.PROFILE;
       if (!isRefresh) {
         this.onAuthenticated(result.data);
+        this.notify_result('auth-login', 'success', '登录成功', this.toast?.captureScope());
+      } else {
+        this.notify_result('auth-profile', 'success', '账号资料已刷新', scope);
       }
     } catch (error) {
-      if (authSession.matches_access_token(token)) {
-        this.handle_profile_failure(null, isRefresh, token);
+      if (this.is_current_scope(scope) && authSession.matches_access_token(token)) {
+        this.handle_profile_failure(null, isRefresh, token, scope);
       }
     } finally {
-      this.profileLoading = false;
+      if (this.active) {
+        this.profileLoading = false;
+      }
     }
   }
 
@@ -763,13 +801,15 @@ export struct AuthScreen {
    * @param error 接口错误，可能为 null
    * @param isRefresh 是否为已登录状态下的刷新
    */
-  private handle_profile_failure(error: AuthError | null, isRefresh: boolean, token: string): void {
+  private handle_profile_failure(error: AuthError | null, isRefresh: boolean, token: string,
+    scope: number | undefined): void {
     if (error !== null && error.is_unauthorized()) {
       authSession.clear_session_if_token(token);
       this.return_to_login('登录状态已失效，请重新登录');
       return;
     }
     const message: string = this.profile_failure_message(error);
+    this.notify_result('auth-profile', 'error', message, scope);
     if (isRefresh && this.profile !== null) {
       this.profileError = message;
       return;
@@ -842,10 +882,11 @@ export struct AuthScreen {
       this.return_to_login('登录状态已失效，请重新登录');
       return;
     }
+    const scope: number | undefined = this.toast?.captureScope();
     this.isLoggingOut = true;
     try {
       const result: AuthResult<boolean> = await this.api.logout(token);
-      if (!authSession.matches_access_token(token)) {
+      if (!this.is_current_scope(scope) || !authSession.matches_access_token(token)) {
         return;
       }
       if (result.isSuccess ||
@@ -855,10 +896,17 @@ export struct AuthScreen {
         return;
       }
       this.profileError = '无法确认退出结果，请重试';
+      this.notify_result('auth-logout', 'error', this.profileError, scope);
     } catch (error) {
+      if (!this.is_current_scope(scope) || !authSession.matches_access_token(token)) {
+        return;
+      }
       this.profileError = '无法确认退出结果，请重试';
+      this.notify_result('auth-logout', 'error', this.profileError, scope);
     } finally {
-      this.isLoggingOut = false;
+      if (this.active) {
+        this.isLoggingOut = false;
+      }
     }
   }
 
@@ -868,6 +916,7 @@ export struct AuthScreen {
    * @param notice 回到表单后展示的提示
    */
   private return_to_login(notice: string): void {
+    this.toast?.clearScope();
     this.profile = null;
     this.profileError = '';
     this.stage = AuthStage.FORM;
@@ -877,6 +926,26 @@ export struct AuthScreen {
     this.clear_errors();
     this.formNotice = notice;
     this.onSignedOut();
+    this.notify_result('auth-session', notice === '已退出登录' ? 'success' : 'error',
+      notice, this.toast?.captureScope());
+  }
+
+  private is_current_scope(scope: number | undefined): boolean {
+    return this.active && (this.toast === undefined || scope === this.toast.captureScope());
+  }
+
+  private notify_form_error(scope: number | undefined): void {
+    // 字段校验仍留原位；只有操作级错误提供短暂气泡。
+    if (this.formError.length > 0) {
+      this.notify_result('auth-submit', 'error', this.formError, scope);
+    }
+  }
+
+  private notify_result(key: string, type: ToastType, message: string,
+    scope: number | undefined): void {
+    if (this.active && this.toast !== undefined) {
+      this.toast.show({ key: key, type: type, message: message }, scope);
+    }
   }
 
   /**

@@ -23,6 +23,11 @@ const KATEX_BASE_OPTIONS: KatexOptions = {
 
 type RenderEnvironment = Env;
 
+export interface QuestionRenderOptions {
+  headingLevel?: 2 | 3 | 4 | 5 | 6;
+  citations?: readonly { citationId: string; label: string }[];
+}
+
 export type QuestionRenderResult =
   { ok: true; html: string; formulaErrors: number } | { ok: false };
 
@@ -169,15 +174,32 @@ function createParser(): MarkdownItInstance {
 
 export function renderQuestionMarkdown(
   bodyMarkdown: string,
-  citations?: readonly { citationId: string; label: string }[],
+  options: QuestionRenderOptions = {},
 ): QuestionRenderResult {
   try {
     const instance = parser ?? (parser = createParser());
     const env: Env = {
       formulaErrors: 0,
-      citations: new Map(citations?.map((item) => [item.citationId, item.label])),
+      citations: new Map(options.citations?.map((item) => [item.citationId, item.label])),
     };
-    const html = instance.render(bodyMarkdown, env);
+    let html: string;
+    if (options.headingLevel === undefined) {
+      html = instance.render(bodyMarkdown, env);
+    } else {
+      // Headings in a preview are a document fragment. Rebase actual tags per render,
+      // without changing the shared parser, formula rules, or full-detail output.
+      const tokens = instance.parse(bodyMarkdown, env);
+      const headingLevels = tokens
+        .filter((token) => token.type === "heading_open")
+        .map((token) => Number(token.tag.slice(1)));
+      const firstLevel = Math.min(6, ...headingLevels);
+      for (const token of tokens) {
+        if (token.type === "heading_open" || token.type === "heading_close") {
+          token.tag = `h${Math.min(6, options.headingLevel + Number(token.tag.slice(1)) - firstLevel)}`;
+        }
+      }
+      html = instance.renderer.render(tokens, instance.options, env);
+    }
     const formulaErrors = env.formulaErrors;
     return {
       ok: true,

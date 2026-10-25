@@ -1,7 +1,7 @@
 .content {
   color: var(--auth-text);
-  font-size: 15px;
-  line-height: 1.75;
+  font-size: 16px;
+  line-height: 1.85;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -15,7 +15,7 @@
 }
 
 .content :global(p) {
-  margin: 0.6em 0;
+  margin: 0.8em 0;
 }
 
 .content :global(h1),
@@ -43,7 +43,7 @@
 
 .content :global(ul),
 .content :global(ol) {
-  margin: 0.6em 0;
+  margin: 0.8em 0;
   padding-left: 1.6em;
 }
 
@@ -135,12 +135,9 @@
   display: block;
   max-width: 100%;
   margin: 0.9em 0;
-  padding: 0.6em 0.85em;
+  padding: 0.2em 0;
   overflow-x: auto;
   overflow-y: hidden;
-  border: 1px solid var(--auth-border);
-  border-radius: 8px;
-  background: var(--auth-bg);
 }
 
 .content :global(section.math-block) > :global(.katex-display) {

@@ -8,13 +8,16 @@ import {
   QuestionCollection,
   QuestionListQuery,
   QuestionPage,
-  QuestionSummary
+  QuestionSummary,
+  ToastStore
 } from 'common';
 import {
   describe_answer_state,
   describe_collection_error,
   describe_learning_error,
-  format_question_time
+  format_question_time,
+  question_summary_needs_full_view,
+  question_summary_title
 } from '../model/QuestionFormat';
 import {
   PHONE_COLOR_BACKGROUND,
@@ -64,10 +67,16 @@ class CollectionRow {
  */
 @Component
 export struct QuestionLibrary {
+  toast?: ToastStore;
+  onContextChanged: (context: string) => void = () => {};
   @Prop @Watch('on_refresh_token_changed') refreshToken: number = 0;
   onOpenQuestion: (questionId: string) => void = () => {
   };
   onUnauthorized: (token: string) => void = () => {
+  };
+  onCreateQuestion: () => void = () => {
+  };
+  onBack: () => void = () => {
   };
 
   @State scope: string = SCOPE_ALL;
@@ -89,10 +98,15 @@ export struct QuestionLibrary {
   private collectionsSeq: number = 0;
   private collections: QuestionCollection[] = [];
   private sessionToken: string = '';
+  private listScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     const token: string | null = authSession.read_access_token();
-    this.sessionToken = token === null ? '' : token;
+    const currentToken: string = token === null ? '' : token;
+    if (this.hasLoaded && currentToken === this.sessionToken) {
+      return;
+    }
+    this.sessionToken = currentToken;
     this.reload_from_first_page();
   }
 
@@ -116,8 +130,9 @@ export struct QuestionLibrary {
       if (this.loading && !this.hasLoaded) {
         this.loading_view()
       } else {
-        Scroll() {
+        Scroll(this.listScroller) {
           Column() {
+            this.list_heading()
             if (this.errorText.length > 0) {
               this.error_banner()
             }
@@ -141,6 +156,7 @@ export struct QuestionLibrary {
         }
         .layoutWeight(1)
         .width('100%')
+        .align(Alignment.TopStart)
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring)
       }
@@ -152,44 +168,44 @@ export struct QuestionLibrary {
 
   @Builder
   header() {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.bl_back')).width(22).height(22)
+        }
+        .width(44).height(44).padding(10).backgroundColor(Color.Transparent)
+        .accessibilityText('返回AI首页').onClick(() => { this.onBack(); })
+        Text('题库').fontSize(26).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE).layoutWeight(1)
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.bl_refresh')).width(22).height(22)
+        }
+        .width(44).height(44).padding(11).backgroundColor(PHONE_COLOR_SOFT)
+        .borderRadius(PHONE_RADIUS_CONTROL).enabled(!this.loading).opacity(this.loading ? 0.45 : 1)
+        .accessibilityText('刷新题库').onClick(() => this.reload_from_first_page())
+      }
+      .width('100%').alignItems(VerticalAlign.Center)
+      Text('把题目收好，慢慢弄懂。').fontSize(14).fontColor(PHONE_COLOR_MUTED).margin({ left: 10 })
+    }
+    .width('100%').padding({ left: 8, right: 18, top: 12, bottom: 18 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  list_heading() {
     Row() {
-      Column() {
-        Text('题库')
-          .fontSize(30)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(PHONE_COLOR_TITLE)
-        Text('当前账号的正式题库')
+      Text('我的题目')
+        .fontSize(18)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(PHONE_COLOR_TITLE)
+      Blank()
+      if (this.hasLoaded && this.errorText.length === 0) {
+        Text(this.total.toString() + ' 道')
           .fontSize(13)
           .fontColor(PHONE_COLOR_MUTED)
-          .margin({ top: 4 })
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-
-      Row() {
-        Image($r('app.media.bl_refresh'))
-          .width(18)
-          .height(18)
-        Text('刷新')
-          .fontSize(13)
-          .fontColor(PHONE_COLOR_PRIMARY_DEEP)
-          .margin({ left: 5 })
-      }
-      .padding({ left: 11, right: 11, top: 7, bottom: 7 })
-      .backgroundColor(PHONE_COLOR_CARD)
-      .border({ width: 1, color: PHONE_COLOR_BORDER })
-      .borderRadius(16)
-      .opacity(this.loading ? 0.45 : 1)
-      .accessibilityText('刷新题库')
-      .onClick(() => {
-        if (!this.loading) {
-          this.reload_from_first_page();
-        }
-      })
     }
     .width('100%')
-    .padding({ left: 18, right: 18, top: 18, bottom: 12 })
-    .alignItems(VerticalAlign.Center)
+    .padding({ top: 16, bottom: 2 })
   }
 
   @Builder
@@ -206,6 +222,7 @@ export struct QuestionLibrary {
       .padding({ left: 18, right: 18, bottom: 6 })
     }
     .width('100%')
+    .align(Alignment.Start)
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)
@@ -215,7 +232,7 @@ export struct QuestionLibrary {
   scope_chip(label: string, value: string, count: number, depth: number) {
     Row() {
       Text(label)
-        .fontSize(13)
+        .fontSize(14)
         .fontWeight(this.scope === value ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.scope === value ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP)
       if (count >= 0) {
@@ -225,9 +242,11 @@ export struct QuestionLibrary {
           .margin({ left: 5 })
       }
     }
-    .padding({ left: 14 + depth * COLLECTION_INDENT, right: 14, top: 7, bottom: 7 })
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16 + depth * COLLECTION_INDENT, right: 16, top: 10, bottom: 10 })
     .backgroundColor(this.scope === value ? PHONE_COLOR_PRIMARY : PHONE_COLOR_CARD)
-    .borderRadius(16)
+    .borderRadius(22)
+    .border({ width: 1, color: this.scope === value ? PHONE_COLOR_PRIMARY : PHONE_COLOR_BORDER })
     .margin({ right: 8 })
     .opacity(this.scope_chip_opacity(value))
     .accessibilityText('查看' + label)
@@ -276,7 +295,7 @@ export struct QuestionLibrary {
           .layoutWeight(1)
           .margin({ left: 6 })
           Button('重试')
-            .height(28)
+            .height(44)
             .fontSize(11)
             .fontColor(PHONE_COLOR_WHITE)
             .backgroundColor(PHONE_COLOR_DANGER)
@@ -340,7 +359,7 @@ export struct QuestionLibrary {
 
       Row() {
         Button('重试')
-          .height(34)
+          .height(44)
           .fontSize(12)
           .fontColor(PHONE_COLOR_WHITE)
           .backgroundColor(PHONE_COLOR_DANGER)
@@ -375,10 +394,18 @@ export struct QuestionLibrary {
         .fontColor(PHONE_COLOR_TITLE)
         .margin({ top: 12 })
       Text(this.empty_hint())
-        .fontSize(12)
+        .fontSize(14)
         .fontColor(PHONE_COLOR_MUTED)
         .textAlign(TextAlign.Center)
         .margin({ top: 6 })
+      Button('录入一道题')
+        .height(44)
+        .fontSize(14)
+        .fontColor(PHONE_COLOR_WHITE)
+        .backgroundColor(PHONE_COLOR_PRIMARY)
+        .borderRadius(PHONE_RADIUS_CONTROL)
+        .margin({ top: 20 })
+        .onClick(() => this.onCreateQuestion())
     }
     .width('100%')
     .padding({ top: 48, bottom: 40, left: 24, right: 24 })
@@ -399,14 +426,14 @@ export struct QuestionLibrary {
         .fontColor(PHONE_COLOR_MUTED)
         .margin({ top: 6 })
       Button('刷新题库')
-        .height(36)
+        .height(44)
         .fontSize(12)
         .fontColor(PHONE_COLOR_WHITE)
         .backgroundColor(PHONE_COLOR_PRIMARY)
         .borderRadius(12)
         .margin({ top: 12 })
         .onClick(() => {
-          this.reload_from_first_page();
+          this.reload_from_first_page(true);
         })
     }
     .width('100%')
@@ -420,64 +447,86 @@ export struct QuestionLibrary {
   @Builder
   question_card(item: QuestionSummary) {
     Column() {
-      Text(item.summary)
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(PHONE_COLOR_TITLE)
-        .lineHeight(23)
-        .maxLines(3)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .width('100%')
-
       Row() {
         Text(learning_subject_label(item.subject))
-          .fontSize(11)
-          .fontColor(PHONE_COLOR_PRIMARY_DEEP)
-          .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-          .backgroundColor(PHONE_COLOR_SOFT)
-          .borderRadius(8)
-        if (this.collection_label(item.collectionId).length > 0) {
-          Text(this.collection_label(item.collectionId))
-            .fontSize(11)
-            .fontColor(PHONE_COLOR_MUTED)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 6 })
-        } else {
-          Blank()
-        }
-        Text(describe_answer_state(item.answerState))
-          .fontSize(11)
-          .fontColor(this.answer_state_foreground(item.answerState))
-          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-          .backgroundColor(this.answer_state_background(item.answerState))
-          .borderRadius(6)
-        Text(format_question_time(item.createdAt))
-          .fontSize(11)
+          .fontSize(13)
           .fontColor(PHONE_COLOR_MUTED)
-          .margin({ left: 8 })
+        Blank()
+        Text(describe_answer_state(item.answerState))
+          .fontSize(12)
+          .fontColor(this.answer_state_foreground(item.answerState))
+          .padding({ left: 11, right: 11, top: 6, bottom: 6 })
+          .backgroundColor(this.answer_state_background(item.answerState))
+          .borderRadius(16)
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      .margin({ top: 12 })
+
+      Text(question_summary_title(item.summary, item.questionId))
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(PHONE_COLOR_TITLE)
+        .lineHeight(27)
+        .maxLines(3)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .margin({ top: 12, bottom: 8 })
+      if (question_summary_needs_full_view(item.summary)) {
+        Text('公式请打开查看')
+          .fontSize(13)
+          .fontColor(PHONE_COLOR_MUTED)
+          .margin({ bottom: 8 })
+      }
+
+      Row() {
+        Column({ space: 4 }) {
+          Text(this.collection_label(item.collectionId).length > 0 ?
+            this.collection_label(item.collectionId) : '题集名称暂不可用')
+            .fontSize(12)
+            .fontColor(PHONE_COLOR_MUTED)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(format_question_time(item.createdAt))
+            .fontSize(12)
+            .fontColor(PHONE_COLOR_MUTED)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: 4 }) {
+            Text('查看题目')
+              .fontSize(14)
+              .fontColor(PHONE_COLOR_PRIMARY)
+            Image($r('app.media.bl_chevron_right'))
+              .width(16)
+              .height(16)
+          }
+        }
+        .height(44)
+        .padding({ left: 10, right: 0 })
+        .backgroundColor(Color.Transparent)
+        .accessibilityText('查看完整题干')
+        .onClick(() => this.onOpenQuestion(item.questionId))
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding(16)
+    .padding({ left: 16, right: 16, top: 16, bottom: 10 })
     .backgroundColor(PHONE_COLOR_CARD)
+    .border({ width: 1, color: PHONE_COLOR_BORDER })
     .borderRadius(PHONE_RADIUS_CARD)
-    .margin({ top: 10 })
-    .accessibilityText('打开题目 ' + item.summary)
-    .onClick(() => {
-      this.onOpenQuestion(item.questionId);
-    })
+    .margin({ top: 12 })
+    .accessibilityText('题目，' + describe_answer_state(item.answerState) + '，' +
+      question_summary_title(item.summary, item.questionId))
+    .onClick(() => this.onOpenQuestion(item.questionId))
   }
 
   @Builder
   pagination() {
     Row() {
       Button('上一页')
-        .height(36)
+        .height(44)
         .fontSize(12)
         .fontColor(PHONE_COLOR_PRIMARY_DEEP)
         .backgroundColor(PHONE_COLOR_SOFT_STRONG)
@@ -494,7 +543,7 @@ export struct QuestionLibrary {
         .layoutWeight(1)
         .textAlign(TextAlign.Center)
       Button('下一页')
-        .height(36)
+        .height(44)
         .fontSize(12)
         .fontColor(PHONE_COLOR_PRIMARY_DEEP)
         .backgroundColor(PHONE_COLOR_SOFT_STRONG)
@@ -513,13 +562,14 @@ export struct QuestionLibrary {
   /**
    * 回到第一页并清空旧列表，供刷新、范围切换与账号刷新使用。
    */
-  private reload_from_first_page(): void {
+  private reload_from_first_page(manual: boolean = false): void {
+    this.reset_list_position();
     this.page = 1;
     this.items = [];
     this.total = 0;
     this.hasLoaded = false;
     this.failedPage = 0;
-    this.load_page(1);
+    this.load_page(1, manual);
   }
 
   /**
@@ -530,7 +580,8 @@ export struct QuestionLibrary {
    *
    * @param targetPage 目标页码
    */
-  private async load_page(targetPage: number): Promise<void> {
+  private async load_page(targetPage: number, manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const token: string | null = authSession.read_access_token();
     if (token === null) {
       this.onUnauthorized('');
@@ -583,6 +634,11 @@ export struct QuestionLibrary {
     } finally {
       if (seq === this.requestSeq) {
         this.loading = false;
+        if (manual && this.is_current_request(seq, token) && authSession.has_valid_session() &&
+          (this.errorText.length > 0 || this.collectionsError.length > 0)) {
+          this.toast?.show({ key: 'phone-library-refresh', type: 'error', message: '题库刷新未完成',
+            description: '请查看页面提示后重试' }, toast_scope);
+        }
       }
     }
   }
@@ -595,7 +651,8 @@ export struct QuestionLibrary {
    *
    * @param token 访问令牌
    */
-  private async load_collections(token: string): Promise<void> {
+  private async load_collections(token: string, manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.collectionsSeq;
     this.collectionsLoading = true;
     this.collectionsError = '';
@@ -630,6 +687,10 @@ export struct QuestionLibrary {
     } finally {
       if (seq === this.collectionsSeq) {
         this.collectionsLoading = false;
+        if (manual && this.is_current_collections_request(seq, token) && authSession.has_valid_session()) {
+          this.toast?.show({ key: 'phone-collections-refresh', type: this.collectionsError.length > 0 ? 'error' : 'success',
+            message: this.collectionsError.length > 0 ? '题集刷新未完成' : '题集已刷新' }, toast_scope);
+        }
       }
     }
   }
@@ -743,26 +804,29 @@ export struct QuestionLibrary {
 
   private empty_hint(): string {
     if (this.scope === SCOPE_ALL) {
-      return '前往“录题”粘贴 Markdown，创建第一道题。';
+      return '拍照、从相册选择或手动输入，保存第一道题。';
     }
     if (this.scope === SCOPE_INBOX) {
-      return '在“录题”中手工确认的题目会进入待整理。';
+      return '新录入并确认的题目会先放在这里。';
     }
     return '该题集暂时没有直接归属的题目。';
   }
 
   private answer_state_foreground(state: AnswerState): string {
-    return state === AnswerState.COMPLETED ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP;
+    if (state === AnswerState.COMPLETED) {
+      return '#147D4B';
+    }
+    return state === AnswerState.IN_PROGRESS ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED;
   }
 
   private answer_state_background(state: AnswerState): string {
     if (state === AnswerState.COMPLETED) {
-      return PHONE_COLOR_PRIMARY;
+      return '#E5F5EC';
     }
     if (state === AnswerState.IN_PROGRESS) {
       return PHONE_COLOR_SOFT_STRONG;
     }
-    return PHONE_COLOR_SOFT;
+    return '#EEF2F8';
   }
 
   /**
@@ -792,7 +856,7 @@ export struct QuestionLibrary {
       this.onUnauthorized('');
       return;
     }
-    this.load_collections(token);
+    this.load_collections(token, true);
   }
 
   private switch_scope(nextScope: string): void {
@@ -800,7 +864,8 @@ export struct QuestionLibrary {
       return;
     }
     this.scope = nextScope;
-    this.reload_from_first_page();
+    this.onContextChanged(nextScope);
+    this.reload_from_first_page(true);
   }
 
   private go_page(delta: number): void {
@@ -811,11 +876,12 @@ export struct QuestionLibrary {
     if (target < 1 || target > this.page_count()) {
       return;
     }
+    this.reset_list_position();
     this.items = [];
     this.total = 0;
     this.hasLoaded = false;
     this.failedPage = 0;
-    this.load_page(target);
+    this.load_page(target, true);
   }
 
   /**
@@ -827,7 +893,15 @@ export struct QuestionLibrary {
     }
     const target: number = this.failedPage > 0 ? this.failedPage : this.page;
     this.hasLoaded = false;
-    this.load_page(target);
+    this.load_page(target, true);
+  }
+
+  /** 显式刷新／范围切换／翻页才归零；打开详情不触碰 Scroller。 */
+  private reset_list_position(): void {
+    if (!this.hasLoaded) {
+      return;
+    }
+    this.listScroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
   }
 
   private page_count(): number {

@@ -1,0 +1,367 @@
+.main {
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+  padding: 48px 32px 56px;
+  scroll-margin-top: 88px;
+}
+
+.intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.eyebrow {
+  max-width: 100%;
+  margin-bottom: 12px;
+  color: var(--workspace-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  color: var(--workspace-text);
+  font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+  font-size: clamp(28px, 3.4vw, 38px);
+  line-height: 1.45;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+  text-wrap: balance;
+}
+
+.subtitle {
+  margin-top: 12px;
+  color: var(--workspace-muted);
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.textLink {
+  display: inline-flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  border-radius: 3px;
+  color: var(--workspace-text);
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+
+.textLink:hover {
+  color: var(--workspace-blue);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(200px, 1fr);
+  align-items: start;
+  gap: 44px;
+}
+
+.reading {
+  min-width: 0;
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 18px;
+}
+
+.sectionTitle {
+  color: var(--workspace-text);
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 600;
+}
+
+.caption {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.paper {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--workspace-line);
+  border-radius: 16px;
+  padding: 28px 30px 26px;
+  background: var(--workspace-paper);
+  box-shadow:
+    0 2px 3px rgb(23 38 61 / 2%),
+    0 16px 40px -30px rgb(23 38 61 / 24%);
+}
+
+.primaryLink {
+  display: inline-flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 10px 15px;
+  background: var(--workspace-blue);
+  color: white;
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 500;
+  transition: background 120ms ease;
+}
+
+.primaryLink:hover {
+  background: var(--auth-primary-hover);
+}
+
+.paperHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 18px;
+  padding-bottom: 5px;
+}
+
+.paperLabel {
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  font-weight: 500;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 14px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.preview {
+  max-height: 350px;
+  margin-block: 24px;
+  overflow: auto;
+  padding: 2px 12px 4px 2px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-margin-top: 90px;
+}
+
+.preview:focus-visible {
+  outline: 2px solid var(--workspace-blue);
+  outline-offset: 4px;
+}
+
+.paperFooter {
+  padding-top: 2px;
+}
+
+.moreTitle {
+  margin-top: 30px;
+  margin-bottom: 5px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  font-weight: 500;
+}
+
+.recentItem {
+  border-bottom: 1px solid var(--workspace-line);
+}
+
+.recentLink {
+  display: block;
+  min-width: 0;
+  border-radius: 3px;
+  margin-inline: -8px;
+  padding: 17px 8px;
+  transition: background 120ms ease;
+}
+
+.recentLink:hover {
+  background: var(--workspace-hover);
+}
+
+.summary {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-bottom: 8px;
+  color: var(--workspace-text);
+  font-size: 16px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.aside {
+  min-width: 0;
+  padding-top: 44px;
+}
+
+.quickLink {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--workspace-hover);
+  color: var(--workspace-text);
+}
+
+.quickLink:hover,
+.collectionLink:hover {
+  color: var(--workspace-blue);
+}
+
+.collections {
+  margin-top: 32px;
+}
+
+.asideTitle {
+  margin-bottom: 14px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.8;
+  font-weight: 500;
+}
+
+.collectionLink {
+  display: flex;
+  min-height: 48px;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.deviceNote {
+  margin-top: 28px;
+  border-top: 1px solid var(--workspace-line);
+  padding-top: 18px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  line-height: 1.95;
+}
+
+.empty {
+  min-height: 220px;
+  border-top: 1px solid var(--workspace-line);
+  padding: 36px 4px;
+}
+
+.failure {
+  border-left: 2px solid var(--workspace-line);
+  padding: 8px 0 8px 18px;
+}
+
+.failureTitle {
+  font-size: 14px;
+  line-height: 1.8;
+  font-weight: 500;
+}
+
+.accountMain {
+  width: 100%;
+  max-width: 520px;
+  margin-inline: auto;
+  padding: 48px 24px 56px;
+  scroll-margin-top: 88px;
+}
+
+.accountForm {
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  padding: 32px;
+  background: var(--workspace-paper);
+}
+
+.skeleton {
+  border-radius: 3px;
+  background: var(--workspace-line);
+}
+
+@media (max-width: 860px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 36px;
+  }
+
+  .aside {
+    padding-top: 0;
+  }
+
+  .collections {
+    margin-top: 24px;
+  }
+}
+
+@media (max-width: 540px) {
+  .main {
+    padding: 30px 20px 40px;
+  }
+
+  .intro {
+    align-items: start;
+    margin-bottom: 28px;
+  }
+
+  .intro > .textLink {
+    display: none;
+  }
+
+  .title {
+    font-size: 28px;
+  }
+
+  .subtitle {
+    max-width: 24em;
+    font-size: 13px;
+  }
+
+  .grid {
+    gap: 28px;
+  }
+
+  .paper {
+    padding: 22px 20px 20px;
+  }
+
+  .preview {
+    max-height: 340px;
+    margin-block: 20px;
+    padding-right: 4px;
+  }
+
+  .accountMain {
+    padding: 28px 16px 40px;
+  }
+
+  .accountForm {
+    padding: 26px 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .textLink,
+  .primaryLink,
+  .recentLink {
+    transition: none;
+  }
+}

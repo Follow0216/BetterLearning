@@ -6,6 +6,8 @@ import { INBOX_COLLECTION_ID } from "@/lib/api/library-contract";
 import { getCollections, getQuestionPage, type LibraryFailure } from "@/lib/api/library-server";
 
 import { CollectionDialog } from "./CollectionDialog";
+import { LibraryScrollRestoration } from "./LibraryNavigation";
+import styles from "./workspace.module.css";
 import {
   LIBRARY_PAGE_SIZE,
   buildWorkspaceHref,
@@ -13,6 +15,7 @@ import {
   parseLibraryView,
   parsePageNumber,
   totalPages,
+  shouldRestoreLibraryScroll,
   type LibraryView,
   type SearchParamsInput,
 } from "./library-params";
@@ -46,7 +49,7 @@ function FailurePanel({ failure, retryHref }: { failure: LibraryFailure; retryHr
   return (
     <StatePanel
       title={failure.kind === "unavailable" ? "题库服务暂不可用" : "加载题库失败"}
-      message={`${failure.message}。当前不会以空题库代替。`}
+      message={failure.message}
       traceId={failure.traceId}
       retryHref={retryHref}
       backHref="/workspace"
@@ -58,7 +61,7 @@ function EmptyState({ view }: { view: LibraryView }) {
   const isInbox = view.kind === "inbox";
   const isCollection = view.kind === "collection";
   return (
-    <div className="flex flex-col items-center rounded-2xl border border-dashed border-[var(--auth-border)] bg-white px-6 py-14 text-center">
+    <div className={styles.emptyState}>
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--auth-primary-soft)] text-[var(--auth-primary)]">
         <BlIcon name={isInbox ? "inbox" : "list"} size={22} />
       </span>
@@ -101,12 +104,12 @@ export async function WorkspaceView({
   const collectionsFailure = collectionsResult.ok ? undefined : collectionsResult.failure;
 
   if (collectionsFailure?.kind === "unauthenticated") {
-    redirect("/");
+    redirect("/account");
   }
 
   if (!pageResult.ok) {
     if (pageResult.failure.kind === "unauthenticated") {
-      redirect("/");
+      redirect("/account");
     }
     return (
       <WorkspaceFrame view={view} collections={collections} collectionsFailure={collectionsFailure}>
@@ -143,8 +146,8 @@ export async function WorkspaceView({
     view.kind === "inbox"
       ? "手机端确认入库的题目默认进入这里。"
       : view.kind === "all"
-        ? "当前账号的全部真实题目，按入库时间倒序。"
-        : "题集内直接归属的题目，按入库时间倒序；子题集题目不计入这里。";
+        ? "按入库时间排列，最新题目在前。"
+        : "按入库时间排列，仅显示本题集的直属题目。";
 
   return (
     <WorkspaceFrame
@@ -154,10 +157,15 @@ export async function WorkspaceView({
       inboxCount={inboxCount}
       allCount={allCount}
     >
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl leading-8 font-semibold text-[var(--auth-text)]">{heading}</h1>
-          <p className="mt-1 text-sm text-[var(--auth-muted)]">{description}</p>
+      <LibraryScrollRestoration
+        href={buildWorkspaceHref(view, safePage)}
+        restore={shouldRestoreLibraryScroll(resolved)}
+      />
+      <div className={styles.pageHeader}>
+        <div className="min-w-0">
+          <p className="mb-2 text-xs text-[var(--auth-muted)]">我的题库 · 共 {data.total} 题</p>
+          <h1 className={styles.pageTitle}>{heading}</h1>
+          <p className="mt-2 text-[13px] leading-6 text-[var(--auth-muted)]">{description}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {currentCollection === undefined ? null : (
@@ -180,11 +188,11 @@ export async function WorkspaceView({
         </div>
       </div>
 
-      <div className="mt-5">
+      <div>
         {data.items.length > 0 ? (
-          <QuestionList items={data.items} />
+          <QuestionList items={data.items} collections={collections} view={view} page={safePage} />
         ) : data.total > 0 ? (
-          <div className="rounded-2xl border border-[var(--auth-border)] bg-white px-6 py-12 text-center">
+          <div className={styles.emptyState}>
             <p className="text-sm text-[var(--auth-muted)]">当前页没有题目，数据可能已更新。</p>
             <Link
               href={buildWorkspaceHref(view, 1)}

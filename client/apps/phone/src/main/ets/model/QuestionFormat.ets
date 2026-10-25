@@ -174,3 +174,24 @@ export function describe_tutor_error(error: AuthError | null): string {
   }
   return '辅导请求失败，请稍后重试';
 }
+
+/**
+ * 服务端文本摘要可能在 50 码点处截断，并会移除 Markdown 下划线。
+ * 含 TeX 标记时不把摘要重新解释为完整公式；详情始终读取原始 bodyMarkdown。
+ */
+export function question_summary_needs_full_view(summary: string): boolean {
+  return /\\|\$|[_^](?=\{|[A-Za-z0-9])/.test(summary);
+}
+
+/** 只保留摘要中首个 TeX 标记前的可确认文字，不重解释被截断的公式。 */
+export function question_summary_title(summary: string, questionId: string): string {
+  const marker: number = summary.search(/\\|\$|[_^](?=\{|[A-Za-z0-9])/);
+  if (marker < 0) {
+    return summary;
+  }
+  const prefix: string = summary.substring(0, marker).trim().replace(/[\s:：=，,]+$/, '');
+  if (/[\u3400-\u9FFF]/.test(prefix) || /[A-Za-z]{3}/.test(prefix)) {
+    return prefix;
+  }
+  return questionId.length > 0 ? '数学题 · #' + questionId.slice(-6) : '数学题';
+}
