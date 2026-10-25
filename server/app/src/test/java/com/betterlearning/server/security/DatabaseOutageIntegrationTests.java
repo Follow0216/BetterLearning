@@ -22,6 +22,8 @@ import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,7 +37,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -44,9 +45,6 @@ import tools.jackson.databind.json.JsonMapper;
 @ActiveProfiles("security-it")
 @Tag("integration")
 class DatabaseOutageIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = " Passw0rd! ";
 
@@ -60,18 +58,14 @@ class DatabaseOutageIntegrationTests {
     private static final int POSTGRES_HOST_PORT = findFreePort();
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test")
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres()
             .withCreateContainerCmdModifier(command -> command.getHostConfig().withPortBindings(
                     new PortBinding(Ports.Binding.bindPort(POSTGRES_HOST_PORT),
             ExposedPort.tcp(5432))));
 
     @Container
     static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+            IntegrationContainers.redis();
 
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {

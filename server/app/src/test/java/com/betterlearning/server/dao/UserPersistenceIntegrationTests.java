@@ -12,6 +12,8 @@ import com.betterlearning.server.exception.UserUniqueConflictException;
 import com.betterlearning.server.model.dataobject.UserDO;
 import com.betterlearning.server.support.MybatisTestContext;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.AfterAll;
@@ -28,7 +30,6 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
@@ -38,14 +39,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("integration")
 class UserPersistenceIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
-            .asCompatibleSubstituteFor("postgres");
-
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+    static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
 
     private static JdbcTemplate jdbcTemplate;
 

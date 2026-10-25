@@ -28,6 +28,8 @@ import com.betterlearning.server.exception.BusinessException;
 import io.lettuce.core.ClientOptions;
 import io.lettuce.core.SocketOptions;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +47,6 @@ import org.springframework.data.redis.core.script.RedisScript;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers
 @Tag("integration")
@@ -53,8 +54,7 @@ class RateLimitManagerIntegrationTests {
 
     @Container
     static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+            IntegrationContainers.redis();
 
     private static LettuceConnectionFactory connectionFactory;
 

@@ -12,6 +12,8 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 
+import com.betterlearning.server.support.IntegrationContainers;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -29,7 +31,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -37,9 +38,6 @@ import tools.jackson.databind.json.JsonMapper;
 @ActiveProfiles("security-it")
 @Tag("integration")
 class RedisOutageIntegrationTests {
-
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
-            .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = " Passw0rd! ";
 
@@ -50,14 +48,10 @@ class RedisOutageIntegrationTests {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
     private static final PostgreSQLContainer POSTGRES =
-            new PostgreSQLContainer(POSTGRES_IMAGE)
-            .withDatabaseName("betterlearning")
-            .withUsername("test")
-            .withPassword("test");
+            IntegrationContainers.postgres();
 
     private static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:7.4.2"))
-            .withExposedPorts(6379);
+            IntegrationContainers.redis();
 
     static {
         POSTGRES.start();

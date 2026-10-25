@@ -1,5 +1,7 @@
 package com.betterlearning.server.support;
 
+import java.util.UUID;
+
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -23,6 +25,9 @@ public final class IntegrationContainers {
 
     private static final DockerImageName REDIS_IMAGE = DockerImageName.parse("redis:7.4.2");
 
+    private static final String CONTAINER_PREFIX_PROPERTY = "betterlearning.test.container-prefix";
+    private static final String TEST_RUN_LABEL = "com.betterlearning.test-run";
+
     private IntegrationContainers() {
     }
 
@@ -32,10 +37,12 @@ public final class IntegrationContainers {
      * @return 尚未启动的 PostgreSQL 容器
      */
     public static PostgreSQLContainer postgres() {
-        return new PostgreSQLContainer(POSTGRES_IMAGE)
+        PostgreSQLContainer container = new PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName("betterlearning")
                 .withUsername("test")
                 .withPassword("test");
+        isolate(container, "pg");
+        return container;
     }
 
     /**
@@ -44,7 +51,22 @@ public final class IntegrationContainers {
      * @return 尚未启动的 Redis 容器
      */
     public static GenericContainer<?> redis() {
-        return new GenericContainer<>(REDIS_IMAGE)
+        GenericContainer<?> container = new GenericContainer<>(REDIS_IMAGE)
                 .withExposedPorts(REDIS_PORT);
+        isolate(container, "redis");
+        return container;
+    }
+
+    private static void isolate(GenericContainer<?> container, String kind) {
+        String prefix = System.getProperty(CONTAINER_PREFIX_PROPERTY);
+        if (prefix == null) {
+            return;
+        }
+        if (prefix.length() > 63 || !prefix.matches("[a-z0-9][a-z0-9._-]*")) {
+            throw new IllegalArgumentException("Invalid test container prefix");
+        }
+        String name = prefix + "-" + kind + "-" + UUID.randomUUID();
+        container.withCreateContainerCmdModifier(command -> command.withName(name));
+        container.withLabel(TEST_RUN_LABEL, prefix);
     }
 }
