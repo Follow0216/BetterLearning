@@ -36,7 +36,6 @@ export function AdminLoginForm() {
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [errorNotified, setErrorNotified] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -52,7 +51,6 @@ export function AdminLoginForm() {
     }
     const normalizedUsername = username.trim();
     if (normalizedUsername.length === 0 || password.length === 0) {
-      setErrorNotified(false);
       setError("请输入用户名和密码");
       return;
     }
@@ -63,7 +61,6 @@ export function AdminLoginForm() {
     dismiss("admin-login");
     setPending(true);
     setError("");
-    setErrorNotified(false);
     try {
       const response = await fetch("/api/admin/login", {
         method: "POST",
@@ -92,7 +89,6 @@ export function AdminLoginForm() {
         return;
       }
       setError(message);
-      setErrorNotified(response.status >= 500);
       if (response.status >= 500) {
         show({ key: "admin-login", type: "error", message }, scope);
       }
@@ -100,7 +96,6 @@ export function AdminLoginForm() {
       if (!controller.signal.aborted) {
         const message = "网络连接异常，请稍后重试";
         setError(message);
-        setErrorNotified(true);
         show({ key: "admin-login", type: "error", message }, scope);
       }
     } finally {
@@ -158,7 +153,7 @@ export function AdminLoginForm() {
       {error.length > 0 ? (
         <p
           id="admin-login-error"
-          role={errorNotified ? undefined : "alert"}
+          role="alert"
           className="text-[13px] leading-5 text-[var(--admin-danger)]"
         >
           {error}
