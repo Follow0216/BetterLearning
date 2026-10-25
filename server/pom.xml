@@ -28,10 +28,21 @@
         <java.version>17</java.version>
         <springdoc.version>3.0.3</springdoc.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <temporal.version>1.39.0</temporal.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>io.temporal</groupId>
+                <artifactId>temporal-sdk</artifactId>
+                <version>${temporal.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.temporal</groupId>
+                <artifactId>temporal-testing</artifactId>
+                <version>${temporal.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.betterlearning</groupId>
                 <artifactId>server-common</artifactId>
