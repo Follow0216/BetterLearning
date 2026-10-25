@@ -20,7 +20,7 @@ export function StatePanel({
   backLabel = "返回题库",
 }: StatePanelProps) {
   return (
-    <div className="flex flex-col items-center rounded-2xl border border-[var(--auth-border)] bg-white px-6 py-12 text-center">
+    <div className="mt-4 flex min-h-[280px] flex-col items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-6 py-12 text-center">
       <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--auth-bg)] text-[var(--auth-muted)]">
         <BlIcon name="warning" size={22} />
       </span>

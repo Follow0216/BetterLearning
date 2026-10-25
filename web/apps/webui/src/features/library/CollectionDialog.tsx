@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import type { CollectionSummary } from "@/lib/api/library-contract";
 
@@ -24,7 +24,7 @@ const TRIGGER_STYLES: Record<TriggerVariant, string> = {
   subtle:
     "inline-flex h-9 items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-3 text-sm font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none",
   sidebar:
-    "flex h-9 w-full items-center justify-center rounded-lg border border-dashed border-[var(--auth-border)] px-3 text-sm font-medium text-[var(--auth-muted)] transition-colors hover:border-[var(--auth-primary)] hover:text-[var(--auth-primary)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none",
+    "flex min-h-9 w-full items-center justify-start rounded-lg px-2 text-[13px] font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none",
 };
 
 const FIELD_CLASS =
@@ -47,6 +47,7 @@ export function CollectionDialog({
 }: CollectionDialogProps) {
   const router = useRouter();
   const titleId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
@@ -54,6 +55,13 @@ export function CollectionDialog({
   const [error, setError] = useState<string | null>(null);
 
   const parentOptions = flattenCollectionTree(buildCollectionTree(collections));
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
 
   function openDialog() {
     setName(mode === "rename" ? (collection?.name ?? "") : "");
@@ -121,69 +129,86 @@ export function CollectionDialog({
   return (
     <>
       <button type="button" onClick={openDialog} className={TRIGGER_STYLES[triggerVariant]}>
+        {triggerVariant === "sidebar" ? (
+          <span aria-hidden="true" className="mr-2 text-lg leading-none">
+            +
+          </span>
+        ) : null}
         {triggerLabel}
       </button>
-
-      {open ? (
-        <div
-          role="presentation"
-          onMouseDown={closeDialog}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--auth-brand-deep)]/40 px-4"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            onMouseDown={(event) => event.stopPropagation()}
-            className="w-full max-w-[420px] rounded-2xl border border-[var(--auth-border)] bg-white p-5 shadow-xl"
-          >
-            <h2 id={titleId} className="text-lg leading-7 font-semibold text-[var(--auth-text)]">
+      <dialog
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        aria-describedby={`${titleId}-description`}
+        aria-modal="true"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeDialog();
+        }}
+        onClose={() => setOpen(false)}
+        onMouseDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const bounds = event.currentTarget.getBoundingClientRect();
+          if (
+            event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom
+          )
+            closeDialog();
+        }}
+        className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-32px)] max-w-[420px] overflow-y-auto rounded-xl border border-[var(--auth-border)] bg-white p-6 text-[var(--auth-text)] shadow-xl backdrop:bg-[var(--auth-brand-deep)]/40"
+      >
+        {open ? (
+          <>
+            <h2 id={titleId} className="text-xl leading-7 font-semibold">
               {mode === "create" ? "新建题集" : "题集改名"}
             </h2>
-            <p className="mt-1 text-sm leading-6 text-[var(--auth-muted)]">
-              {mode === "create"
-                ? "可选择父级创建多层题集；待整理不能作为父级。"
-                : "仅修改当前题集名称，不改变层级与题目归属。"}
+            <p
+              id={`${titleId}-description`}
+              className="mt-2 text-sm leading-6 text-[var(--auth-muted)]"
+            >
+              {mode === "create" ? "为题集命名，并选择它所在的位置。" : "输入新的题集名称。"}
             </p>
-
-            <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--auth-text)]">
+            <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
+              <label className="flex flex-col gap-2 text-sm font-medium">
                 名称
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   maxLength={64}
                   autoFocus
+                  disabled={pending}
                   className={FIELD_CLASS}
                   placeholder="例如：微积分"
                 />
+                <span className="text-xs font-normal text-[var(--auth-muted)]">1–64 个字符</span>
               </label>
-
               {mode === "create" ? (
-                <label className="flex flex-col gap-1.5 text-sm font-medium text-[var(--auth-text)]">
-                  父级
+                <label className="flex flex-col gap-2 text-sm font-medium">
+                  所在位置
                   <select
                     value={parentId}
                     onChange={(event) => setParentId(event.target.value)}
+                    disabled={pending}
                     className={FIELD_CLASS}
                   >
                     <option value="">根级题集</option>
                     {parentOptions.map((item) => (
-                      <option key={item.collectionId} value={item.collectionId}>
-                        {`${"　".repeat(item.depth)}${item.name}`}
-                      </option>
+                      <option
+                        key={item.collectionId}
+                        value={item.collectionId}
+                      >{`${"　".repeat(item.depth)}${item.name}`}</option>
                     ))}
                   </select>
                 </label>
               ) : null}
-
               {error === null ? null : (
                 <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
                   {error}
                 </p>
               )}
-
-              <div className="mt-2 flex items-center justify-end gap-2">
+              <div className="mt-2 flex items-center justify-end gap-2 border-t border-[var(--auth-border)] pt-4">
                 <button
                   type="button"
                   onClick={closeDialog}
@@ -201,9 +226,9 @@ export function CollectionDialog({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </dialog>
     </>
   );
 }

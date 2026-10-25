@@ -71,8 +71,8 @@ export function MoveQuestionControl({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-2 text-sm text-[var(--auth-muted)]">
+    <div className="flex max-w-full flex-wrap items-center gap-2">
+      <label className="flex max-w-full min-w-0 items-center gap-2 text-[13px] text-[var(--auth-muted)]">
         移动到
         <select
           value={target}
@@ -81,7 +81,8 @@ export function MoveQuestionControl({
             setSaved(false);
             setError(null);
           }}
-          className="h-9 rounded-lg border border-[var(--auth-border)] bg-white px-2 text-sm text-[var(--auth-text)] transition-colors outline-none focus:border-[var(--auth-primary)] focus:ring-2 focus:ring-[var(--auth-primary-soft)]"
+          disabled={pending}
+          className="h-9 max-w-[min(100%,18rem)] min-w-0 rounded-lg border border-[var(--auth-border)] bg-white px-2 text-sm text-[var(--auth-text)] transition-colors outline-none focus:border-[var(--auth-primary)] focus:ring-2 focus:ring-[var(--auth-primary-soft)]"
         >
           <option value={INBOX_COLLECTION_ID}>{INBOX_COLLECTION_NAME}</option>
           {options.map((item) => (
