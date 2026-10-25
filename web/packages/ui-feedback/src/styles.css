@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  width: min(440px, 100%);
+  width: min(420px, 100%);
   min-width: 0;
   min-height: 64px;
   padding: 8px 8px 8px 16px;
@@ -57,6 +57,7 @@
 }
 .bl-toast__message,
 .bl-toast__description {
+  -webkit-line-clamp: 1;
   display: -webkit-box;
   margin: 0;
   overflow: hidden;
@@ -73,6 +74,7 @@
   -webkit-line-clamp: 1;
 }
 .bl-toast__description {
+  -webkit-line-clamp: 1;
   color: var(--bl-toast-muted);
   font-size: 12px;
   line-height: 20px;
