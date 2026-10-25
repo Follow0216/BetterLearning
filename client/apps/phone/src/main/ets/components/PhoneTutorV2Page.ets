@@ -466,7 +466,9 @@ export struct PhoneTutorV2Page {
   }
 
   private save_draft(): void {
-    if (this.accountId.length === 0 || this.loadedQuestionId.length === 0) { return; }
+    const user: UserProfile | null = authSession.read_user();
+    if (!authSession.has_valid_session() || user === null || user.accountId !== this.accountId ||
+      this.accountId.length === 0 || this.loadedQuestionId.length === 0) { return; }
     const draft: PhoneV2Draft = phone_v2_draft_for(this.accountId, this.loadedQuestionId);
     draft.prompt = this.prompt;
     draft.fullSolution = this.fullSolution;

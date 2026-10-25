@@ -58,6 +58,7 @@ const sandbox = {
   TextAreaController: class { stopEditing() {} },
   authSession: {
     read_access_token: () => token,
+    has_valid_session: () => !!token,
     read_user: () => token ? { accountId: account } : null,
     matches_access_token: (value) => !!value && token === value,
     clear_session_if_token: (value) => { if (value !== token) return false; token = ''; return true; }

@@ -18,6 +18,7 @@ const scripts=[
  'client/apps/phone/scripts/verify-phone-v2-logic.cjs',
  'client/apps/phone/scripts/verify-phone-v2-async.cjs',
  'client/apps/phone/scripts/verify-phone-v2-page.cjs',
+ 'client/apps/phone/scripts/verify-phone-v2-home.cjs',
  'client/apps/tablet/scripts/verify-tablet-v2.cjs',
  'client/apps/tablet/scripts/verify-tablet-v2-canvas.cjs',
  'client/apps/tablet/scripts/verify-tablet-v2-history.cjs',
