@@ -78,7 +78,7 @@ class AnswerRasterDensityTests {
         AnswerModels.SaveManifest excess = manifest(3201, 4000, 2);
         assertThatThrownBy(() -> AnswerManifestValidator.validate(excess, AnswerTestData.BODY))
                 .isInstanceOfSatisfying(BusinessException.class,
-                        failure -> org.assertj.core.api.Assertions.assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.UPLOAD_TOO_LARGE));
+                failure -> org.assertj.core.api.Assertions.assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.UPLOAD_TOO_LARGE));
     }
 
     private AnswerModels.SaveManifest manifest(int width, int height, double density) {
