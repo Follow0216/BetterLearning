@@ -95,9 +95,9 @@ struct ToastBubble {
 @Component
 export struct ToastHost {
   store: ToastStore = new ToastStore();
-  topInset: number = 12;
-  maxWidth: number = 420;
-  sideInset: number = 16;
+  @Prop topInset: number = 12;
+  @Prop maxWidth: number = 420;
+  @Prop sideInset: number = 16;
   @State private items: ToastItem[] = [];
   private hostId: number = -1;
   private alive: boolean = false;
