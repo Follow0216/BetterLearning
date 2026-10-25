@@ -109,7 +109,7 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheFortyM3M4AndV2Operations() throws Exception {
+    void documentsExactlyTheFortyNineM3M4V2AndP4Operations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
@@ -144,7 +144,13 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}", List.of("get")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/snapshot", List.of("post")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/cancel", List.of("post")),
-                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/retry", List.of("post")));
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/retry", List.of("post")),
+                Map.entry("/api/v2/learning/notes", List.of("get", "post")),
+                Map.entry("/api/v2/learning/notes/{noteId}", List.of("get", "put", "delete")),
+                Map.entry("/api/v2/learning/sources", List.of("get")),
+                Map.entry("/api/v2/learning/sources/{sourceId}", List.of("get")),
+                Map.entry("/api/v2/learning/citations/{citationId}/resolve", List.of("get")),
+                Map.entry("/api/v2/learning/citations/{citationId}/assets/{blockIndex}", List.of("get")));
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
         assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/test")
                 || (path.startsWith("/api/v1/admin") && !path.equals("/api/v1/admin/session")));
@@ -195,6 +201,34 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
+    void documentsP4StatusesAndRequiredConditionalHeaders() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        for (String[] item : List.of(
+                new String[] {"/api/v2/learning/notes", "get", "200"},
+                new String[] {"/api/v2/learning/notes", "post", "201"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "get", "200"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "put", "200"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "delete", "204"},
+                new String[] {"/api/v2/learning/sources", "get", "200"},
+                new String[] {"/api/v2/learning/sources/{sourceId}", "get", "200"},
+                new String[] {"/api/v2/learning/citations/{citationId}/resolve", "get", "200"},
+                new String[] {"/api/v2/learning/citations/{citationId}/assets/{blockIndex}", "get", "200"})) {
+            Map<String, Object> responses = asMap(operation(docs, item[0], item[1])
+                    .get("responses"));
+            assertThat(responses).as(item[0] + " " + item[1]).containsKey(item[2]);
+            Map<String, Object> success = asMap(responses.get(item[2]));
+            if ("204".equals(item[2])) {
+                assertThat(success).doesNotContainKey("content");
+            } else {
+                assertThat(success).containsKey("content");
+            }
+        }
+        assertRequiredHeader(docs, "/api/v2/learning/notes", "post", "Idempotency-Key");
+        assertRequiredHeader(docs, "/api/v2/learning/notes/{noteId}", "put", "If-Match");
+        assertRequiredHeader(docs, "/api/v2/learning/notes/{noteId}", "delete", "If-Match");
+    }
+
+    @Test
     void requiresBearerOnlyForProtectedOperations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
 
@@ -241,7 +275,16 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", "post"},
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", "get"},
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", "get"},
-                new String[] {"/api/v1/learning/ocr", "post"})) {
+                new String[] {"/api/v1/learning/ocr", "post"},
+                new String[] {"/api/v2/learning/notes", "get"},
+                new String[] {"/api/v2/learning/notes", "post"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "get"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "put"},
+                new String[] {"/api/v2/learning/notes/{noteId}", "delete"},
+                new String[] {"/api/v2/learning/sources", "get"},
+                new String[] {"/api/v2/learning/sources/{sourceId}", "get"},
+                new String[] {"/api/v2/learning/citations/{citationId}/resolve", "get"},
+                new String[] {"/api/v2/learning/citations/{citationId}/assets/{blockIndex}", "get"})) {
             assertThat(asList(operation(docs, protectedOperation[0], protectedOperation[1])
                     .get("security")))
                     .anySatisfy(requirement ->
@@ -395,6 +438,15 @@ class ApiDocumentationEnabledIntegrationTests {
             String code = description(error.get("description"));
             assertThat(code).containsPattern("[ABC][0-9]{4}|请求参数");
         }
+    }
+
+    private void assertRequiredHeader(Map<String, Object> docs, String path, String method,
+            String headerName) {
+        assertThat(asList(operation(docs, path, method).get("parameters")))
+                .anySatisfy(parameter -> assertThat(asMap(parameter))
+                .containsEntry("name", headerName)
+                .containsEntry("in", "header")
+                .containsEntry("required", true));
     }
 
     private Map<String, Object> operation(Map<String, Object> docs, String path, String method) {

@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("integration")
 class UserPersistenceIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
             .asCompatibleSubstituteFor("postgres");
 
     @Container
@@ -83,7 +83,7 @@ class UserPersistenceIntegrationTests {
     @Test
     void migratesEmptyDatabaseWithExpectedSchema() {
         assertThat(migrateResult.success).isTrue();
-        assertThat(migrateResult.migrationsExecuted).isEqualTo(6);
+        assertThat(migrateResult.migrationsExecuted).isEqualTo(7);
 
         List<String> columns = jdbcTemplate.queryForList(
                 "SELECT column_name FROM information_schema.columns "

@@ -43,7 +43,7 @@ import org.springframework.web.filter.CorsFilter;
 public class SecurityConfiguration {
 
     private static final List<String> ALLOWED_METHODS =
-            List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS");
+            List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
 
     private static final List<String> ALLOWED_HEADERS =
             List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match");
@@ -141,7 +141,7 @@ public class SecurityConfiguration {
     /**
      * 根据配置构建全局 CORS 规则。
      *
-     * <p>允许来源来自 {@link AppCorsProperties}；固定允许 GET、POST、PATCH、DELETE、OPTIONS 与
+     * <p>允许来源来自 {@link AppCorsProperties}；固定允许 GET、POST、PUT、PATCH、DELETE、OPTIONS 与
      * Authorization、Content-Type、Idempotency-Key、If-Match 请求头，不携带凭据，预检缓存 3600 秒。</p>
      *
      * @param properties CORS 来源配置
@@ -153,6 +153,7 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(List.copyOf(properties.getAllowedOrigins()));
         configuration.setAllowedMethods(ALLOWED_METHODS);
         configuration.setAllowedHeaders(ALLOWED_HEADERS);
+        configuration.setExposedHeaders(List.of("ETag"));
         configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

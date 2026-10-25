@@ -45,7 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class DatabaseOutageIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
             .asCompatibleSubstituteFor("postgres");
 
     private static final String PASSWORD = " Passw0rd! ";

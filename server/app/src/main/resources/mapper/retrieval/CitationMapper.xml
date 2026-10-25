@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.retrieval.mapper.CitationMapper">
+    <select id="lockAccount" resultType="java.lang.Long">
+        SELECT account_id FROM app_user WHERE account_id = #{accountId} FOR UPDATE
+    </select>
+
+    <select id="authorized" resultType="map">
+        SELECT c.citation_id AS "citationId", c.source_id AS "sourceId",
+               c.version AS "version", c.anchor_id AS "anchorId", c.label AS "label",
+               c.source_type AS "sourceType", c.content_sha256 AS "citationSha256",
+               a.kind AS "anchorKind", a.ordinal AS "anchorOrdinal",
+               a.content_sha256 AS "anchorSha256", a.locator_json AS "locatorJson",
+               a.text AS "anchorText", v.body_markdown AS "bodyMarkdown",
+               v.file_ref AS "fileRef", v.answer_state AS "answerState",
+               v.created_at AS "sourceVersionCreatedAt", s.current_version AS "currentVersion",
+               s.created_at AS "sourceCreatedAt",
+               CASE WHEN s.type = 'NOTE' THEN nv.title ELSE s.title END AS "sourceTitle"
+        FROM ma_citation c
+        JOIN ma_result r ON r.result_id = c.result_id AND r.status = 'VERIFIED'
+        JOIN ma_run run ON run.run_id = r.run_id AND run.status = 'SUCCEEDED'
+        JOIN ma_request req ON req.request_id = run.request_id
+                           AND req.account_id = run.account_id
+        JOIN ma_source s ON s.source_id = c.source_id AND s.account_id = req.account_id
+                        AND s.status = 'ACTIVE' AND s.type = c.source_type
+        JOIN ma_source_version v ON v.source_id = c.source_id AND v.version = c.version
+                                AND v.status != 'WITHDRAWN'
+        JOIN ma_anchor a ON a.anchor_id = c.anchor_id AND a.source_id = c.source_id
+                        AND a.version = c.version AND a.content_sha256 = c.content_sha256
+        LEFT JOIN ma_note_version nv ON nv.source_id = v.source_id AND nv.version = v.version
+                                    AND s.type = 'NOTE'
+        WHERE c.citation_id = #{citationId} AND run.account_id = #{accountId}
+          AND req.account_id = #{accountId} AND s.account_id = #{accountId}
+          AND ((s.type = 'TUTOR_SNAPSHOT'
+                    AND req.snapshot_source_id = c.source_id AND req.snapshot_version = c.version
+                    AND EXISTS (SELECT 1 FROM ma_evidence e WHERE e.run_id = run.run_id
+                        AND e.source_id = c.source_id AND e.version = c.version
+                        AND e.anchor_id = c.anchor_id AND e.type = 'CURRENT_SNAPSHOT'))
+                OR (s.type != 'TUTOR_SNAPSHOT'
+                    AND EXISTS (SELECT 1 FROM ma_evidence e WHERE e.run_id = run.run_id
+                        AND e.source_id = c.source_id AND e.version = c.version
+                        AND e.anchor_id = c.anchor_id AND e.type = 'HISTORY')))
+    </select>
+</mapper>
