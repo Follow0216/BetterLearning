@@ -2,6 +2,7 @@ import {
   CanvasEditableDocument, CanvasExtent, CanvasImageBlock, CanvasPoint, CanvasRect,
   CanvasStroke, CanvasView, CANVAS_MAX_POINTS, CANVAS_MAX_STROKES, CANVAS_TILE_SIZE
 } from './CanvasModels';
+import { valid_canvas_pen, valid_canvas_pressure } from './CanvasPens';
 import { AnswerManifest } from '../learning/SolutionModels';
 
 export function clone_canvas_document(doc: CanvasEditableDocument): CanvasEditableDocument {
@@ -80,12 +81,13 @@ export function validate_canvas_document(doc: CanvasEditableDocument): void {
     if (!stroke || typeof stroke.strokeId !== 'string' || stroke.strokeId.length === 0 || ids.has(stroke.strokeId) ||
       !/^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(stroke.color) ||
       !Number.isFinite(stroke.width) || stroke.width < 0.5 || stroke.width > 64 ||
-      !Array.isArray(stroke.points) || stroke.points.length === 0) { throw new Error('笔迹数据无效'); }
+      !valid_canvas_pen(stroke.penKind) || !Array.isArray(stroke.points) || stroke.points.length === 0) { throw new Error('笔迹数据无效'); }
     ids.add(stroke.strokeId);
     points += stroke.points.length;
     if (points > CANVAS_MAX_POINTS) { throw new Error('笔迹点数超出限制'); }
     for (let j: number = 0; j < stroke.points.length; j++) {
-      if (!stroke.points[j] || !valid_world_number(stroke.points[j].x) || !valid_world_number(stroke.points[j].y)) {
+      if (!stroke.points[j] || !valid_world_number(stroke.points[j].x) || !valid_world_number(stroke.points[j].y) ||
+        !valid_canvas_pressure(stroke.points[j].pressure)) {
         throw new Error('笔迹坐标超出范围');
       }
     }

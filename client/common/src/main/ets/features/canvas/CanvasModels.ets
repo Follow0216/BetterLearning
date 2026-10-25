@@ -6,10 +6,15 @@ export const CANVAS_FONT_SIZE: number = 18;
 export const CANVAS_MAX_POINTS: number = 200000;
 export const CANVAS_MAX_STROKES: number = 20000;
 
-export interface CanvasPoint { x: number; y: number; }
+/** pressure 为归一化并平滑后的 0..1；钢笔缺样使用稳定缺省，旧无笔种数据仍定宽。 */
+export interface CanvasPoint { x: number; y: number; pressure?: number | null; }
+export enum CanvasPenKind { BALLPOINT = 'ballpoint', FOUNTAIN = 'fountain', HIGHLIGHTER = 'highlighter' }
 export interface CanvasView { x: number; y: number; scale: number; }
 export interface CanvasRect { x: number; y: number; width: number; height: number; }
-export interface CanvasStroke { strokeId: string; color: string; width: number; points: CanvasPoint[]; }
+/** width 始终是最大外延宽度，所有笔种沿用既有导出/命中包围范围。 */
+export interface CanvasStroke {
+  strokeId: string; color: string; width: number; points: CanvasPoint[]; penKind?: CanvasPenKind | null;
+}
 export interface CanvasTextBlock extends CanvasRect { blockId: string; }
 export interface CanvasImageBlock extends CanvasRect {
   index: number;

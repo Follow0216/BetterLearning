@@ -25,7 +25,7 @@ const methods = new Set(['touch', 'cancel_gesture', 'discard_edit', 'control_tou
   'erase_path', 'erase', 'commit', 'undo', 'update_undo', 'read_only_changed',
   'capture_at_pen_up', 'fulfill_freeze', 'cancel_freeze', 'document_changed']);
 const fields = new Set(['tool', 'readOnly', 'document', 'undoEnabled', 'pointers', 'pointerSources', 'editPointerId',
-  'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
+  'penKind', 'penColor', 'penSize', 'pressureSampler', 'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
   'erased', 'undoHistory', 'pointBudget', 'view', 'alive', 'committedDocument', 'waitingFreeze']);
 const extracted = [];
 for (const member of component.members) {
@@ -44,7 +44,16 @@ const geometryCode = geometry.statements.filter(s => ts.isFunctionDeclaration(s)
   .map(s => s.getText(geometry).replace(/^export\s+/, '')).join('\n');
 const modelPath = path.join(root, 'client/common/src/main/ets/features/canvas/CanvasModels.ets');
 const model = parse(modelPath, fs.readFileSync(modelPath, 'utf8'));
-const canvasTool = model.statements.find(s => s.name?.text === 'CanvasTool').getText(model).replace(/^export\s+/, '');
+const canvasTool = model.statements.filter(s => ['CanvasTool', 'CanvasPenKind'].includes(s.name?.text))
+  .map(s => s.getText(model).replace(/^export\s+/, '')).join('\n');
+function moduleCode(relative) {
+  const file = path.join(root, relative);
+  const parsed = parse(file, fs.readFileSync(file, 'utf8'));
+  return parsed.statements.filter(s => !ts.isImportDeclaration(s))
+    .map(s => s.getText(parsed).replace(/^export\s+/, '')).join('\n');
+}
+const penCode = moduleCode('client/common/src/main/ets/features/canvas/CanvasPens.ets') + '\n' +
+  moduleCode('client/apps/tablet/src/main/ets/features/canvas/CanvasPenInput.ets');
 const enumNames = new Set(['TouchType', 'SourceTool', 'SourceType']);
 const enumCode = [];
 for (const name of ['common.d.ts', 'enums.d.ts']) {
@@ -62,7 +71,7 @@ const auth = parse(authPath, fs.readFileSync(authPath, 'utf8'));
 const authNames = new Set(['AuthFailureKind', 'AuthError', 'AuthResult']);
 const authCode = auth.statements.filter(s => s.name && authNames.has(s.name.text))
   .map(s => s.getText(auth).replace(/^export\s+/, '')).join('\n');
-const code = authCode + '\n' + enumCode.join('\n') + '\n' + canvasTool + '\n' + geometryCode + `
+const code = authCode + '\n' + enumCode.join('\n') + '\n' + canvasTool + '\n' + penCode + '\n' + geometryCode + `
 class InputHarness {
   ${extracted.join('\n')}
   constructor() {
@@ -84,6 +93,7 @@ globalThis.TouchType = TouchType;
 globalThis.SourceTool = SourceTool;
 globalThis.SourceType = SourceType;
 globalThis.CanvasTool = CanvasTool;
+globalThis.CanvasPenKind = CanvasPenKind;
 `;
 const transpiled = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 }, reportDiagnostics: true });
 assert.equal(transpiled.diagnostics.length, 0);
@@ -94,9 +104,9 @@ vm.runInContext(transpiled.outputText, sandbox, { filename: 'actual-canvas-input
 const { InputHarness, SourceTool: Source, SourceType: Device, TouchType: Phase, CanvasTool: Tool } = sandbox;
 const pt = (id, x, y) => ({ id, x, y });
 const json = value => JSON.stringify(value);
-function event(h, phase, source, changed, touches = changed, device = Device.TouchScreen) {
+function event(h, phase, source, changed, touches = changed, device = Device.TouchScreen, pressure = 0.6) {
   let stopped = false;
-  h.touch({ type: phase, source: device, sourceTool: source, changedTouches: changed, touches,
+  h.touch({ type: phase, pressure, source: device, sourceTool: source, changedTouches: changed, touches,
     stopPropagation: () => { stopped = true; } });
   assert.ok(stopped, 'Canvas touch must stop bubbling');
 }
@@ -152,7 +162,7 @@ check('single stylus writes once and undo restores', () => {
   h.view = { x: -50, y: -20, scale: 2 };
   drag(h, Source.Pen);
   assert.equal(h.changes.length, 1); assert.equal(h.document.strokes.length, 2);
-  assert.equal(json(h.document.strokes[1].points[0]), json({ x: -45, y: -15 }));
+  assert.equal(json(h.document.strokes[1].points[0]), json({ x: -45, y: -15, pressure: 0.6 }));
   assert.equal(h.undoHistory.length, 1);
   h.undo(); assert.equal(json(h.document), before);
 });
@@ -296,6 +306,45 @@ check('control touch cancels ink without changing document', () => {
   assert.equal((surfaceText.match(/\.hitTestBehavior\(HitTestMode.Default\)/g) || []).length, 2);
   assert.equal((surfaceText.match(/\.onTouch\(\(event: TouchEvent\) => \{ this.control_touch\(event\); \}\)/g) || []).length, 2);
 });
+for (const kind of Object.values(sandbox.CanvasPenKind)) {
+  check('pen kind persists with selected color and size ' + kind, () => {
+    const h = new InputHarness(); h.penKind = kind; h.penColor = '#2563EB'; h.penSize = 2;
+    drag(h, Source.Pen);
+    const stroke = h.document.strokes[1];
+    assert.equal(stroke.penKind, kind);
+    assert.equal(stroke.color, kind === 'highlighter' ? '#4D2563EB' : '#2563EB');
+    assert.equal(stroke.width, kind === 'highlighter' ? 24 : kind === 'fountain' ? 6 : 4);
+    assert.equal(stroke.points[0].pressure, kind === 'fountain' ? 0.6 : undefined);
+    const saved = JSON.parse(JSON.stringify(h.document));
+    assert.equal(json(saved), json(h.document));
+    h.undo(); assert.equal(h.document.strokes.length, 1);
+  });
+}
+check('fountain pressure varies continuously and missing up retains the last pressure', () => {
+  const h = new InputHarness();
+  for (const [phase, x, pressure] of [[Phase.Down, 10, 0.1], [Phase.Move, 20, 0.5],
+    [Phase.Move, 30, 1], [Phase.Up, 40, 0]]) {
+    const points = [pt(1, x, x)]; event(h, phase, Source.Pen, points, points, Device.TouchScreen, pressure);
+  }
+  const pressures = h.document.strokes[1].points.map(p => p.pressure);
+  assert.ok(pressures[0] < pressures[1] && pressures[1] < pressures[2]);
+  assert.equal(pressures[3], pressures[2]);
+  for (let i = 1; i < pressures.length; i++) assert.ok(Math.abs(pressures[i] - pressures[i - 1]) <= 0.180001);
+});
+check('stationary pressure changes are retained without requiring coordinate movement', () => {
+  const h = new InputHarness(); const points = [pt(1, 10, 10)];
+  event(h, Phase.Down, Source.Pen, points, points, Device.TouchScreen, 0.1);
+  event(h, Phase.Move, Source.Pen, points, points, Device.TouchScreen, 1);
+  event(h, Phase.Up, Source.Pen, points, points, Device.TouchScreen, 0);
+  assert.equal(h.document.strokes[1].points.length, 2);
+});
+check('finger pressure never grants ink permission', () => {
+  const h = new InputHarness(); const before = json(h.document);
+  for (const [phase, x] of [[Phase.Down, 10], [Phase.Move, 20], [Phase.Up, 30]]) {
+    const points = [pt(1, x, x)]; event(h, phase, Source.Finger, points, points, Device.TouchScreen, 1);
+  }
+  assert.equal(json(h.document), before);
+});
 async function freezeChecks() {
   async function checkAsync(name, run) {
     try { await run(); scenarios++; }
@@ -368,6 +417,17 @@ async function freezeChecks() {
     const first = h.capture_at_pen_up(); const second = await h.capture_at_pen_up();
     assert.equal(second.isSuccess, false);
     event(h, Phase.Up, Source.Pen, [pt(1, 50, 50)]); assert.equal((await first).isSuccess, true);
+  });
+  await checkAsync('pressure metadata freezes at pen-up and excludes later pen changes', async () => {
+    const h = new InputHarness(); const points = [pt(1, 40, 40)];
+    event(h, Phase.Down, Source.Pen, points, points, Device.TouchScreen, 0.1);
+    const pending = h.capture_at_pen_up();
+    event(h, Phase.Up, Source.Pen, [pt(1, 60, 60)], [pt(1, 60, 60)], Device.TouchScreen, 1);
+    const result = await pending; const frozen = json(result.data);
+    h.penKind = 'highlighter'; drag(h, Source.Pen, 2);
+    assert.equal(result.data.strokes[1].penKind, 'fountain');
+    assert.ok(result.data.strokes[1].points[1].pressure > result.data.strokes[1].points[0].pressure);
+    assert.equal(json(result.data), frozen);
   });
   console.log(JSON.stringify({ scenarios, result: 'PASS', source: 'actual CanvasSurface input/freeze methods + existing geometry/AuthResult',
     boundary: 'synthetic events; native rendering, hit testing, filesystem, network and real stylus not exercised' }));
