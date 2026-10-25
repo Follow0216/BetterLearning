@@ -87,7 +87,13 @@ public final class MultiAgentModels {
             return bytes.clone();
         }
     }
-    public record Snapshot(String fileRef, String questionMarkdown, List<Image> images) { }
+    /** hasHandwriting 来自真实manifest笔划列表；OCR未执行时text/confidence为null，不将缺文本推断为空笔迹。 */
+    public record Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
+            Boolean hasHandwriting, String ocrText, Double ocrConfidence) {
+        public Snapshot(String fileRef, String questionMarkdown, List<Image> images) {
+            this(fileRef, questionMarkdown, images, List.of(), null, null, null);
+        }
+    }
     public record RetrievalQuery(long accountId, String runId, String questionId, String text,
             List<String> methodTags, int limit) { }
     public record PipelineContext(Execution execution, Snapshot snapshot, List<Evidence> evidence) { }
