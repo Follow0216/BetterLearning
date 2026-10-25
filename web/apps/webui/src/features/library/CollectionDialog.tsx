@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
+import { useFeedbackRequest } from "@/components/feedback/use-feedback-request";
+
 import type { CollectionSummary } from "@/lib/api/library-contract";
 
 import { buildCollectionTree, flattenCollectionTree } from "./collection-tree";
@@ -46,6 +48,8 @@ export function CollectionDialog({
   defaultParentCollectionId = null,
 }: CollectionDialogProps) {
   const router = useRouter();
+  const { toast, begin } = useFeedbackRequest();
+  const [errorAnnounced, setErrorAnnounced] = useState(false);
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -64,6 +68,8 @@ export function CollectionDialog({
   }, [open]);
 
   function openDialog() {
+    toast.dismiss(`collection:${mode}:${collection?.collectionId ?? "new"}`);
+    setErrorAnnounced(false);
     setName(mode === "rename" ? (collection?.name ?? "") : "");
     setParentId(defaultParentCollectionId ?? "");
     setError(null);
@@ -83,12 +89,15 @@ export function CollectionDialog({
       return;
     }
 
+    setErrorAnnounced(false);
     const trimmed = name.trim();
     if (trimmed.length === 0 || trimmed.length > 64) {
       setError("请输入 1–64 个字符的题集名称");
       return;
     }
 
+    const request = begin();
+    if (!request) return;
     setPending(true);
     setError(null);
     try {
@@ -101,28 +110,63 @@ export function CollectionDialog({
           ? { name: trimmed, parentCollectionId: parentId === "" ? null : parentId }
           : { name: trimmed };
       const response = await fetch(url, {
+        signal: request.signal,
         method: mode === "create" ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
+      if (!request.isCurrent()) return;
       if (response.status === 401) {
+        toast.clearScope();
         router.replace("/");
         return;
       }
 
       const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!request.isCurrent()) return;
       if (!response.ok) {
         setError(errorMessage(data?.code, data?.message));
+        if (response.status >= 500) {
+          setErrorAnnounced(true);
+          toast.show(
+            {
+              key: `collection:${mode}:${collection?.collectionId ?? "new"}`,
+              type: "error",
+              message: "题集保存失败",
+              description: "输入已保留，请稍后重试",
+            },
+            request.scope,
+          );
+        }
         return;
       }
 
       setOpen(false);
+      toast.show(
+        {
+          key: `collection:${mode}:${collection?.collectionId ?? "new"}`,
+          type: "success",
+          message: mode === "create" ? "题集已创建" : "题集已改名",
+        },
+        request.scope,
+      );
       router.refresh();
     } catch {
+      if (!request.isCurrent()) return;
       setError("无法连接服务器，请稍后重试");
+      setErrorAnnounced(true);
+      toast.show(
+        {
+          key: `collection:${mode}:${collection?.collectionId ?? "new"}`,
+          type: "error",
+          message: "题集保存失败",
+          description: "输入已保留，请稍后重试",
+        },
+        request.scope,
+      );
     } finally {
-      setPending(false);
+      if (request.finish()) setPending(false);
     }
   }
 
@@ -204,7 +248,10 @@ export function CollectionDialog({
                 </label>
               ) : null}
               {error === null ? null : (
-                <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
+                <p
+                  role={errorAnnounced ? undefined : "alert"}
+                  className="text-sm leading-6 text-[var(--auth-danger)]"
+                >
                   {error}
                 </p>
               )}

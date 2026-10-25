@@ -1,5 +1,6 @@
 "use client";
 
+import { useToast } from "@betterlearning/ui-feedback";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 
@@ -210,6 +211,9 @@ function TextField({
 }
 
 export function AuthForm() {
+  const toast = useToast();
+  const [formErrorAnnounced, setFormErrorAnnounced] = useState(false);
+  const [profileErrorAnnounced, setProfileErrorAnnounced] = useState(false);
   const [stage, setStage] = useState<Stage>("checking");
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
@@ -230,21 +234,32 @@ export function AuthForm() {
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
   const sequenceRef = useRef(0);
+  const submitInFlightRef = useRef(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const requestScopeRef = useRef(0);
 
   const beginRequest = useCallback(() => {
     sequenceRef.current += 1;
+    requestScopeRef.current = toast.captureScope();
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    return { sequence: sequenceRef.current, signal: controller.signal };
-  }, []);
+    return {
+      sequence: sequenceRef.current,
+      signal: controller.signal,
+      scope: requestScopeRef.current,
+    };
+  }, [toast]);
 
-  const isCurrent = useCallback((sequence: number) => sequenceRef.current === sequence, []);
+  const isCurrent = useCallback(
+    (sequence: number) =>
+      sequenceRef.current === sequence && requestScopeRef.current === toast.captureScope(),
+    [toast],
+  );
 
   const loadSession = useCallback(
     async (options?: { loginJustCompleted?: boolean }) => {
-      const { sequence, signal } = beginRequest();
+      const { sequence, signal, scope } = beginRequest();
 
       try {
         const response = await fetch("/api/auth/session", {
@@ -257,6 +272,7 @@ export function AuthForm() {
           return;
         }
         if (response.status === 401) {
+          toast.onScopeChange("auth:login:anonymous");
           setProfile(null);
           setStage("form");
           if (options?.loginJustCompleted) {
@@ -274,6 +290,17 @@ export function AuthForm() {
               ? "服务暂时不可用，请稍后重试"
               : failure.message || "加载账号信息失败",
           );
+          if (options?.loginJustCompleted && failure.status >= 500) {
+            toast.show(
+              {
+                key: "auth:login",
+                type: "error",
+                message: "暂时无法确认登录状态",
+                description: "请稍后重试",
+              },
+              scope,
+            );
+          }
           setStage("retry");
           return;
         }
@@ -286,17 +313,35 @@ export function AuthForm() {
           setStage("retry");
           return;
         }
+        toast.onScopeChange(`auth:profile:${user.accountId}`);
         setProfile(user);
         setStage("profile");
+        if (options?.loginJustCompleted) {
+          toast.show(
+            { key: "auth:login", type: "success", message: "登录成功" },
+            toast.captureScope(),
+          );
+        }
       } catch {
         if (!isCurrent(sequence)) {
           return;
         }
         setRetryMessage("网络连接异常，请稍后重试");
+        if (options?.loginJustCompleted) {
+          toast.show(
+            {
+              key: "auth:login",
+              type: "error",
+              message: "暂时无法确认登录状态",
+              description: "请稍后重试",
+            },
+            scope,
+          );
+        }
         setStage("retry");
       }
     },
-    [beginRequest, isCurrent],
+    [beginRequest, isCurrent, toast],
   );
 
   useEffect(() => {
@@ -305,6 +350,7 @@ export function AuthForm() {
     }, 0);
     return () => {
       clearTimeout(timer);
+      sequenceRef.current += 1;
       controllerRef.current?.abort();
     };
   }, [loadSession]);
@@ -319,7 +365,14 @@ export function AuthForm() {
     }
   };
 
-  const applyFailure = (failure: ApiFailure) => {
+  const applyFailure = (failure: ApiFailure, scope: number) => {
+    setFormErrorAnnounced(failure.status >= 500);
+    if (failure.status >= 500) {
+      toast.show(
+        { key: "auth:submit", type: "error", message: "服务暂时不可用", description: "请稍后重试" },
+        scope,
+      );
+    }
     const mapped: Partial<Record<AuthFieldName, string>> = {};
     for (const field of ["username", "password", "confirmPassword"] as const) {
       const message = failure.fieldErrors[field];
@@ -341,19 +394,21 @@ export function AuthForm() {
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) {
+    if (submitting || submitInFlightRef.current) {
       return;
     }
     const nextErrors = validateLoginForm(username, password);
     setErrors(nextErrors);
     setFormError("");
+    setFormErrorAnnounced(false);
     setFormNotice("");
     if (Object.keys(nextErrors).length > 0) {
       focusFirstError(nextErrors);
       return;
     }
 
-    const { sequence, signal } = beginRequest();
+    submitInFlightRef.current = true;
+    const { sequence, signal, scope } = beginRequest();
     setSubmitting(true);
     try {
       const response = await fetch("/api/auth/login", {
@@ -366,7 +421,9 @@ export function AuthForm() {
         return;
       }
       if (!response.ok) {
-        applyFailure(await readFailure(response));
+        const failure = await readFailure(response);
+        if (!isCurrent(sequence)) return;
+        applyFailure(failure, scope);
         return;
       }
       setPassword("");
@@ -380,19 +437,26 @@ export function AuthForm() {
         return;
       }
       setFormError("网络连接异常，请稍后重试");
+      setFormErrorAnnounced(true);
+      toast.show(
+        { key: "auth:submit", type: "error", message: "网络连接异常", description: "请稍后重试" },
+        scope,
+      );
     } finally {
-      setSubmitting(false);
+      submitInFlightRef.current = false;
+      if (sequenceRef.current === sequence) setSubmitting(false);
     }
   };
 
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (submitting) {
+    if (submitting || submitInFlightRef.current) {
       return;
     }
     const nextErrors = validateRegisterForm(username, password, confirmPassword);
     setErrors(nextErrors);
     setFormError("");
+    setFormErrorAnnounced(false);
     setFormNotice("");
     if (Object.keys(nextErrors).length > 0) {
       focusFirstError(nextErrors);
@@ -400,7 +464,8 @@ export function AuthForm() {
     }
 
     const normalized = username.trim();
-    const { sequence, signal } = beginRequest();
+    submitInFlightRef.current = true;
+    const { sequence, signal, scope } = beginRequest();
     setSubmitting(true);
     try {
       const response = await fetch("/api/auth/register", {
@@ -413,9 +478,12 @@ export function AuthForm() {
         return;
       }
       if (!response.ok) {
-        applyFailure(await readFailure(response));
+        const failure = await readFailure(response);
+        if (!isCurrent(sequence)) return;
+        applyFailure(failure, scope);
         return;
       }
+      toast.onScopeChange("auth:login:anonymous");
       setMode("login");
       setUsername(normalized);
       setPassword("");
@@ -423,13 +491,25 @@ export function AuthForm() {
       setPasswordVisible(false);
       setErrors({});
       setFormError("");
-      setFormNotice("注册成功，请登录");
+      setFormErrorAnnounced(false);
+      setFormNotice("");
+      setSubmitting(false);
+      toast.show(
+        { key: "auth:register", type: "success", message: "注册成功，请登录" },
+        toast.captureScope(),
+      );
     } catch {
       if (!isCurrent(sequence)) {
         return;
       }
       setFormError("网络连接异常，请稍后重试");
+      setFormErrorAnnounced(true);
+      toast.show(
+        { key: "auth:submit", type: "error", message: "网络连接异常", description: "请稍后重试" },
+        scope,
+      );
     } finally {
+      submitInFlightRef.current = false;
       if (isCurrent(sequence)) {
         setSubmitting(false);
       }
@@ -440,9 +520,10 @@ export function AuthForm() {
     if (refreshing) {
       return;
     }
-    const { sequence, signal } = beginRequest();
+    const { sequence, signal, scope } = beginRequest();
     setRefreshing(true);
     setProfileError("");
+    setProfileErrorAnnounced(false);
     try {
       const response = await fetch("/api/auth/session", {
         method: "GET",
@@ -454,6 +535,7 @@ export function AuthForm() {
         return;
       }
       if (response.status === 401) {
+        toast.onScopeChange("auth:login:anonymous");
         setProfile(null);
         setStage("form");
         setFormNotice("登录状态已失效，请重新登录");
@@ -467,6 +549,18 @@ export function AuthForm() {
         setProfileError(
           failure.status === 503 ? "服务暂时不可用，请稍后重试" : failure.message || "加载资料失败",
         );
+        if (failure.status >= 500) {
+          setProfileErrorAnnounced(true);
+          toast.show(
+            {
+              key: "auth:refresh",
+              type: "error",
+              message: "资料刷新失败",
+              description: "请稍后重试",
+            },
+            scope,
+          );
+        }
         return;
       }
       const user = await readUser(response);
@@ -477,14 +571,26 @@ export function AuthForm() {
         setProfileError("账号信息格式异常，请稍后重试");
         return;
       }
+      toast.onScopeChange(`auth:profile:${user.accountId}`);
       setProfile(user);
       setProfileError("");
+      setProfileErrorAnnounced(false);
     } catch {
       if (isCurrent(sequence)) {
         setProfileError("网络连接异常，请稍后重试");
+        setProfileErrorAnnounced(true);
+        toast.show(
+          {
+            key: "auth:refresh",
+            type: "error",
+            message: "网络连接异常",
+            description: "请稍后重试",
+          },
+          scope,
+        );
       }
     } finally {
-      setRefreshing(false);
+      if (sequenceRef.current === sequence) setRefreshing(false);
     }
   };
 
@@ -492,9 +598,10 @@ export function AuthForm() {
     if (loggingOut) {
       return;
     }
-    const { sequence, signal } = beginRequest();
+    const { sequence, signal, scope } = beginRequest();
     setLoggingOut(true);
     setProfileError("");
+    setProfileErrorAnnounced(false);
     try {
       const response = await fetch("/api/auth/logout", {
         method: "DELETE",
@@ -505,6 +612,7 @@ export function AuthForm() {
         return;
       }
       if (response.status === 204 || response.status === 401) {
+        toast.onScopeChange("auth:login:anonymous");
         setProfile(null);
         setStage("form");
         setMode("login");
@@ -514,13 +622,29 @@ export function AuthForm() {
         setPasswordVisible(false);
         setErrors({});
         setFormError("");
-        setFormNotice("已退出登录");
+        setFormErrorAnnounced(false);
+        setFormNotice("");
+        setLoggingOut(false);
+        toast.show(
+          { key: "auth:logout", type: "success", message: "已退出登录" },
+          toast.captureScope(),
+        );
         return;
       }
       setProfileError("无法确认退出结果，请重试");
+      setProfileErrorAnnounced(true);
+      toast.show(
+        { key: "auth:logout", type: "error", message: "退出未完成", description: "请稍后重试" },
+        scope,
+      );
     } catch {
       if (isCurrent(sequence)) {
         setProfileError("无法确认退出结果，请重试");
+        setProfileErrorAnnounced(true);
+        toast.show(
+          { key: "auth:logout", type: "error", message: "退出未完成", description: "请稍后重试" },
+          scope,
+        );
       }
     } finally {
       if (isCurrent(sequence)) {
@@ -535,12 +659,14 @@ export function AuthForm() {
     }
     sequenceRef.current += 1;
     controllerRef.current?.abort();
+    toast.onScopeChange(`auth:${mode === "login" ? "register" : "login"}:anonymous`);
     setMode(mode === "login" ? "register" : "login");
     setPassword("");
     setConfirmPassword("");
     setPasswordVisible(false);
     setErrors({});
     setFormError("");
+    setFormErrorAnnounced(false);
     setFormNotice("");
   };
 
@@ -601,7 +727,10 @@ export function AuthForm() {
           </div>
         </dl>
         {profileError ? (
-          <p role="alert" className="mt-4 text-[13px] leading-5 text-[var(--auth-danger)]">
+          <p
+            role={profileErrorAnnounced ? undefined : "alert"}
+            className="mt-4 text-[13px] leading-5 text-[var(--auth-danger)]"
+          >
             {profileError}
           </p>
         ) : null}
@@ -713,7 +842,10 @@ export function AuthForm() {
         ) : null}
 
         {formError ? (
-          <p role="alert" className="text-[13px] leading-5 text-[var(--auth-danger)]">
+          <p
+            role={formErrorAnnounced ? undefined : "alert"}
+            className="text-[13px] leading-5 text-[var(--auth-danger)]"
+          >
             {formError}
           </p>
         ) : null}
