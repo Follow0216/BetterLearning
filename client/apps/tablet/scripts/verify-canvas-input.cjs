@@ -80,12 +80,14 @@ class InputHarness {
     this.document = { schemaVersion: 1, questionLayout: { bounds: { x: 0, y: 0, width: 720, height: 1024 } },
       strokes: [{ strokeId: 'existing', color: '#152744', width: 2.5, points: [{ x: 10, y: 10 }, { x: 30, y: 30 }] }] };
     this.committedDocument = this.document; this.alive = true;
-    this.changes = []; this.savedViews = []; this.failures = [];
+    this.changes = []; this.savedViews = []; this.failures = []; this.backgroundCleanupCalls = 0;
     this.onDocumentChange = doc => { this.document = doc; this.changes.push(JSON.stringify(doc)); };
     this.onViewChange = view => this.savedViews.push(JSON.stringify(view));
     this.onUndoChange = () => {}; this.onFreezeHandle = () => {};
     this.onFailure = message => this.failures.push(message);
   }
+  // Native rendering is mocked here; viewport harness exercises the actual cleanup.
+  release_background() { this.backgroundCleanupCalls++; }
   paint() {}
   configure_view() {}
   change_view(view, persist) { this.view = view; if (persist) this.onViewChange(view); }
@@ -386,6 +388,7 @@ for (const lifecycle of ['reset', 'aboutToDisappear']) {
     assert.ok(h.strokeBudget.sizes.size > 0); assert.notEqual(h.strokeBudget.layout, null);
     if (lifecycle === 'reset') h.document = { ...h.document, questionLayout: { bounds: { x: 0, y: 0, width: 720, height: 1024 } }, strokes: [] };
     h[lifecycle]();
+    assert.equal(h.backgroundCleanupCalls, 1, "actual lifecycle must invoke rendering cleanup");
     assert.equal(h.strokeBudget.sizes.size, 0); assert.equal(h.strokeBudget.layout, null);
     assert.equal(h.strokeBudget.stroke, null); assert.equal(h.strokeBudget.emptyBytes, 0);
     assert.equal(h.strokeBudget.documentBytes, 0);

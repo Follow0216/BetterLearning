@@ -83,6 +83,8 @@ class SurfaceHarness {
     this.ready = true; this.canvasWidthVp = 800; this.canvasHeightVp = 600; this.context = new CanvasRenderingContext2D();
     this.erased = null; this.liveStroke = null; this.undoHistory = []; this.saved = []; this.failures = [];
     this.freezeHandle = {}; this.onFreezeHandle = () => {};
+    // Input harness covers actual budget clearing; viewport keeps rendering cleanup real.
+    this.budgetClears = 0; this.strokeBudget = { clear: () => this.budgetClears++ };
     this.onViewChange = view => this.saved.push(JSON.parse(JSON.stringify(view)));
     this.onFailure = message => this.failures.push(message);
   }
