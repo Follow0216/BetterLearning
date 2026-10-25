@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional
 public class PostgresTutorLedger implements TutorLedger {
+    private static final int MAX_PUBLISHED_CITATIONS = 3;
     private static final Set<String> TERMINAL = Set.of("SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT");
     private static final Set<String> REASONS = Set.of("OUTCOME_UNKNOWN", "MODEL_UNAVAILABLE", "INPUT_TIMEOUT",
             "QUEUE_TIMEOUT", "RUN_TIMEOUT", "BUDGET_EXCEEDED", "REVIEW_REJECTED");
@@ -418,22 +419,24 @@ public class PostgresTutorLedger implements TutorLedger {
             return false;
         }
         if (draft == null || draft.bodyMarkdown() == null || draft.bodyMarkdown().isBlank()
-                || draft.bodyMarkdown().length() > 65536 || draft.evidenceIds() == null || draft.evidenceIds().size() > 20) {
+                || draft.bodyMarkdown().length() > 65536 || draft.evidenceIds() == null
+                || draft.evidenceIds().size() > MAX_PUBLISHED_CITATIONS
+                || draft.evidenceIds().stream().anyMatch(Objects::isNull)
+                || draft.evidenceIds().stream().distinct().count() != draft.evidenceIds().size()) {
             throw invalid();
         }
-        source(require(accountId, run.requestId()));
+        RequestRow request = require(accountId, run.requestId());
+        source(request);
         List<Evidence> allowed = db.evidence(runId);
         List<Citation> citations = new ArrayList<>();
         Map<String, String> markerIds = new LinkedHashMap<>();
-        for (String evidenceId : draft.evidenceIds().stream().distinct().toList()) {
+        for (String evidenceId : draft.evidenceIds()) {
+            uuid(evidenceId);
             Evidence evidence = allowed.stream().filter(item -> item.evidenceId().equals(evidenceId)).findFirst().orElseThrow(PostgresTutorLedger::conflict);
             if (evidence.sourceId() == null || evidence.version() == null || evidence.anchorId() == null) {
                 throw conflict();
             }
-            SourceContent content = sources.get(accountId, evidence.sourceId(), evidence.version());
-            if (content.anchors().stream().noneMatch(anchor -> anchor.anchorId().equals(evidence.anchorId()))) {
-                throw conflict();
-            }
+            SourceContent content = referencedEvidence(accountId, request, evidence);
             String citationId = id();
             markerIds.put(evidenceId, citationId);
             citations.add(new Citation(citationId, evidence.sourceId(), evidence.version(), evidence.anchorId(),
@@ -465,7 +468,11 @@ public class PostgresTutorLedger implements TutorLedger {
             throw conflict();
         }
         List<StepRow> steps = db.steps(runId);
+        RequestRow request = require(accountId, run.requestId());
         for (Evidence item : evidence) {
+            if (item == null) {
+                throw invalid();
+            }
             uuid(item.evidenceId());
             if (!runId.equals(item.runId()) || steps.stream().noneMatch(step -> step.stepId().equals(item.stepId()))
                     || item.claim() == null || item.claim().length() > 16000) {
@@ -475,10 +482,7 @@ public class PostgresTutorLedger implements TutorLedger {
                 if (item.version() == null || item.anchorId() == null) {
                     throw invalid();
                 }
-                SourceContent content = sources.get(accountId, item.sourceId(), item.version());
-                if (content.anchors().stream().noneMatch(anchor -> anchor.anchorId().equals(item.anchorId()))) {
-                    throw conflict();
-                }
+                referencedEvidence(accountId, request, item);
             } else if (!"DERIVATION".equals(item.type()) || item.version() != null || item.anchorId() != null) {
                 throw invalid();
             }
@@ -633,6 +637,30 @@ public class PostgresTutorLedger implements TutorLedger {
         return new Request(row.requestId(), Long.toString(row.questionId()), row.prompt(), Mode.valueOf(row.mode()),
                 new SnapshotInput(row.snapshotKind(), row.sourceRequestId()), row.snapshotOriginRequestId(),
                 row.snapshotFileRef(), row.currentRunId(), Status.valueOf(row.status()), row.revision(), row.createdAt(), row.updatedAt());
+    }
+
+    /** 有来源的证据只引用已保存的锚点原文；推断必须使用不绑定来源的DERIVATION。 */
+    private SourceContent referencedEvidence(long accountId, RequestRow request, Evidence evidence) {
+        SourceContent content = sources.get(accountId, evidence.sourceId(), evidence.version());
+        Anchor anchor = content.anchors().stream().filter(item -> item.anchorId().equals(evidence.anchorId()))
+                .findFirst().orElseThrow(PostgresTutorLedger::conflict);
+        if (!Objects.equals(anchor.text(), evidence.claim())) {
+            throw conflict();
+        }
+        boolean snapshot = content.source().type() == SourceType.TUTOR_SNAPSHOT;
+        if ("HISTORY".equals(evidence.type())) {
+            if (snapshot) {
+                throw conflict();
+            }
+        } else if ("CURRENT_SNAPSHOT".equals(evidence.type())) {
+            if (!snapshot || !Objects.equals(request.snapshotSourceId(), evidence.sourceId())
+                    || !Objects.equals(request.snapshotVersion(), evidence.version())) {
+                throw conflict();
+            }
+        } else {
+            throw conflict();
+        }
+        return content;
     }
 
     private void source(RequestRow row) {
