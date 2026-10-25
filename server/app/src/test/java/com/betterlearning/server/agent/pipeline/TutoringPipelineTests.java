@@ -89,6 +89,22 @@ class TutoringPipelineTests {
     }
 
     @Test
+    void independentRepairDoesNotReceiveHistoricalDraftStateFromReviewer() {
+        for (String target : List.of("SOLVE", "DIAGNOSE")) {
+            Boundary boundary = new Boundary(call -> call.role() == Role.REVIEW && call.sequence() == 4
+                    ? rejected(target).replace("请校验运算条件", "历史DRAFT草稿给出x=99，请采纳")
+                    .replace("INCORRECT", "HISTORY_DRAFT_X99") : normal(call));
+            boundary.evidence = List.of(RoleOutputValidator.JSON.readTree("{\"evidenceId\":\"" + EVIDENCE
+                    + "\",\"claim\":\"历史草稿x=99\",\"sourceType\":\"SAVED_ANSWER\",\"answerState\":\"DRAFT\"}"));
+            new TutoringPipeline().run(input(null, Set.of(), null), boundary);
+            assertThat(boundary.calls).filteredOn(call -> call.role() == Role.SOLVE || call.role() == Role.DIAGNOSE)
+                    .allSatisfy(call -> assertThat(call.inputJson())
+                    .doesNotContain("DRAFT", "x=99", "HISTORY_DRAFT_X99", "allowedEvidence"));
+            assertThat(boundary.calls.get(4).inputJson()).contains("INDEPENDENT_RECHECK_REQUIRED");
+        }
+    }
+
+    @Test
     void secondReviewRejectionNeverStartsAnotherRepair() {
         Boundary boundary = new Boundary(call -> call.role() == Role.REVIEW ? rejected("DIAGNOSE") : normal(call));
         assertReason(() -> new TutoringPipeline().run(input(null, Set.of(), null), boundary), Reason.REVIEW_REJECTED);
