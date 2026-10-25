@@ -28,6 +28,10 @@ public class TutorTurnDao {
         return Optional.ofNullable(execute(() -> mapper.find(accountId, questionId, turnId)));
     }
 
+    public boolean activeRequest(long accountId) {
+        return execute(() -> mapper.activeRequest(accountId));
+    }
+
     public boolean lockAccount(long accountId) {
         return execute(() -> mapper.lockAccount(accountId)) != null;
     }

@@ -172,7 +172,8 @@ public class TutorTurnServiceImpl implements TutorTurnService {
     }
 
     private void requireNoOtherActive(long accountId, String exceptTurn) {
-        if (turns.active(accountId).filter(turn -> !turn.getTurnId().equals(exceptTurn)).isPresent()) {
+        if (turns.activeRequest(accountId)
+                || turns.active(accountId).filter(turn -> !turn.getTurnId().equals(exceptTurn)).isPresent()) {
             throw conflict();
         }
     }
