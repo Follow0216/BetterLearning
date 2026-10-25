@@ -71,7 +71,7 @@ export { AnswerState, AnswerManifest, AnswerQuestionSnapshot, SolutionDetail, Fr
   from './src/main/ets/features/learning/SolutionModels';
 export {
   CanvasPoint, CanvasView, CanvasRect, CanvasStroke, CanvasTextBlock, CanvasImageBlock,
-  CanvasQuestionLayout, CanvasEditableDocument, CanvasExtent, CanvasLocalFile, CanvasTool,
+  CanvasQuestionLayout, CanvasEditableDocument, CanvasExtent, CanvasLocalFile, CanvasTool, CanvasPenKind,
   CANVAS_TILE_SIZE, CANVAS_RENDERER_ID, CANVAS_CONTENT_WIDTH, CANVAS_FONT_SIZE
 } from './src/main/ets/features/canvas/CanvasModels';
 
@@ -87,3 +87,6 @@ export { QuestionRasterHost, QuestionRasterResult } from './src/main/ets/feature
 export { TutorTurnStatus, TutorTurn, TutorPending, FrozenTutorAnswer, OcrResult } from './src/main/ets/features/tutor/TutorModels';
 export { TutorApi } from './src/main/ets/features/tutor/TutorApi';
 export { OcrApi } from './src/main/ets/features/tutor/OcrApi';
+
+export { CANVAS_DEFAULT_PRESSURE, valid_canvas_pen, valid_canvas_pressure, canvas_point_width }
+  from './src/main/ets/features/canvas/CanvasPens';

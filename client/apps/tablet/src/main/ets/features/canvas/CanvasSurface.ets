@@ -2,10 +2,11 @@ import { image } from '@kit.ImageKit';
 import { LengthMetricsUnit } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import {
-  AuthError, AuthResult, CanvasEditableDocument, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView,
+  AuthError, AuthResult, CanvasEditableDocument, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView, CanvasPenKind,
   canvas_image, clone_canvas_document, fit_canvas, stroke_hit, valid_world_number, world_point, zoom_canvas
 } from 'common';
 import { canvas_intersects, draw_canvas_stroke, stroke_bounds } from './CanvasPainter';
+import { CanvasPressureSampler, CANVAS_PEN_COLORS, CANVAS_PEN_SIZES, canvas_pen_color, canvas_pen_width } from './CanvasPenInput';
 import {
   TABLET_COLOR_BACKGROUND, TABLET_COLOR_BORDER, TABLET_COLOR_CARD,
   TABLET_COLOR_PRIMARY, TABLET_COLOR_PRIMARY_DEEP, TABLET_COLOR_PRIMARY_SOFT, TABLET_COLOR_TEXT,
@@ -36,6 +37,10 @@ export struct CanvasSurface {
     captureAtPenUp: () => this.capture_at_pen_up(), cancel: () => this.cancel_freeze()
   };
   @State private tool: CanvasTool = CanvasTool.PEN;
+  @State private penKind: CanvasPenKind = CanvasPenKind.FOUNTAIN;
+  @State private penColor: string = '#152744';
+  @State private penSize: number = 1;
+  private pressureSampler: CanvasPressureSampler = new CanvasPressureSampler();
   @State private undoEnabled: boolean = false;
   @State private zoomText: string = '100%';
   @State private chromeWidthVp: number = 0;
@@ -219,7 +224,7 @@ export struct CanvasSurface {
   }
   private discard_edit(cancelFreeze: boolean = true): void {
     if (cancelFreeze) { this.cancel_freeze(); }
-    this.liveStroke = null; this.eraseBefore = null; this.erased = null;
+    this.liveStroke = null; this.eraseBefore = null; this.erased = null; this.pressureSampler.reset();
   }
   private cancel_gesture(): void {
     this.discard_edit(); this.last = null;
@@ -233,11 +238,15 @@ export struct CanvasSurface {
     const world: CanvasPoint = world_point(this.view,point.x,point.y);
     return valid_world_number(world.x) && valid_world_number(world.y) ? world : null;
   }
-  private append_point(point: CanvasPoint): void {
+  private append_point(point: CanvasPoint, pressure: number): void {
     if (this.liveStroke === null || this.liveStroke.points.length >= this.pointBudget) { return; }
     const world: CanvasPoint | null = this.point(point);
     const previous: CanvasPoint = this.liveStroke.points[this.liveStroke.points.length - 1];
-    if (world !== null && Math.hypot(world.x - previous.x,world.y - previous.y) > 0.01) { this.liveStroke.points.push(world); }
+    if (world !== null) {
+      if (this.liveStroke.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = pressure; }
+      if (Math.hypot(world.x - previous.x,world.y - previous.y) > 0.01 ||
+        Math.abs((world.pressure ?? 0) - (previous.pressure ?? 0)) > 0.01) { this.liveStroke.points.push(world); }
+    }
   }
   private erase_path(point: CanvasPoint): void {
     const from: CanvasPoint = this.last ?? point;
@@ -306,17 +315,21 @@ export struct CanvasSurface {
           let count: number = 0; this.committedDocument.strokes.forEach((stroke: CanvasStroke) => { count += stroke.points.length; });
           this.pointBudget = 200000 - count;
           if (world !== null && this.committedDocument.strokes.length < 20000 && this.pointBudget > 0) {
-            this.liveStroke = { strokeId: util.generateRandomUUID(true).toLowerCase(), color: '#152744', width: 2.5, points: [world] };
+            const pressure: number = this.pressureSampler.begin(event.pressure);
+            if (this.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = pressure; }
+            this.liveStroke = { strokeId: util.generateRandomUUID(true).toLowerCase(),
+              color: canvas_pen_color(this.penKind,this.penColor), width: canvas_pen_width(this.penKind,this.penSize),
+              penKind: this.penKind, points: [world] };
           } else { this.onFailure('笔迹已达到范围或数量上限，请减少后再写'); }
         } else if (this.tool === CanvasTool.ERASER && this.committedDocument !== null) {
           this.eraseBefore = this.committedDocument.strokes; this.erased = this.committedDocument.strokes.slice(); this.erase(point);
         }
       } else if (event.type === TouchType.Move) {
-        if (this.liveStroke !== null) { this.append_point(point); }
+        if (this.liveStroke !== null) { this.append_point(point,this.pressureSampler.next(event.pressure)); }
         else { this.erase_path(point); }
         this.last = point;
       } else if (event.type === TouchType.Up && this.committedDocument !== null) {
-        this.append_point(point); this.erase_path(point);
+        this.append_point(point,this.pressureSampler.next(event.pressure)); this.erase_path(point);
         if (this.liveStroke !== null) { this.commit(this.committedDocument.strokes.concat([this.liveStroke]),this.committedDocument.strokes); }
         if (this.erased !== null && this.eraseBefore !== null && this.erased.length !== this.eraseBefore.length) {
           this.commit(this.erased,this.eraseBefore);
@@ -389,34 +402,63 @@ export struct CanvasSurface {
     .onClick(() => { this.cancel_gesture(); this.tool = key; this.paint(); })
   }
   @Builder
+  pen_button(kind: CanvasPenKind, label: string) {
+    Button(label).type(ButtonType.Normal).width(56).height(TABLET_CONTROL_SIZE).padding(0).fontSize(12)
+      .fontColor(this.tool === CanvasTool.PEN && this.penKind === kind ? TABLET_COLOR_PRIMARY_DEEP : TABLET_COLOR_TEXT)
+      .backgroundColor(this.tool === CanvasTool.PEN && this.penKind === kind ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
+      .borderRadius(TABLET_RADIUS_SMALL).enabled(!this.readOnly)
+      .accessibilityText(label).accessibilityDescription(kind === CanvasPenKind.FOUNTAIN ? '压力控制笔宽' : '固定笔宽')
+      .onClick(() => { this.cancel_gesture(); this.penKind = kind; this.tool = CanvasTool.PEN; this.paint(); })
+  }
+  @Builder
   tool_card() {
-    Scroll() {
-      Row({ space: 4 }) {
-        this.tool_button(CanvasTool.PEN,$r('app.media.bl_pen'),'画笔')
-        this.tool_button(CanvasTool.ERASER,$r('app.media.bl_eraser'),'擦除')
-        this.tool_button(CanvasTool.MOVE,$r('app.media.bl_move'),'移动')
-        Divider().vertical(true).height(24).color(TABLET_COLOR_BORDER).margin({ left: 4, right: 4 })
-        Button() {
-          Column({ space: 3 }) {
-            Image($r('app.media.bl_undo')).width(18).height(18).objectFit(ImageFit.Contain)
-              .fillColor(TABLET_COLOR_TEXT)
-            Text('撤销').fontSize(10).fontColor(TABLET_COLOR_TEXT)
-          }.opacity(this.undoEnabled && !this.readOnly ? 1 : 0.3)
-        }
-        .type(ButtonType.Normal).width(52).height(TABLET_CONTROL_SIZE).padding(0)
-        .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL)
-        .accessibilityText('撤销').accessibilityDescription('撤销上一次笔迹操作')
-        .onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
-      }.height(TABLET_CONTROL_SIZE)
+    Column({ space: 4 }) {
+      Scroll() {
+        Row({ space: 4 }) {
+          this.pen_button(CanvasPenKind.BALLPOINT,'圆珠笔')
+          this.pen_button(CanvasPenKind.FOUNTAIN,'钢笔')
+          this.pen_button(CanvasPenKind.HIGHLIGHTER,'荧光笔')
+          this.tool_button(CanvasTool.ERASER,$r('app.media.bl_eraser'),'擦除')
+          this.tool_button(CanvasTool.MOVE,$r('app.media.bl_move'),'移动')
+          Button() {
+            Column({ space: 3 }) {
+              Image($r('app.media.bl_undo')).width(18).height(18).objectFit(ImageFit.Contain).fillColor(TABLET_COLOR_TEXT)
+              Text('撤销').fontSize(10).fontColor(TABLET_COLOR_TEXT)
+            }.opacity(this.undoEnabled && !this.readOnly ? 1 : 0.3)
+          }
+          .type(ButtonType.Normal).width(52).height(TABLET_CONTROL_SIZE).padding(0)
+          .backgroundColor(Color.Transparent).borderRadius(TABLET_RADIUS_SMALL)
+          .accessibilityText('撤销').accessibilityDescription('撤销上一次笔迹操作')
+          .onClick(() => { this.undo(); }).enabled(this.undoEnabled && !this.readOnly)
+        }.height(TABLET_CONTROL_SIZE)
+      }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None).width('100%')
+      Scroll() {
+        Row({ space: 6 }) {
+          ForEach(CANVAS_PEN_COLORS,(color: string) => {
+            Button() { Circle().width(18).height(18).fill(color) }
+              .type(ButtonType.Normal).width(30).height(32).padding(0).backgroundColor(Color.Transparent)
+              .border({ width: this.penColor === color ? 2 : 0, color: TABLET_COLOR_PRIMARY }).borderRadius(8)
+              .accessibilityText('画笔颜色 ' + color).enabled(!this.readOnly)
+              .onClick(() => { this.cancel_gesture(); this.penColor = color; this.tool = CanvasTool.PEN; this.paint(); })
+          },(color: string) => color)
+          Divider().vertical(true).height(20).color(TABLET_COLOR_BORDER)
+          ForEach(CANVAS_PEN_SIZES,(size: number) => {
+            Button(size === 0 ? '细' : size === 1 ? '中' : '粗')
+              .type(ButtonType.Normal).width(36).height(32).padding(0).fontSize(12)
+              .backgroundColor(this.penSize === size ? TABLET_COLOR_PRIMARY_SOFT : Color.Transparent)
+              .fontColor(TABLET_COLOR_TEXT).borderRadius(8).enabled(!this.readOnly)
+              .accessibilityText('画笔粗细 ' + (size === 0 ? '细' : size === 1 ? '中' : '粗'))
+              .onClick(() => { this.cancel_gesture(); this.penSize = size; this.tool = CanvasTool.PEN; this.paint(); })
+          },(size: number) => size.toString())
+        }.height(32)
+      }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None).width('100%')
     }
-    .scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).edgeEffect(EdgeEffect.None)
     .hitTestBehavior(HitTestMode.Default)
     .onTouch((event: TouchEvent) => { this.control_touch(event); })
-    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(256,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 16)
+    .width(Math.max(TABLET_CONTROL_SIZE,Math.min(384,this.chromeWidthVp - 32))).height(TABLET_CONTROL_SIZE + 52)
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(16)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
     .shadow({ radius: 18, color: '#14246BFF', offsetY: 6 })
-    // align 控制 Scroll 内部内容；layoutGravity 才定位它在外层 Stack 中的位置。
     .layoutGravity(LocalizedAlignment.BOTTOM).margin({ bottom: 16 })
   }
   @Builder
@@ -448,7 +490,7 @@ export struct CanvasSurface {
     .padding(8).backgroundColor(TABLET_COLOR_CARD).borderRadius(14)
     .border({ width: 1, color: TABLET_COLOR_BORDER })
     .shadow({ radius: 12, color: '#10246BFF', offsetY: 4 })
-    .layoutGravity(LocalizedAlignment.BOTTOM_END).margin({ right: 16, bottom: this.chromeWidthVp < 800 ? 88 : 16 })
+    .layoutGravity(LocalizedAlignment.BOTTOM_END).margin({ right: 16, bottom: this.chromeWidthVp < 1000 ? 144 : 16 })
   }
   build() {
     Stack({ alignContent: Alignment.Bottom }) {

@@ -66,6 +66,7 @@ public final class AnswerManifestValidator {
             require(stroke.color() != null && stroke.color().matches("#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?"));
             require(stroke.width() != null && Double.isFinite(stroke.width())
                     && stroke.width() >= 0.5 && stroke.width() <= 64);
+            require(stroke.penKind() == null || Set.of("ballpoint", "fountain", "highlighter").contains(stroke.penKind()));
             require(stroke.points() != null && !stroke.points().isEmpty());
             points += stroke.points().size();
             require(points <= 200000);
@@ -73,6 +74,8 @@ public final class AnswerManifestValidator {
                 require(point != null);
                 coordinate(point.x());
                 coordinate(point.y());
+                require(point.pressure() == null || (Double.isFinite(point.pressure())
+                        && point.pressure() >= 0 && point.pressure() <= 1));
                 double radius = stroke.width() / 2;
                 inside(canvas, point.x() - radius, point.y() - radius, radius * 2, radius * 2);
             }

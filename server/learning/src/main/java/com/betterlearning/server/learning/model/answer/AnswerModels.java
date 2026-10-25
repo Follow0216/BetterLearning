@@ -3,6 +3,8 @@ package com.betterlearning.server.learning.model.answer;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 /** M2 v1 文件与作答契约，不包含历史版本或可执行内容。 */
 public final class AnswerModels {
     private AnswerModels() {
@@ -13,9 +15,17 @@ public final class AnswerModels {
     }
     public record Bounds(Double x, Double y, Double width, Double height) {
     }
-    public record Point(Double x, Double y) {
+    public record Point(Double x, Double y, @JsonInclude(JsonInclude.Include.NON_NULL) Double pressure) {
+        public Point(Double x, Double y) {
+            this(x, y, null);
+        }
     }
-    public record Stroke(String strokeId, String color, Double width, List<Point> points) {
+    /** width 为所有笔种的最大笔宽；新增字段缺省时保持 M2 定宽渲染。 */
+    public record Stroke(String strokeId, String color, Double width, List<Point> points,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String penKind) {
+        public Stroke(String strokeId, String color, Double width, List<Point> points) {
+            this(strokeId, color, width, points, null);
+        }
     }
     public record LayoutBlock(String blockId, Double x, Double y, Double width, Double height) {
     }
