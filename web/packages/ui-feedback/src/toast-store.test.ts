@@ -225,3 +225,43 @@ test("independent roots never share items or scope generations", () => {
   assert.equal(a.store.captureScope(), 0);
   assert.equal(b.store.captureScope(), 1);
 });
+
+test("same-key updates keep hover/focus pause and reset the full remaining duration", () => {
+  const t = setup();
+  t.store.attachHost();
+  t.show("a");
+  t.present();
+  t.advance(2000);
+  t.store.setPaused("a", "hover", true);
+  t.store.setPaused("a", "focus", true);
+  t.show("a", "error");
+  t.present();
+  t.advance(9000);
+  assert.deepEqual(t.keys(), ["a"]);
+  assert.equal(t.timers.size, 0);
+  t.store.setPaused("a", "hover", false);
+  t.advance(9000);
+  assert.deepEqual(t.keys(), ["a"]);
+  t.store.setPaused("a", "focus", false);
+  t.advance(5999);
+  assert.deepEqual(t.keys(), ["a"]);
+  t.advance(1);
+  assert.deepEqual(t.keys(), []);
+});
+
+test("Provider StrictMode reattach survives; real root unmount disposes captured API", async () => {
+  const t = setup();
+  const release = t.store.attachProvider();
+  release();
+  const releaseAgain = t.store.attachProvider();
+  await Promise.resolve();
+  t.store.attachHost();
+  t.show("alive");
+  t.present();
+  assert.deepEqual(t.keys(), ["alive"]);
+  releaseAgain();
+  await Promise.resolve();
+  t.show("late");
+  assert.deepEqual(t.keys(), []);
+  assert.equal(t.timers.size, 0);
+});

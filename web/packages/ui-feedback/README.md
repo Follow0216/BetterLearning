@@ -11,7 +11,11 @@ import { ToastProvider, useToast } from "@betterlearning/ui-feedback";
 // 根包装：<ToastProvider>{children}<RouteScope /></ToastProvider>
 // RouteScope 用 Next pathname / 明确的业务上下文调用 onScopeChange。
 const { show, dismiss, clearScope, onScopeChange, captureScope } = useToast();
-onScopeChange("library:route:account:question");
+// 在路由/身份 effect 或动作回调中更新 scope，不能在 render 中调用。
+useEffect(() => {
+  onScopeChange("library:route:account:question");
+}, [onScopeChange]);
+// 以下放在用户事件的 async 回调里：
 const scope = captureScope(); // 异步请求之前
 // await 业务操作；保留页面原有错误、草稿、loading 与原位重试。
 show({ key: "collection-save", type: "success", message: "题集已保存" }, scope);
