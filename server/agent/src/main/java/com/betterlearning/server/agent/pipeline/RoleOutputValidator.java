@@ -78,12 +78,17 @@ public final class RoleOutputValidator {
     }
 
     private static void solve(JsonNode node) {
-        fields(node, "summary", "answer", "methodTags", "checkpoints", "sufficient");
+        fields(node, "summary", "answer", "methodTags", "checkpoints", "sufficient", "answerComplete");
         text(node, "summary", 1200, false);
         text(node, "answer", 800, false);
         textArray(node.get("methodTags"), 8, 80);
         textArray(node.get("checkpoints"), 12, 400);
-        bool(node, "sufficient");
+        boolean sufficient = bool(node, "sufficient");
+        require(bool(node, "answerComplete") == sufficient);
+        if (sufficient) {
+            require(!java.util.regex.Pattern.compile("提示|下一步|试着|你可以|请先|思考")
+                    .matcher(node.get("answer").asString()).find());
+        }
     }
 
     private static void diagnose(JsonNode node, Input input) {
@@ -134,10 +139,10 @@ public final class RoleOutputValidator {
     }
 
     private static void review(JsonNode node) {
-        fields(node, "approved", "mathematicsOk", "diagnosisGrounded", "hintSafe",
+        fields(node, "approved", "solutionComplete", "mathematicsOk", "diagnosisGrounded", "hintSafe",
                 "citationsSupported", "historyNotAuthority", "issues");
         boolean approved = bool(node, "approved");
-        boolean all = bool(node, "mathematicsOk") & bool(node, "diagnosisGrounded")
+        boolean all = bool(node, "solutionComplete") & bool(node, "mathematicsOk") & bool(node, "diagnosisGrounded")
                 & bool(node, "hintSafe") & bool(node, "citationsSupported") & bool(node, "historyNotAuthority");
         JsonNode issues = node.get("issues");
         array(issues, 8);

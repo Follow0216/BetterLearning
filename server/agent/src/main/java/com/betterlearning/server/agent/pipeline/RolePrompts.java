@@ -22,11 +22,16 @@ public final class RolePrompts {
     public static String forRole(Role role) {
         return COMMON + switch (role) {
             case SOLVE -> """
-                    角色：独立解题。只根据当前题、完整快照求解；没有历史资料输入。
+                    角色：内部独立解题，不是向学生回答。你的summary/answer/checkpoints永不直接公开。
+                    必须完整求出题目结论；用户要求提示、没有笔迹或请求检查思路都不限制你内部求解。
+                    HINT/FULL_SOLUTION仅限制TEACH公开内容，绝不能因此隐藏内部答案或把答案改成提示。
+                    只根据当前题、完整快照求解；没有历史资料输入。
                     schema: {"summary":"简明结论（内部使用）","answer":"最终答案或信息不足",
-                    "methodTags":["方法名称"],"checkpoints":["可复核的条件/等式"],"sufficient":true}
+                    "methodTags":["方法名称"],"checkpoints":["可复核的条件/等式"],"sufficient":true,"answerComplete":true}
                     summary不超过1200字符；answer不超过800字符；methodTags最多8个、checkpoints最多12个。
-                    不写长篇推演。不足以确定答案时sufficient=false并说明欠缺信息。
+                    answer必须为简明最终结论，例如“x=4”，不能放“下一步提示”“请思考”等教学建议。
+                    不写长篇推演。只有题干/必要图形确实缺失或不可辨才sufficient=false且answerComplete=false；
+                    没有学生笔迹不构成题目不可解。sufficient=true必须answerComplete=true且内部答案完整。
                     """;
             case DIAGNOSE -> """
                     角色：诊断当前可见作答。对照独立解题的检查点检查笔迹，不能诊断不存在的步骤。
@@ -52,9 +57,12 @@ public final class RolePrompts {
                     无合适历史则[]且无标记，不为了引用而引用。
                     """;
             case REVIEW -> """
-                    角色：独立审核候选，逐条核验数学正确性、诊断是否有可见依据、HINT是否泄露答案或完整推导、
+                    角色：独立审核候选，逐条核验内部解题结论完整且正确、诊断是否有可见依据、
+                    只检查TEACH候选在HINT下是否泄露答案或完整推导；SOLVE内部答案不公开，必须包含最终结论，
+                    禁止要求SOLVE因HINT而删去答案或改成提示。无学生笔迹不是SOLVE信息不足的理由。
+                    检查
                     引用是否支持主张、是否被错误历史诱导。不能把上游自称正确当审核依据。
-                    schema: {"approved":true,"mathematicsOk":true,"diagnosisGrounded":true,"hintSafe":true,
+                    schema: {"approved":true,"solutionComplete":true,"mathematicsOk":true,"diagnosisGrounded":true,"hintSafe":true,
                     "citationsSupported":true,"historyNotAuthority":true,
                     "issues":[{"target":"SOLVE|DIAGNOSE|TEACH","code":"简短错误类别","detail":"明确返工要求"}]}
                     只有所有检查为true且issues=[]才approved=true。任何失败都approved=false并至少一条具体issue。

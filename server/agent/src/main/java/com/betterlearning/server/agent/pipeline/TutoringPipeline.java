@@ -213,7 +213,11 @@ public final class TutoringPipeline {
                 throw new PipelineFailure(Reason.BUDGET_EXCEEDED);
             }
             Map<String, Object> envelope = new LinkedHashMap<>();
-            envelope.put("mode", input.mode());
+            if (role == Role.TEACH || role == Role.REVIEW) {
+                envelope.put("mode", input.mode());
+            } else {
+                envelope.put("visibility", "INTERNAL_ONLY_COMPLETE_CONCLUSIONS_REQUIRED");
+            }
             envelope.put("questionMarkdown", input.snapshot().questionMarkdown());
             envelope.put("studentPrompt", input.prompt());
             envelope.put("strokeIds", input.strokeIds().stream().sorted().toList());

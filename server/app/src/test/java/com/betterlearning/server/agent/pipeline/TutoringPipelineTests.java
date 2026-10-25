@@ -28,7 +28,7 @@ import tools.jackson.databind.JsonNode;
 class TutoringPipelineTests {
     static final String SOLVE = """
             {"summary":"用等式性质","answer":"x=7","methodTags":["一元一次方程"],
-            "checkpoints":["等式两边进行相同操作"],"sufficient":true}
+            "checkpoints":["等式两边进行相同操作"],"sufficient":true,"answerComplete":true}
             """;
     static final String EMPTY_DIAGNOSIS = """
             {"status":"NO_WRITING","summary":"尚未书写","observations":[],"clarification":""}
@@ -38,7 +38,7 @@ class TutoringPipelineTests {
             "clarification":"","fullSolution":null,"evidenceIds":[]}
             """;
     static final String REVIEW = """
-            {"approved":true,"mathematicsOk":true,"diagnosisGrounded":true,"hintSafe":true,
+            {"approved":true,"solutionComplete":true,"mathematicsOk":true,"diagnosisGrounded":true,"hintSafe":true,
             "citationsSupported":true,"historyNotAuthority":true,"issues":[]}
             """;
     static final String EVIDENCE = "d99c57df-27aa-4c88-a2a3-82f950e89249";
@@ -261,6 +261,23 @@ class TutoringPipelineTests {
                 + "\",\"claim\":\"private history\"}"));
         assertReason(() -> new TutoringPipeline().run(input(null, Set.of(), null), boundary), Reason.EVIDENCE_REJECTED);
         assertThat(boundary.calls).extracting(Call::role).containsExactly(Role.SOLVE, Role.DIAGNOSE);
+    }
+
+    @Test
+    void hintModeDoesNotSuppressInternalFinalAnswerOrEnterSolveEnvelope() {
+        Boundary boundary = new Boundary(TutoringPipelineTests::normal);
+        var candidate = new TutoringPipeline().run(input("HINT", Set.of(), null), boundary);
+        assertThat(candidate.solve().get("answer").asString()).isEqualTo("x=7");
+        assertThat(candidate.bodyMarkdown()).doesNotContain("x=7");
+        assertThat(RoleOutputValidator.JSON.readTree(boundary.calls.get(0).inputJson()).has("mode")).isFalse();
+        assertThat(RoleOutputValidator.JSON.readTree(boundary.calls.get(1).inputJson()).has("mode")).isFalse();
+        assertThat(RoleOutputValidator.JSON.readTree(boundary.calls.get(2).inputJson()).path("mode").asString())
+                .isEqualTo("HINT");
+        assertReason(() -> RoleOutputValidator.parse(Role.SOLVE,
+                SOLVE.replace("x=7", "下一步提示：等式两边减3"), input(null, Set.of(), null)), Reason.INVALID_OUTPUT);
+        assertReason(() -> RoleOutputValidator.parse(Role.REVIEW,
+                REVIEW.replace("\"solutionComplete\":true", "\"solutionComplete\":false"),
+                input(null, Set.of(), null)), Reason.INVALID_OUTPUT);
     }
 
     static Input input(String mode, Set<String> strokes, Double confidence) {
