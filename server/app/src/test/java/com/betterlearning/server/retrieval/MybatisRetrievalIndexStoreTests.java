@@ -155,8 +155,8 @@ class MybatisRetrievalIndexStoreTests {
                 Long.valueOf(9L).equals(stage.get("totalTokens"))));
         verify(mapper).usage(org.mockito.ArgumentMatchers.argThat(usage ->
                 Integer.valueOf(1).equals(usage.get("ocrCalls"))
-                        && Integer.valueOf(0).equals(usage.get("embeddingRequests"))
-                        && usage.get("tokens") == null));
+                && Integer.valueOf(0).equals(usage.get("embeddingRequests"))
+                && usage.get("tokens") == null));
     }
 
     @Test
@@ -244,9 +244,9 @@ class MybatisRetrievalIndexStoreTests {
         when(mapper.lockAccount(job.accountId())).thenReturn(job.accountId());
         when(sources.get(job.accountId(), job.sourceId(), job.version())).thenReturn(new SourceContent(
                 new Source(job.sourceId(), job.accountId(), SourceType.SAVED_ANSWER,
-                        "question-1", "answer", "ACTIVE", job.version(), null),
+                "question-1", "answer", "ACTIVE", job.version(), null),
                 new SourceVersion(job.sourceId(), job.version(), "a".repeat(64), "INDEX_PENDING",
-                        "DRAFT", "file-1", null, null, job.indexRevision()), List.of()));
+                "DRAFT", "file-1", null, null, job.indexRevision()), List.of()));
     }
 
     private static Map<String, Object> stageRow(StageKey key, String state) {

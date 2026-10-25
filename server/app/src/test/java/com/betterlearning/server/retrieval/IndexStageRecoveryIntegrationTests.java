@@ -120,10 +120,10 @@ class IndexStageRecoveryIntegrationTests {
                 + "VALUES (?,?,'SOURCE',?,1,'SOURCE_VERSION_CREATED',?,'PENDING',1)",
                 eventId, accountId, sourceId, "a".repeat(64));
         when(sources.get(anyLong(), anyString(), anyLong())).thenAnswer(invocation ->
-                new SourceContent(new Source(sourceId, accountId, SourceType.SAVED_ANSWER,
-                        "question", "answer", "ACTIVE", 1, null),
-                        new SourceVersion(sourceId, 1, "a".repeat(64), "INDEX_PENDING",
-                                "DRAFT", fileRef, null, null, 1), List.of()));
+        new SourceContent(new Source(sourceId, accountId, SourceType.SAVED_ANSWER,
+                "question", "answer", "ACTIVE", 1, null),
+                new SourceVersion(sourceId, 1, "a".repeat(64), "INDEX_PENDING",
+                "DRAFT", fileRef, null, null, 1), List.of()));
     }
 
     @Test

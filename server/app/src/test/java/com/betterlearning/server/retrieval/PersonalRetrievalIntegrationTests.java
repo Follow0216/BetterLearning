@@ -672,11 +672,11 @@ class PersonalRetrievalIntegrationTests {
             }
             replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
                     ((ObjectNode) node.get("result").get("methodCandidates").get(0))
-                            .put("method", "二次函数最值")));
+                    .put("method", "二次函数最值")));
             assertThat(methodHits(owner, methods)).isEmpty();
             replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
                     ((ObjectNode) node.get("result").get("methodCandidates").get(0))
-                            .put("state", "UNKNOWN")));
+                    .put("state", "UNKNOWN")));
             assertThat(methodHits(owner, methods)).isEmpty();
             replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
                     node.put("accountId", stranger)));
@@ -996,7 +996,7 @@ class PersonalRetrievalIntegrationTests {
         HttpEmbeddingClient embedding = mock(HttpEmbeddingClient.class);
         when(embedding.embedWithStats(List.of(formula))).thenReturn(
                 new HttpEmbeddingClient.EmbeddingResult(List.of(new double[] {0.9, 0.435}),
-                        1, 5L, 5L, MODEL));
+                1, 5L, 5L, MODEL));
         HandwritingIndexOcr ocr = mock(HandwritingIndexOcr.class);
         when(ocr.model()).thenReturn("mock-structured-ocr");
         when(ocr.recognize(any(com.betterlearning.server.agent.model.ModelImage.class),
@@ -1050,8 +1050,8 @@ class PersonalRetrievalIntegrationTests {
                 prior.result().taxonomyVersion(), prior.result().stepOrdinal(),
                 prior.result().transcript(), uncertainty,
                 List.of(new HandwritingIndexOcr.MethodCandidate(method,
-                        previous.evidenceStartUtf16(), previous.evidenceEndUtf16(),
-                        previous.region(), state, reason)));
+                previous.evidenceStartUtf16(), previous.evidenceEndUtf16(),
+                previous.region(), state, reason)));
         return new HandwritingMethodMetadata(prior.formatVersion(), prior.accountId(),
                 prior.sourceId(), prior.sourceVersion(), prior.indexRevision(), prior.anchorId(),
                 prior.anchorSha256(), prior.imageSha256(), prior.imageWidth(),

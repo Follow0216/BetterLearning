@@ -65,10 +65,10 @@ class HandwritingMethodMetadataTests {
         String encoded = metadata.encode();
         assertThrows(IllegalArgumentException.class,
                 () -> HandwritingMethodMetadata.parse(encoded.replace(
-                        "\"formatVersion\":1", "\"formatVersion\":1,\"extra\":1")));
+                "\"formatVersion\":1", "\"formatVersion\":1,\"extra\":1")));
         assertThrows(IllegalArgumentException.class,
                 () -> HandwritingMethodMetadata.parse(encoded.replace(
-                        "\"formatVersion\":1", "\"formatVersion\":1,\"formatVersion\":1")));
+                "\"formatVersion\":1", "\"formatVersion\":1,\"formatVersion\":1")));
         assertThrows(IllegalArgumentException.class,
                 () -> HandwritingMethodMetadata.parse(encoded + "{}"));
         assertThrows(IllegalArgumentException.class, () -> new HandwritingMethodMetadata(

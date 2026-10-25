@@ -60,7 +60,7 @@ class HandwritingOcrValidatorTests {
         }
         Result incorrect = new Result(HandwritingIndexOcr.SCHEMA_VERSION, "math-methods-v1", 0,
                 "x^2+2x=(x+1)^2", "CLEAR", List.of(new MethodCandidate("配方法", 0, 13,
-                new Region(0, 0, 20, 20), "REJECTED", "CONTRADICTORY")));
+                        new Region(0, 0, 20, 20), "REJECTED", "CONTRADICTORY")));
         assertThat(HandwritingOcrValidator.validate(incorrect, 0, 20, 20)).isEqualTo(incorrect);
     }
 
@@ -112,10 +112,10 @@ class HandwritingOcrValidatorTests {
                 valid.replace("\"stepOrdinal\":0", "\"stepOrdinal\":0,\"stepOrdinal\":0"),
                 valid.replace("\"stepOrdinal\":0", "\"stepOrdinal\":\"0\""),
                 valid.replace("\"taxonomyVersion\":\"math-methods-v1\"",
-                        "\"taxonomyVersion\":\"math-methods-v1\",\"confidence\":0.99"),
+                "\"taxonomyVersion\":\"math-methods-v1\",\"confidence\":0.99"),
                 valid.replace("\"height\":2", "\"height\":2,\"confidence\":0.99"),
                 valid.replace("\"schemaVersion\":\"handwriting-ocr-v1\"",
-                        "\"schemaVersion\":\"handwriting-ocr-v2\""),
+                "\"schemaVersion\":\"handwriting-ocr-v2\""),
                 valid + "{}")) {
             assertThatThrownBy(() -> HandwritingOcrValidator.parse(invalid, 0, 10, 10))
                     .isInstanceOf(IllegalArgumentException.class);
