@@ -13,6 +13,7 @@ const files = ['client/common/src/main/ets/features/canvas/CanvasModels.ets',
   'client/common/src/main/ets/features/canvas/CanvasPens.ets',
   'client/common/src/main/ets/features/canvas/CanvasGeometry.ets',
   'client/apps/tablet/src/main/ets/features/canvas/CanvasPenInput.ets',
+  'client/apps/tablet/src/main/ets/features/canvas/CanvasStrokeBudget.ets',
   'client/apps/tablet/src/main/ets/features/canvas/CanvasPainter.ets'];
 const modules = files.map(relative => {
   const file = path.join(root, relative);
@@ -25,9 +26,9 @@ const emitted = ts.transpileModule(modules.join('\n'), {
   compilerOptions: { target: ts.ScriptTarget.ES2020 }, reportDiagnostics: true
 });
 assert.equal(emitted.diagnostics.length, 0);
-const sandbox = vm.createContext({});
+const sandbox = vm.createContext({ canvas_utf8: text => new TextEncoder().encode(text) });
 vm.runInContext(emitted.outputText, sandbox);
-const api = vm.runInContext('({ CanvasPressureSampler, CanvasPenKind, canvas_pen_width, canvas_pen_color, ' +
+const api = vm.runInContext('({ CanvasPressureSampler, CanvasPenKind, CanvasStrokeBudget, CANVAS_EDITABLE_JSON_LIMIT, canvas_stored_pressure, canvas_pen_width, canvas_pen_color, ' +
   'canvas_point_width, validate_canvas_document, validate_answer_manifest, canvas_extent, canvas_grid, ' +
   'clone_canvas_document, draw_canvas_stroke, stroke_bounds, stroke_hit })', sandbox);
 let scenarios = 0;
@@ -149,5 +150,73 @@ check('three size presets are ordered and within the manifest width limit', () =
     assert.ok(sizes[0] >= 0.5 && sizes[0] < sizes[1] && sizes[1] < sizes[2] && sizes[2] <= 64);
   }
 });
-console.log(JSON.stringify({ scenarios, result: 'PASS', source: files,
+check('stored pressure precision is bounded independently of sampler internals', () => {
+  const sampler = new api.CanvasPressureSampler(); sampler.begin(0.123456789);
+  const smoothed = sampler.next(0.987654321); const stored = api.canvas_stored_pressure(smoothed);
+  assert.ok(Math.abs(smoothed - stored) <= 0.0005);
+  assert.equal(stored * 1000, Math.round(stored * 1000));
+  assert.notEqual(smoothed, stored);
+});
+const byteLength = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
+check('budget counts UTF-8 layout, stroke metadata and point commas exactly', () => {
+  const d = doc(stroke({ strokeId: '旧笔迹😀' })); d.questionLayout.rendererId = '题面✓';
+  const live = stroke({ strokeId: '新笔迹😀', penKind: 'fountain', points: [{ x: 0, y: 0, pressure: 0.123 }] });
+  const point = { x: 1.2345, y: 6.789, pressure: 0.987 };
+  const exact = byteLength({ ...d, strokes: d.strokes.concat([{ ...live, points: live.points.concat([point]) }]) });
+  const budget = new api.CanvasStrokeBudget(exact);
+  assert.ok(budget.begin(d, live)); assert.ok(budget.append(point)); live.points.push(point);
+  assert.equal(byteLength({ ...d, strokes: d.strokes.concat([live]) }), exact);
+  assert.equal(budget.append({ x: 2, y: 3, pressure: 0.5 }), false);
+});
+check('cancel, commit, undo and erasure invalidate size accounting without retaining canceled ink', () => {
+  const base = doc(stroke()); const live = stroke({ strokeId: 'new', points: [{ x: 0, y: 0, pressure: 0.6 }] });
+  const finalSize = byteLength({ ...base, strokes: base.strokes.concat([live]) });
+  const budget = new api.CanvasStrokeBudget(finalSize);
+  for (let i = 0; i < 30; i++) { assert.ok(budget.begin(base, live)); budget.finish(); }
+  const committed = { ...base, strokes: base.strokes.concat([live]) };
+  assert.equal(budget.begin(committed, stroke({ strokeId: 'extra' })), false);
+  budget.finish();
+  assert.ok(budget.begin({ ...base, strokes: base.strokes }, live), 'undo restores budget'); budget.finish();
+  assert.ok(budget.begin({ ...base, strokes: [] }, live), 'eraser frees budget');
+});
+check('reserved envelope covers maximum descriptor count and coordinate digits', () => {
+  const blocks = Array.from({ length: 256 }, (_, index) => ({ index, partName: 'chunk_' + String(index).padStart(4, '0'),
+    x: 1000000, y: 1000000, width: 1024, height: 1024, pixelWidth: 1024, pixelHeight: 1024, sha256: hash }));
+  const envelope = byteLength({ schemaVersion: 1, saveRequestId: 'a'.repeat(36), baseFileRef: 'b'.repeat(36),
+    canvas: { width: 2000000, height: 2000000, originX: -1000000, originY: -1000000, coordinateUnit: 'logical' }, document: {}, blocks }) - 2;
+  assert.ok(envelope < 8388608 - api.CANVAS_EDITABLE_JSON_LIMIT);
+});
+const longTraceEvidence = {};
+check('representative 150000 point pressure trace stays uploadable after quantization', () => {
+  const original = []; const stored = []; const sampler = new api.CanvasPressureSampler(); sampler.begin(0.6);
+  for (let i = 0; i < 150000; i++) {
+    const pressure = sampler.next(0.5 + 0.4 * Math.sin(i / 37));
+    const point = { x: Number((i * 0.0173).toFixed(4)), y: Number((i * 0.0097).toFixed(4)), pressure };
+    original.push(point); stored.push({ ...point, pressure: api.canvas_stored_pressure(pressure) });
+  }
+  const originalDoc = doc(stroke({ penKind: 'fountain', points: original }));
+  const storedDoc = doc(stroke({ penKind: 'fountain', points: stored }));
+  const originalBytes = byteLength(originalDoc); const storedBytes = byteLength(storedDoc);
+  assert.ok(originalBytes > 8388608, 'reproduces pressure precision regression');
+  assert.ok(storedBytes < api.CANVAS_EDITABLE_JSON_LIMIT);
+  const empty = { ...storedDoc, strokes: [] }; const live = { ...storedDoc.strokes[0], points: [stored[0]] };
+  const budget = new api.CanvasStrokeBudget(); assert.ok(budget.begin(empty, live));
+  for (let i = 1; i < stored.length; i++) { assert.ok(budget.append(stored[i])); live.points.push(stored[i]); }
+  assert.equal(byteLength({ ...empty, strokes: [live] }), storedBytes);
+  Object.assign(longTraceEvidence, { points: 150000, originalBytes, storedBytes, documentLimit: api.CANVAS_EDITABLE_JSON_LIMIT });
+});
+check('200000 high precision coordinate points stop before JSON overflow and preserve accepted prefix', () => {
+  const d = doc(stroke()); const live = stroke({ strokeId: 'long', penKind: 'fountain', points: [{ x: 0, y: 0, pressure: 0.6 }] });
+  const budget = new api.CanvasStrokeBudget(); assert.ok(budget.begin(d, live)); let stopped = false;
+  for (let i = 1; i < 200000; i++) {
+    const point = { x: i * Math.PI / 10, y: i * Math.E / 10, pressure: api.canvas_stored_pressure(0.5 + 0.4 * Math.sin(i)) };
+    if (!budget.append(point)) { stopped = true; break; } live.points.push(point);
+  }
+  const acceptedBytes = byteLength({ ...d, strokes: d.strokes.concat([live]) });
+  assert.ok(stopped && live.points.length < 200000);
+  assert.ok(acceptedBytes <= api.CANVAS_EDITABLE_JSON_LIMIT);
+  assert.equal(d.strokes.length, 1); assert.equal(d.strokes[0].strokeId, 's');
+  Object.assign(longTraceEvidence, { highPrecisionAcceptedPoints: live.points.length, acceptedBytes });
+});
+console.log(JSON.stringify({ scenarios, longTraceEvidence, result: 'PASS', source: files,
   boundary: 'pure source execution + Canvas call recording; no ArkUI rasterization, disk/network round trip or physical stylus' }));

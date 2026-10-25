@@ -12,6 +12,10 @@ export function canvas_pen_color(kind: CanvasPenKind, color: string): string {
   // 共享颜色协议为 #AARRGGBB；荧光笔整条 path 只绘制一次，避免采样处重复叠色。
   return kind === CanvasPenKind.HIGHLIGHTER ? '#4D' + color.substring(1) : color;
 }
+/** 只量化持久化值；采样器内部平滑仍保留精度，最大宽度误差为0.035%。 */
+export function canvas_stored_pressure(pressure: number): number {
+  return Math.round(Math.max(0,Math.min(1,pressure)) * 1000) / 1000;
+}
 /** 仅接收已通过 Surface 指笔门禁的 BaseEvent.pressure；绝不用压力猜输入来源。 */
 export class CanvasPressureSampler {
   private value: number = CANVAS_DEFAULT_PRESSURE;

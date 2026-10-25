@@ -6,7 +6,8 @@ import {
   canvas_image, clone_canvas_document, fit_canvas, initial_canvas_view, stroke_hit, valid_canvas_view, valid_world_number, world_point, zoom_canvas
 } from 'common';
 import { canvas_intersects, draw_canvas_stroke, stroke_bounds } from './CanvasPainter';
-import { CanvasPressureSampler, CANVAS_PEN_COLORS, CANVAS_PEN_SIZES, canvas_pen_color, canvas_pen_width } from './CanvasPenInput';
+import { CanvasStrokeBudget } from './CanvasStrokeBudget';
+import { CanvasPressureSampler, CANVAS_PEN_COLORS, CANVAS_PEN_SIZES, canvas_pen_color, canvas_pen_width, canvas_stored_pressure } from './CanvasPenInput';
 import {
   TABLET_COLOR_BACKGROUND, TABLET_COLOR_BORDER, TABLET_COLOR_CARD,
   TABLET_COLOR_PRIMARY, TABLET_COLOR_PRIMARY_DEEP, TABLET_COLOR_PRIMARY_SOFT, TABLET_COLOR_TEXT,
@@ -41,6 +42,8 @@ export struct CanvasSurface {
   @State private penColor: string = '#152744';
   @State private penSize: number = 1;
   private pressureSampler: CanvasPressureSampler = new CanvasPressureSampler();
+  private strokeBudget: CanvasStrokeBudget = new CanvasStrokeBudget();
+  private strokeStopped: boolean = false;
   @State private undoEnabled: boolean = false;
   @State private zoomText: string = '100%';
   @State private chromeWidthVp: number = 0;
@@ -313,6 +316,7 @@ export struct CanvasSurface {
   private discard_edit(cancelFreeze: boolean = true): void {
     if (cancelFreeze) { this.cancel_freeze(); }
     this.liveStroke = null; this.eraseBefore = null; this.erased = null; this.pressureSampler.reset();
+    this.strokeBudget.finish(); this.strokeStopped = false;
   }
   private cancel_gesture(): void {
     this.discard_edit(); this.last = null;
@@ -327,14 +331,22 @@ export struct CanvasSurface {
     return valid_world_number(world.x) && valid_world_number(world.y) ? world : null;
   }
   private append_point(point: CanvasPoint, pressure: number): void {
-    if (this.liveStroke === null || this.liveStroke.points.length >= this.pointBudget) { return; }
+    if (this.liveStroke === null || this.strokeStopped) { return; }
+    if (this.liveStroke.points.length >= this.pointBudget) { this.stop_stroke(); return; }
     const world: CanvasPoint | null = this.point(point);
     const previous: CanvasPoint = this.liveStroke.points[this.liveStroke.points.length - 1];
     if (world !== null) {
-      if (this.liveStroke.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = pressure; }
+      if (this.liveStroke.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = canvas_stored_pressure(pressure); }
       if (Math.hypot(world.x - previous.x,world.y - previous.y) > 0.01 ||
-        Math.abs((world.pressure ?? 0) - (previous.pressure ?? 0)) > 0.01) { this.liveStroke.points.push(world); }
+        Math.abs((world.pressure ?? 0) - (previous.pressure ?? 0)) > 0.01) {
+        if (!this.strokeBudget.append(world)) { this.stop_stroke(); return; }
+        this.liveStroke.points.push(world);
+      }
     }
+  }
+  private stop_stroke(): void {
+    this.strokeStopped = true;
+    this.onFailure('本笔已达到作答容量上限，新增采样已停止；已保留此前笔迹，请抬笔后擦除部分内容再写');
   }
   private erase_path(point: CanvasPoint): void {
     const from: CanvasPoint = this.last ?? point;
@@ -404,10 +416,13 @@ export struct CanvasSurface {
           this.pointBudget = 200000 - count;
           if (world !== null && this.committedDocument.strokes.length < 20000 && this.pointBudget > 0) {
             const pressure: number = this.pressureSampler.begin(event.pressure);
-            if (this.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = pressure; }
+            if (this.penKind === CanvasPenKind.FOUNTAIN) { world.pressure = canvas_stored_pressure(pressure); }
             this.liveStroke = { strokeId: util.generateRandomUUID(true).toLowerCase(),
               color: canvas_pen_color(this.penKind,this.penColor), width: canvas_pen_width(this.penKind,this.penSize),
               penKind: this.penKind, points: [world] };
+            if (!this.strokeBudget.begin(this.committedDocument,this.liveStroke)) {
+              this.liveStroke = null; this.stop_stroke();
+            }
           } else { this.onFailure('笔迹已达到范围或数量上限，请减少后再写'); }
         } else if (this.tool === CanvasTool.ERASER && this.committedDocument !== null) {
           this.eraseBefore = this.committedDocument.strokes; this.erased = this.committedDocument.strokes.slice(); this.erase(point);
@@ -421,6 +436,9 @@ export struct CanvasSurface {
         if (this.liveStroke !== null) { this.commit(this.committedDocument.strokes.concat([this.liveStroke]),this.committedDocument.strokes); }
         if (this.erased !== null && this.eraseBefore !== null && this.erased.length !== this.eraseBefore.length) {
           this.commit(this.erased,this.eraseBefore);
+        }
+        if (this.strokeStopped) {
+          this.onFailure('已达到作答容量上限，本笔已接收部分与已有笔迹已保留；请擦除部分内容再写');
         }
         this.discard_edit(false); this.last = null; this.fulfill_freeze();
       }
