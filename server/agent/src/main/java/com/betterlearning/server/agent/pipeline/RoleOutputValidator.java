@@ -41,7 +41,7 @@ public final class RoleOutputValidator {
                     && input.strokeLocationsStatus() != StrokeLocationsStatus.COMPLETE);
             switch (role) {
                 case SOLVE -> solve(node);
-                case DIAGNOSE -> diagnose(node, input, unlocatedWriting);
+                case DIAGNOSE -> diagnose(node, input, unlocatedWriting || uncertainOcr);
                 case TEACH -> teach(node);
                 case REVIEW -> review(node);
                 default -> throw new PipelineFailure(Reason.INVALID_OUTPUT);
@@ -121,7 +121,7 @@ public final class RoleOutputValidator {
         }
     }
 
-    private static void diagnose(JsonNode node, Input input, boolean unlocatedWriting) {
+    private static void diagnose(JsonNode node, Input input, boolean clarificationOnly) {
         fields(node, "status", "summary", "observations", "clarification");
         text(node, "summary", 1200, false);
         text(node, "clarification", 1600, true);
@@ -129,7 +129,7 @@ public final class RoleOutputValidator {
         require(Set.of("NO_WRITING", "OBSERVED", "UNCERTAIN").contains(status));
         JsonNode observations = node.get("observations");
         array(observations, 12);
-        // 先校验全部字段结构，拒绝额外字段；无完整映射时不采纳任何模型诊断，统一安全澄清。
+        // 先校验全部字段结构；缺映射或低置信OCR时不采纳模型诊断，交由parse统一安全澄清。
         for (JsonNode observation : observations) {
             fields(observation, "kind", "description", "strokeIds");
             require(Set.of("CORRECT", "ERROR", "UNCERTAIN").contains(text(observation, "kind", 32, false)));
@@ -138,23 +138,18 @@ public final class RoleOutputValidator {
             List<String> ids = strings(observation.get("strokeIds"));
             require(!ids.isEmpty() && new HashSet<>(ids).size() == ids.size());
         }
-        if (unlocatedWriting) {
+        if (clarificationOnly) {
             return;
         }
-        boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8;
         if (input.strokeIds().isEmpty()) {
             require("NO_WRITING".equals(status) && observations.isEmpty());
         } else {
             require(!"NO_WRITING".equals(status));
-            if (uncertainOcr) {
-                require("UNCERTAIN".equals(status));
-            }
         }
         if ("UNCERTAIN".equals(status)) {
             require(!node.get("clarification").asString().isBlank());
         }
         for (JsonNode observation : observations) {
-            require(!uncertainOcr || !"ERROR".equals(observation.get("kind").asString()));
             require(input.strokeIds().containsAll(strings(observation.get("strokeIds"))));
         }
     }

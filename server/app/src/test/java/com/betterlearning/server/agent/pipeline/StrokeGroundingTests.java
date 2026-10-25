@@ -121,6 +121,52 @@ class StrokeGroundingTests {
     }
 
     @Test
+    void lowConfidenceOcrDiscardsObservedErrorsBeforeSemanticChecks() {
+        Input complete = input(StrokeLocationsStatus.COMPLETE,
+                List.of(location("s1", -12, 800, List.of(0, 1))), Set.of("s1"), true, 0.4, images());
+        for (String diagnosis : List.of(OBSERVED_ERROR, OBSERVED_ERROR.replace("s1", "invented"),
+                NO_WRITING_DIAGNOSIS)) {
+            StubBoundary boundary = new StubBoundary(diagnosis);
+            var result = new TutoringPipeline().run(complete, boundary);
+            assertThat(boundary.calls).hasSize(4);
+            assertThat(result.diagnosis().get("status").asString()).isEqualTo("UNCERTAIN");
+            assertThat(result.diagnosis().get("observations")).isEmpty();
+            assertThat(result.diagnosis().get("summary").asString()).isEqualTo("当前笔迹识别不可靠，尚不能判断是否有误。");
+            assertThat(result.bodyMarkdown()).contains("请确认不清晰的符号")
+                    .doesNotContain("移项后的常数项符号", "减3", "有误", "invented");
+            assertThat(result.evidenceIds()).isEmpty();
+            JsonNode reviewInput = RoleOutputValidator.JSON.readTree(boundary.calls.get(3).inputJson());
+            assertThat(reviewInput.path("context").path("diagnosis").path("observations")).isEmpty();
+            assertThat(reviewInput.path("context").path("candidate").path("hint").asString()).isEmpty();
+        }
+        for (String malformed : List.of(
+                OBSERVED_ERROR.replace("\"status\":", "\"analysis\":\"private\",\"status\":"),
+                OBSERVED_ERROR.replace("\"description\":", "\"analysis\":\"private\",\"description\":"),
+                OBSERVED_ERROR.replace("\"clarification\":\"\"", "\"clarification\":false"),
+                OBSERVED_ERROR.replace("[\"s1\"]", "[\"s1\",\"s1\"]"))) {
+            assertReason(() -> RoleOutputValidator.parse(Role.DIAGNOSE, malformed, complete), Reason.INVALID_OUTPUT);
+        }
+    }
+
+    @Test
+    void lowOcrThresholdDoesNotTurnKnownEmptyWritingIntoUncertainty() {
+        for (double confidence : List.of(0.799999, 0.8)) {
+            Input complete = input(StrokeLocationsStatus.COMPLETE,
+                    List.of(location("s1", -12, 800, List.of(0, 1))), Set.of("s1"), true, confidence, images());
+            var result = RoleOutputValidator.parse(Role.DIAGNOSE, OBSERVED_ERROR, complete);
+            assertThat(result.get("status").asString()).isEqualTo(confidence < 0.8 ? "UNCERTAIN" : "OBSERVED");
+            assertThat(result.get("observations").size()).isEqualTo(confidence < 0.8 ? 0 : 1);
+        }
+        for (StrokeLocationsStatus status : List.of(StrokeLocationsStatus.COMPLETE,
+                StrokeLocationsStatus.UNAVAILABLE)) {
+            Input empty = input(status, List.of(), Set.of(), true, 0.4, images());
+            var result = new TutoringPipeline().run(empty, new StubBoundary(NO_WRITING_DIAGNOSIS));
+            assertThat(result.diagnosis().get("status").asString()).isEqualTo("NO_WRITING");
+            assertThat(result.bodyMarkdown()).contains("移项后的常数项符号");
+        }
+    }
+
+    @Test
     void unknownWritingMetadataRequiresClarification() {
         Input input = input(StrokeLocationsStatus.UNAVAILABLE, List.of(), Set.of("s1"), false, null, images());
         StubBoundary boundary = new StubBoundary(true);
