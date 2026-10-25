@@ -89,6 +89,35 @@ class TutoringPipelineTests {
     }
 
     @Test
+    void realSolveRejectionStillClearsPriorEvidenceAndNeverForcesCitation() {
+        Boundary boundary = new Boundary(call -> {
+            if (call.role() == Role.REVIEW && call.sequence() == 4) {
+                return rejected("SOLVE");
+            }
+            if (call.role() == Role.TEACH && call.sequence() == 3) {
+                return TEACH.replace("先考虑怎样消去常数项。", "先考虑怎样消去常数项。[[evidence:" + EVIDENCE + "]]")
+                        .replace("\"evidenceIds\":[]", "\"evidenceIds\":[\"" + EVIDENCE + "\"]");
+            }
+            return normal(call);
+        });
+        boundary.evidence = List.of(RoleOutputValidator.JSON.readTree("{\"evidenceId\":\"" + EVIDENCE
+                + "\",\"claim\":\"等式性质历史笔记\",\"sourceType\":\"NOTE\"}"));
+        var result = new TutoringPipeline().run(input(null, Set.of(), null), boundary);
+        assertThat(boundary.calls).hasSize(8);
+        assertThat(boundary.retrieveCount).isEqualTo(1);
+        assertThat(result.evidenceIds()).isEmpty();
+        assertThat(result.bodyMarkdown()).doesNotContain("[[evidence:");
+        for (int index : List.of(2, 3, 6, 7)) {
+            JsonNode context = RoleOutputValidator.JSON.readTree(boundary.calls.get(index).inputJson()).path("context");
+            assertThat(context.get("independentRolesReceiveHistory").isBoolean()).isTrue();
+            assertThat(context.get("independentRolesReceiveHistory").asBoolean()).isFalse();
+            assertThat(context.path("allowedEvidence").size()).isEqualTo(index < 4 ? 1 : 0);
+        }
+        assertThat(boundary.calls).filteredOn(call -> call.role() == Role.SOLVE || call.role() == Role.DIAGNOSE)
+                .allSatisfy(call -> assertThat(call.inputJson()).doesNotContain("等式性质历史笔记", "allowedEvidence"));
+    }
+
+    @Test
     void independentRepairDoesNotReceiveHistoricalDraftStateFromReviewer() {
         for (String target : List.of("SOLVE", "DIAGNOSE")) {
             Boundary boundary = new Boundary(call -> call.role() == Role.REVIEW && call.sequence() == 4
