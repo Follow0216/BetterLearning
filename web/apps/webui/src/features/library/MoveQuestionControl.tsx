@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useFeedbackRequest } from "@/components/feedback/use-feedback-request";
+
 import {
   INBOX_COLLECTION_ID,
   INBOX_COLLECTION_NAME,
@@ -23,10 +25,11 @@ export function MoveQuestionControl({
   collections,
 }: MoveQuestionControlProps) {
   const router = useRouter();
+  const { toast, begin } = useFeedbackRequest();
+  const [errorAnnounced, setErrorAnnounced] = useState(false);
   const [target, setTarget] = useState(currentCollectionId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const options = flattenCollectionTree(buildCollectionTree(collections));
 
@@ -34,39 +37,71 @@ export function MoveQuestionControl({
     if (pending || target === currentCollectionId) {
       return;
     }
+    const request = begin();
+    if (!request) return;
     setPending(true);
     setError(null);
-    setSaved(false);
+    setErrorAnnounced(false);
     try {
       const response = await fetch(
         `/api/library/questions/${encodeURIComponent(questionId)}/collection`,
         {
+          signal: request.signal,
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ collectionId: target }),
         },
       );
 
+      if (!request.isCurrent()) return;
       if (response.status === 401) {
+        toast.clearScope();
         router.replace("/");
         return;
       }
 
       const data = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+      if (!request.isCurrent()) return;
       if (!response.ok) {
         const message = data?.message;
         setError(
           typeof message === "string" && message.length > 0 ? message : "移动失败，请稍后重试",
         );
+        if (response.status >= 500) {
+          setErrorAnnounced(true);
+          toast.show(
+            {
+              key: `question:move:${questionId}`,
+              type: "error",
+              message: "题目移动失败",
+              description: "请稍后重试",
+            },
+            request.scope,
+          );
+        }
         return;
       }
 
-      setSaved(true);
+      toast.show(
+        { key: `question:move:${questionId}`, type: "success", message: "题目已移入题集" },
+        request.scope,
+      );
       router.refresh();
     } catch {
+      if (!request.isCurrent()) return;
       setError("无法连接服务器，请稍后重试");
+      setErrorAnnounced(true);
+      toast.show(
+        {
+          key: `question:move:${questionId}`,
+          type: "error",
+          message: "题目移动失败",
+          description: "请稍后重试",
+        },
+        request.scope,
+      );
     } finally {
-      setPending(false);
+      if (request.finish()) setPending(false);
     }
   }
 
@@ -78,7 +113,8 @@ export function MoveQuestionControl({
           value={target}
           onChange={(event) => {
             setTarget(event.target.value);
-            setSaved(false);
+            toast.dismiss(`question:move:${questionId}`);
+            setErrorAnnounced(false);
             setError(null);
           }}
           disabled={pending}
@@ -100,13 +136,11 @@ export function MoveQuestionControl({
       >
         {pending ? "移动中…" : "移动"}
       </button>
-      {saved ? (
-        <span role="status" className="text-xs text-[var(--auth-success)]">
-          已移动
-        </span>
-      ) : null}
       {error === null ? null : (
-        <span role="alert" className="text-xs text-[var(--auth-danger)]">
+        <span
+          role={errorAnnounced ? undefined : "alert"}
+          className="text-xs text-[var(--auth-danger)]"
+        >
           {error}
         </span>
       )}
