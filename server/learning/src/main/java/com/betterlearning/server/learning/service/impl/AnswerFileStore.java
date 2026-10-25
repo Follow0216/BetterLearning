@@ -33,13 +33,16 @@ import javax.imageio.stream.MemoryCacheImageInputStream;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.config.AppFilesProperties;
+import com.betterlearning.server.learning.mapper.FileRetentionMapper;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 
 import jakarta.servlet.http.Part;
 
 import org.springframework.http.MediaType;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -50,12 +53,19 @@ public class AnswerFileStore {
     private final Path staging;
     private final Path objects;
     private final JsonMapper json;
+    private final FileRetentionMapper retentionMapper;
 
     public record Candidate(String fileRef, String requestHash) {
     }
 
     public AnswerFileStore(AppFilesProperties properties, JsonMapper json) {
+        this(properties, json, null);
+    }
+
+    @Autowired
+    public AnswerFileStore(AppFilesProperties properties, JsonMapper json, FileRetentionMapper retentionMapper) {
         this.json = json;
+        this.retentionMapper = retentionMapper;
         try {
             Path configured = Path.of(properties.getRoot());
             if (!configured.isAbsolute()) {
@@ -170,10 +180,53 @@ public class AnswerFileStore {
         }
     }
 
-    public void discard(Candidate candidate) {
-        if (AnswerManifestValidator.uuid(candidate.fileRef())) {
-            deleteTree(objects.resolve(candidate.fileRef()));
+    /** Requires a committed tombstone; intended only for FileRetentionService. */
+    public void deletePublished(String fileRef) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("物理删除必须在数据库事务提交后执行");
         }
+        Path path = object(fileRef);
+        if (retentionMapper == null || !Boolean.TRUE.equals(retentionMapper.tombstoned(fileRef))) {
+            throw new IllegalStateException("文件尚未完成数据库回收判定");
+        }
+        if (Files.exists(path.resolve(".gc-hold"), LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("文件存在未对账候选标记");
+        }
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try (var entries = Files.walk(path)) {
+            for (Path entry : entries.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(entry);
+            }
+            forceDirectory(objects);
+        } catch (IOException | UncheckedIOException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    public void holdUnknown(String fileRef) {
+        Path path = object(fileRef);
+        if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try {
+            Path marker = path.resolve(".gc-hold");
+            if (!Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                writeBytes(marker, new byte[0]);
+            }
+            forceDirectory(path);
+        } catch (IOException exception) {
+            throw unavailable(exception);
+        }
+    }
+
+    public boolean hasUnknownHold(String fileRef) {
+        return Files.exists(object(fileRef).resolve(".gc-hold"), LinkOption.NOFOLLOW_LINKS);
+    }
+
+    public boolean existsPublished(String fileRef) {
+        return Files.isDirectory(object(fileRef), LinkOption.NOFOLLOW_LINKS);
     }
 
     private Path object(String fileRef) {

@@ -52,7 +52,7 @@
     </select>
     <update id="bind">
         UPDATE tutor_turn SET file_ref = #{fileRef}, request_hash = #{hash}, updated_at = CURRENT_TIMESTAMP
-        WHERE <include refid="owner"/> AND turn_id = #{turnId} AND status = 'WAITING_ANSWER' AND file_ref IS NULL
+        WHERE <include refid="owner"/> AND turn_id = #{turnId} AND status = 'WAITING_ANSWER'
     </update>
     <update id="claim">
         UPDATE tutor_turn SET status = 'GENERATING', answer_markdown = NULL,

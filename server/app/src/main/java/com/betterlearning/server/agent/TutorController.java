@@ -8,6 +8,7 @@ import com.betterlearning.server.config.OpenApiConfiguration;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.model.tutor.TutorStorageModels;
 import com.betterlearning.server.learning.service.FrozenAnswerService;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.security.AuthenticatedAccount;
 
 import io.swagger.v3.oas.annotations.Parameter;
@@ -37,10 +38,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class TutorController {
     private final TutorService tutor;
     private final FrozenAnswerService frozen;
+    private final RolloutGate rollout;
 
-    public TutorController(TutorService tutor, FrozenAnswerService frozen) {
+    public TutorController(TutorService tutor, FrozenAnswerService frozen, RolloutGate rollout) {
         this.tutor = tutor;
         this.frozen = frozen;
+        this.rollout = rollout;
     }
 
     public record EmptyRequest() {
@@ -78,6 +81,7 @@ public class TutorController {
     public TutorModels.Turn retry(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String questionId, @PathVariable String turnId, @RequestBody EmptyRequest request) {
+        rollout.require("LEGACY");
         return tutor.generate(account.accountId(), questionId, turnId, true);
     }
 
@@ -94,6 +98,7 @@ public class TutorController {
             @PathVariable String questionId, @PathVariable String turnId,
             @RequestPart("manifest") AnswerModels.SaveManifest manifest, HttpServletRequest request)
             throws ServletException, IOException {
+        rollout.require("LEGACY");
         TutorStorageModels.Acceptance accepted = frozen.accept(account.accountId(), questionId, turnId,
                 manifest, request.getParts());
         // 已绑定但尚未领取时，原包重复上传也可领取；失败轮只允许显式retry。

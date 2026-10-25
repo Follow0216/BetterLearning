@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Base64;
@@ -20,6 +22,7 @@ import com.betterlearning.server.ServerApplication;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.service.TutorTurnService;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.multiagent.MultiAgentModels.Anchor;
@@ -75,6 +78,7 @@ import tools.jackson.databind.json.JsonMapper;
 class TutorLedgerIntegrationTests {
     private static final String SECRET = Base64.getEncoder().encodeToString(
             "betterlearning-ledger-integration-secret".getBytes(StandardCharsets.UTF_8));
+    private static final Path FILE_ROOT = fileRoot();
 
     @Container
     static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
@@ -88,7 +92,9 @@ class TutorLedgerIntegrationTests {
         IntegrationProperties.registerJwt(registry, SECRET, "ledger-test", "ledger-client");
         IntegrationProperties.registerRateLimits(registry);
         IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
-        registry.add("app.files.root", () -> System.getProperty("java.io.tmpdir"));
+        registry.add("app.files.root", FILE_ROOT::toString);
+        registry.add("app.multi-agent.rollout.mode", () -> "V2");
+        registry.add("app.multi-agent.rollout.transition-from", () -> "LEGACY");
     }
 
     @Autowired
@@ -102,6 +108,9 @@ class TutorLedgerIntegrationTests {
 
     @Autowired
     private TutorTurnService legacy;
+
+    @Autowired
+    private RolloutGate rollout;
 
     @Autowired
     private SourceStore sources;
@@ -118,6 +127,7 @@ class TutorLedgerIntegrationTests {
     @BeforeEach
     void clean() {
         TestData.clean(jdbc, redis);
+        rollout.switchTo("V2");
     }
 
     @Test
@@ -374,7 +384,7 @@ class TutorLedgerIntegrationTests {
                     () -> ledger.create(account, question, newRequest, create(newRequest))));
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
             go.countDown();
-            assertThat(List.of(old.get(), modern.get())).containsExactlyInAnyOrder(true, false);
+            assertThat(List.of(old.get(), modern.get())).containsExactly(false, true);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tutor_turn WHERE account_id = ? AND status = 'WAITING_ANSWER'",
                     Integer.class, account) + jdbc.queryForObject(
                     "SELECT COUNT(*) FROM ma_request WHERE account_id = ? AND status = 'WAITING_INPUT'",
@@ -383,14 +393,31 @@ class TutorLedgerIntegrationTests {
             pool.shutdownNow();
         }
 
+        long mixedAccount = account();
+        String mixedQuestion = question(mixedAccount);
+        jdbc.update("INSERT INTO tutor_turn(turn_id,account_id,question_id,request_id,prompt) "
+                + "VALUES(?,?,?,?,?)", id(), mixedAccount, Long.parseLong(mixedQuestion), id(), "迁移前活动轮次");
+        String blockedId = id();
+        assertConflict(() -> ledger.create(mixedAccount, mixedQuestion, blockedId, create(blockedId)));
+        jdbc.update("UPDATE tutor_turn SET status='FAILED',failure_code='TABLET_CANCELLED',"
+                + "failure_message='测试清理' WHERE account_id=?", mixedAccount);
+
+        rollout.switchTo("DRAIN");
+        assertThatThrownBy(() -> rollout.switchTo("LEGACY"))
+                .isInstanceOf(IllegalStateException.class);
         long retryAccount = account();
         String retryQuestion = question(retryAccount);
+        assertConflict(() -> legacy.createOrGet(retryAccount, retryQuestion, id(), "停止新建"));
+        jdbc.update("UPDATE ma_request SET status='CANCELLED' WHERE account_id=?", account);
+        rollout.switchTo("LEGACY");
         String turn = legacy.createOrGet(retryAccount, retryQuestion, id(), "旧轮次")
                 .turn().getTurnId();
         String fileRef = id();
         legacy.bind(retryAccount, retryQuestion, turn, fileRef, digest(fileRef));
         assertThat(legacy.claim(retryAccount, retryQuestion, turn, false).claimed()).isTrue();
         legacy.finish(retryAccount, retryQuestion, turn, fileRef, null, "MODEL_UNAVAILABLE", "测试失败");
+        rollout.switchTo("DRAIN");
+        rollout.switchTo("V2");
         String activeId = id();
         ledger.create(retryAccount, retryQuestion, activeId, create(activeId));
         assertConflict(() -> legacy.claim(retryAccount, retryQuestion, turn, true));
@@ -752,7 +779,12 @@ class TutorLedgerIntegrationTests {
             assertConflict(() -> ledger.recordEvidence(account, runId, List.of(stolen)));
             assertThat(ledger.evidence(account, runId)).containsExactly(allowed);
         } finally {
-            files.discard(candidate);
+            // Test-owned temporary object only; production cleanup remains behind the DB tombstone barrier.
+            try (var paths = Files.walk(FILE_ROOT.resolve("objects").resolve(candidate.fileRef()))) {
+                for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
         }
     }
 
@@ -865,6 +897,14 @@ class TutorLedgerIntegrationTests {
 
     private static String id() {
         return UUID.randomUUID().toString();
+    }
+
+    private static Path fileRoot() {
+        try {
+            return Files.createTempDirectory("bl-rollout-ledger-files-");
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static String digest(String text) {

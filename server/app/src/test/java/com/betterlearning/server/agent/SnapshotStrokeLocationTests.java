@@ -12,6 +12,7 @@ import java.util.Locale;
 import com.betterlearning.server.learning.dao.LearningDao;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
+import com.betterlearning.server.learning.service.impl.FileRetentionService;
 import com.betterlearning.server.multiagent.MultiAgentModels;
 import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 import com.betterlearning.server.multiagent.MultiAgentModels.WorldBounds;
@@ -32,7 +33,7 @@ class SnapshotStrokeLocationTests {
     private final SourceStore sources = mock(SourceStore.class);
     private final AnswerFileStore files = mock(AnswerFileStore.class);
     private final TutorRequestServiceImpl service = new TutorRequestServiceImpl(ledger, sources,
-            mock(LearningDao.class), files);
+            mock(LearningDao.class), files, mock(FileRetentionService.class));
 
     @Test
     void negativeWorldCoordinatesAndFourBlockCoverageKeepSourceStrokeMetadata() {

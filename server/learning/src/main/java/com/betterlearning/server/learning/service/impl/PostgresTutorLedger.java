@@ -17,6 +17,7 @@ import java.util.UUID;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.dao.LearningDao;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.learning.mapper.MultiAgentMapper;
 import com.betterlearning.server.learning.model.dataobject.MultiAgentRows.*;
 import com.betterlearning.server.multiagent.MultiAgentModels.*;
@@ -37,15 +38,18 @@ public class PostgresTutorLedger implements TutorLedger {
     private final MultiAgentMapper db;
     private final LearningDao questions;
     private final SourceStore sources;
+    private final RolloutGate rollout;
 
-    public PostgresTutorLedger(MultiAgentMapper db, LearningDao questions, SourceStore sources) {
+    public PostgresTutorLedger(MultiAgentMapper db, LearningDao questions, SourceStore sources, RolloutGate rollout) {
         this.db = db;
         this.questions = questions;
         this.sources = sources;
+        this.rollout = rollout;
     }
 
     @Override
     public Request create(long accountId, String questionId, String key, CreateRequest command) {
+        rollout.require("V2");
         long question = question(accountId, questionId);
         if (command == null) {
             throw invalid();
@@ -169,6 +173,7 @@ public class PostgresTutorLedger implements TutorLedger {
 
     @Override
     public Request bindSnapshot(long accountId, String questionId, String requestId, SnapshotBinding snapshot) {
+        rollout.require("V2");
         get(accountId, questionId, requestId);
         if (snapshot == null) {
             throw invalid();
@@ -228,6 +233,7 @@ public class PostgresTutorLedger implements TutorLedger {
 
     @Override
     public Request retry(long accountId, String questionId, String requestId, String key, String targetRunId) {
+        rollout.require("V2");
         get(accountId, questionId, requestId);
         uuid(key);
         uuid(targetRunId);

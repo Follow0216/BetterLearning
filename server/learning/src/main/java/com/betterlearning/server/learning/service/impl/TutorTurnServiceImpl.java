@@ -12,6 +12,7 @@ import com.betterlearning.server.learning.dao.TutorTurnDao;
 import com.betterlearning.server.learning.model.dataobject.TutorTurnDO;
 import com.betterlearning.server.learning.model.tutor.TutorStorageModels;
 import com.betterlearning.server.learning.service.TutorTurnService;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 
 import org.springframework.stereotype.Service;
@@ -22,15 +23,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class TutorTurnServiceImpl implements TutorTurnService {
     private final LearningDao questions;
     private final TutorTurnDao turns;
+    private final RolloutGate rollout;
 
-    public TutorTurnServiceImpl(LearningDao questions, TutorTurnDao turns) {
+    public TutorTurnServiceImpl(LearningDao questions, TutorTurnDao turns, RolloutGate rollout) {
         this.questions = questions;
         this.turns = turns;
+        this.rollout = rollout;
     }
 
     @Override
     @Transactional
     public TutorStorageModels.Creation createOrGet(long accountId, String questionId, String requestId, String prompt) {
+        rollout.require("LEGACY");
         if (!AnswerManifestValidator.uuid(requestId) || prompt == null || prompt.isBlank() || prompt.length() > 4000) {
             throw new BusinessException(ErrorCode.INVALID_PARAM);
         }
@@ -79,6 +83,7 @@ public class TutorTurnServiceImpl implements TutorTurnService {
     @Override
     @Transactional
     public TutorStorageModels.Acceptance bind(long accountId, String questionId, String turnId, String fileRef, String hash) {
+        rollout.require("LEGACY");
         long id = id(questionId);
         uuid(turnId);
         uuid(fileRef);
@@ -102,6 +107,7 @@ public class TutorTurnServiceImpl implements TutorTurnService {
     @Override
     @Transactional
     public TutorStorageModels.Claim claim(long accountId, String questionId, String turnId, boolean retry) {
+        rollout.require("LEGACY");
         long id = id(questionId);
         uuid(turnId);
         lock(accountId, id);
@@ -163,7 +169,7 @@ public class TutorTurnServiceImpl implements TutorTurnService {
             throw conflict();
         }
         if ("WAITING_ANSWER".equals(turn.getStatus())) {
-            if (turn.getFileRef() != null || turns.cancel(accountId, id, turnId) != 1) {
+            if (turns.cancel(accountId, id, turnId) != 1) {
                 throw conflict();
             }
             return find(accountId, id, turnId);
