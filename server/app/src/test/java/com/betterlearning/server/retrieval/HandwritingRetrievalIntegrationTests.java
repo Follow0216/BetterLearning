@@ -26,6 +26,12 @@ import javax.sql.DataSource;
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
+import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
+import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageKey;
+import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageResult;
+import com.betterlearning.server.agent.retrieval.handwriting.HandwritingOcrValidator;
+import com.betterlearning.server.agent.retrieval.ranking.HandwritingMethodTaxonomy;
+import com.betterlearning.server.agent.service.HandwritingIndexOcr;
 import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
@@ -44,6 +50,7 @@ import com.betterlearning.server.multiagent.MultiAgentModels.AnchorLocator;
 import com.betterlearning.server.multiagent.MultiAgentModels.PublishSource;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
 import com.betterlearning.server.multiagent.SourceStore;
+import com.betterlearning.server.multiagent.StepExecutionException;
 
 import jakarta.servlet.http.Part;
 
@@ -236,6 +243,131 @@ class HandwritingRetrievalIntegrationTests {
         sources.withdraw(owner, published.source().sourceId());
         assertNotFound(() -> citations.resolve(owner, citationId));
         assertNotFound(() -> citations.asset(owner, citationId, 0));
+    }
+
+    @Test
+    void realSourceWithdrawalRejectsLateStageConfirmationWithoutRollingBackFalse() {
+        StageFixture fixture = stageFixture();
+        sources.withdraw(owner, fixture.sourceId());
+
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_index_job WHERE event_id=?",
+                String.class, fixture.job().eventId())).isEqualTo("PROCESSING");
+        assertThat(jdbc.queryForObject("SELECT lease_until>CURRENT_TIMESTAMP FROM ma_index_job "
+                + "WHERE event_id=?", Boolean.class, fixture.job().eventId())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT fence FROM ma_index_job WHERE event_id=?",
+                Long.class, fixture.job().eventId())).isEqualTo(fixture.job().fence());
+        assertThat(jdbc.queryForList("SELECT intent_fence FROM ma_index_stage WHERE event_id=? "
+                + "ORDER BY ordinal", Long.class, fixture.job().eventId()))
+                .containsExactly(fixture.job().fence(), fixture.job().fence());
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_source WHERE source_id=?",
+                String.class, fixture.sourceId())).isEqualTo("DELETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_source_version WHERE source_id=? "
+                + "AND version=1", String.class, fixture.sourceId())).isEqualTo("WITHDRAWN");
+        assertThat(indexes.confirmIndexStage(fixture.job(), fixture.pending(), fixture.result())).isFalse();
+        assertThat(indexes.beginIndexProtocol(fixture.job(), StructuredHandwritingIndexer.PROTOCOL)).isFalse();
+        assertOutcomeUnknown(() -> indexes.beginIndexStage(fixture.job(), fixture.pending()));
+        assertThat(jdbc.queryForObject("SELECT fence FROM ma_index_job WHERE event_id=?",
+                Long.class, fixture.job().eventId())).isEqualTo(fixture.job().fence());
+        assertThat(jdbc.queryForList("SELECT intent_fence FROM ma_index_stage WHERE event_id=? "
+                + "ORDER BY ordinal", Long.class, fixture.job().eventId()))
+                .containsExactly(fixture.job().fence(), fixture.job().fence());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_index_stage WHERE event_id=?",
+                Integer.class, fixture.job().eventId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_index_stage WHERE event_id=? "
+                + "AND (input_sha256 IS NOT NULL OR output_json IS NOT NULL OR output_sha256 IS NOT NULL "
+                + "OR purged_at IS NULL)", Integer.class, fixture.job().eventId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT call_state FROM ma_index_stage WHERE event_id=? "
+                + "AND phase='OCR_STEP' AND ordinal=0", String.class, fixture.job().eventId()))
+                .isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT call_state FROM ma_index_stage WHERE event_id=? "
+                + "AND phase='OCR_STEP' AND ordinal=1", String.class, fixture.job().eventId()))
+                .isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("SELECT ocr_calls FROM ma_index_job WHERE event_id=?",
+                Integer.class, fixture.job().eventId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT usage_uncertain FROM ma_index_job WHERE event_id=?",
+                Boolean.class, fixture.job().eventId())).isTrue();
+    }
+
+    @Test
+    void missingSourceVersionStaleFenceAndChangedStageInputCannotReusePaidIntent() {
+        StageFixture fixture = stageFixture();
+        Job original = fixture.job();
+        List<Job> absent = List.of(
+                new Job(original.eventId(), owner, UUID.randomUUID().toString(), original.version(),
+                        original.kind(), original.fence(), original.indexRevision()),
+                new Job(original.eventId(), owner, original.sourceId(), 2,
+                        original.kind(), original.fence(), original.indexRevision()));
+        for (Job mismatched : absent) {
+            assertThat(indexes.beginIndexProtocol(mismatched, StructuredHandwritingIndexer.PROTOCOL)).isFalse();
+            assertThat(indexes.confirmIndexStage(mismatched, fixture.pending(), fixture.result())).isFalse();
+            assertOutcomeUnknown(() -> indexes.beginIndexStage(mismatched, fixture.pending()));
+        }
+        Job staleFence = new Job(original.eventId(), owner, original.sourceId(), original.version(),
+                original.kind(), original.fence() + 1, original.indexRevision());
+        assertThat(indexes.beginIndexProtocol(staleFence, StructuredHandwritingIndexer.PROTOCOL)).isFalse();
+        assertThat(indexes.confirmIndexStage(staleFence, fixture.pending(), fixture.result())).isFalse();
+        assertOutcomeUnknown(() -> indexes.beginIndexStage(staleFence, fixture.pending()));
+        StageKey changedInput = new StageKey("OCR_STEP", fixture.pending().ordinal(),
+                fixture.pending().sourceSha256(), fixture.pending().fileRef(), "c".repeat(64),
+                fixture.pending().model(), 0, fixture.pending().schemaVersion());
+        assertThat(indexes.confirmIndexStage(original, changedInput, fixture.result())).isFalse();
+        assertOutcomeUnknown(() -> indexes.beginIndexStage(original, changedInput));
+        assertThat(jdbc.queryForObject("SELECT fence FROM ma_index_job WHERE event_id=?",
+                Long.class, original.eventId())).isEqualTo(original.fence());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_index_stage WHERE event_id=?",
+                Integer.class, original.eventId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT call_state FROM ma_index_stage WHERE event_id=? "
+                + "AND phase='OCR_STEP' AND ordinal=1", String.class, original.eventId()))
+                .isEqualTo("CALL_INTENT");
+        assertThat(jdbc.queryForObject("SELECT ocr_calls FROM ma_index_job WHERE event_id=?",
+                Integer.class, original.eventId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT usage_uncertain FROM ma_index_job WHERE event_id=?",
+                Boolean.class, original.eventId())).isFalse();
+    }
+
+    private StageFixture stageFixture() {
+        String sourceId = UUID.randomUUID().toString();
+        String eventId = UUID.randomUUID().toString();
+        String fileRef = UUID.randomUUID().toString();
+        String sourceSha = "a".repeat(64);
+        jdbc.update("INSERT INTO ma_source(source_id,account_id,type,origin_id,title,status,current_version) "
+                + "VALUES (?,?,'SAVED_ANSWER',?,'stage fixture','ACTIVE',1)",
+                sourceId, owner, UUID.randomUUID().toString());
+        jdbc.update("INSERT INTO ma_source_version(source_id,version,content_sha256,status,"
+                + "index_revision,file_ref,answer_state) VALUES (?,1,?,'INDEX_PENDING',1,?,'DRAFT')",
+                sourceId, sourceSha, fileRef);
+        jdbc.update("INSERT INTO ma_outbox(event_id,account_id,aggregate_type,aggregate_id,"
+                + "aggregate_version,kind,payload_digest,status,index_revision) "
+                + "VALUES (?,?,'SOURCE',?,1,'SOURCE_VERSION_CREATED',?,'PENDING',1)",
+                eventId, owner, sourceId, sourceSha);
+        Job job = indexes.claim().orElseThrow();
+        assertThat(job.eventId()).isEqualTo(eventId);
+        assertThat(indexes.beginIndexProtocol(job, StructuredHandwritingIndexer.PROTOCOL)).isTrue();
+        StageKey confirmed = new StageKey("OCR_STEP", 0, sourceSha, fileRef, "b".repeat(64),
+                "unit-ocr", 0, StructuredHandwritingIndexer.OCR_SCHEMA);
+        StageResult confirmedResult = stageResult(0);
+        assertThat(indexes.beginIndexStage(job, confirmed).shouldCall()).isTrue();
+        assertThat(indexes.confirmIndexStage(job, confirmed, confirmedResult)).isTrue();
+        StageKey pending = new StageKey("OCR_STEP", 1, sourceSha, fileRef, "d".repeat(64),
+                "unit-ocr", 0, StructuredHandwritingIndexer.OCR_SCHEMA);
+        assertThat(indexes.beginIndexStage(job, pending).shouldCall()).isTrue();
+        return new StageFixture(job, sourceId, pending, stageResult(1));
+    }
+
+    private static StageResult stageResult(int ordinal) {
+        String output = HandwritingOcrValidator.encode(new HandwritingIndexOcr.Result(
+                HandwritingIndexOcr.SCHEMA_VERSION, HandwritingMethodTaxonomy.VERSION,
+                ordinal, "手写步骤", "CLEAR", List.of()));
+        return new StageResult(output, AnswerManifestValidator.sha256(
+                output.getBytes(StandardCharsets.UTF_8)), 1, null);
+    }
+
+    private static void assertOutcomeUnknown(Runnable action) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(StepExecutionException.class,
+                failure -> assertThat(failure.reason()).isEqualTo("OUTCOME_UNKNOWN"));
+    }
+
+    private record StageFixture(Job job, String sourceId, StageKey pending, StageResult result) {
     }
 
     private static AnswerModels.SaveManifest manifest(byte[] left, byte[] right, byte[] raster) {
