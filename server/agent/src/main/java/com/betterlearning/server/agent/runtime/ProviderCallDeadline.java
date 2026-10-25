@@ -76,6 +76,11 @@ public final class ProviderCallDeadline implements AutoCloseable {
         if (invocation.role() == Role.RETRIEVE) {
             try {
                 return action.call();
+            } catch (StepExecutionException stopped) {
+                // The retrieval ledger may have an ambiguous paid query; never downgrade it to safe failure.
+                // Rebuild even this controlled exception to remove any original cause or suppressed diagnostics.
+                throw new StepExecutionException("OUTCOME_UNKNOWN".equals(stopped.reason())
+                        ? "OUTCOME_UNKNOWN" : "RETRIEVAL_FAILED");
             } catch (RuntimeException exception) {
                 throw new StepExecutionException("RETRIEVAL_FAILED");
             }

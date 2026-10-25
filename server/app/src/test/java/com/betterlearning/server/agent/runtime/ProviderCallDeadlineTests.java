@@ -5,6 +5,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.betterlearning.server.multiagent.MultiAgentModels.Role;
 import com.betterlearning.server.multiagent.MultiAgentModels.StepInvocation;
@@ -13,6 +14,9 @@ import com.betterlearning.server.multiagent.StepExecutionException;
 import com.betterlearning.server.multiagent.StepExecutor;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -107,6 +111,58 @@ class ProviderCallDeadlineTests {
         try (ProviderCallDeadline deadline = new ProviderCallDeadline(1)) {
             StepExecutor bound = deadline.bind(DURABLE, Duration.ofSeconds(1));
             assertThat(bound.execute(RETRIEVE, () -> OUTPUT)).isSameAs(OUTPUT);
+        }
+    }
+
+    @Test
+    void controlledUnknownRetrievalOutcomeReachesDurableDelegateWithoutDiagnostics() {
+        StepExecutionException unknown = new StepExecutionException("OUTCOME_UNKNOWN");
+        unknown.initCause(new IllegalStateException("secret-provider-body"));
+        unknown.addSuppressed(new IllegalStateException("secret-suppressed-body"));
+        assertRetrievalFailureObservedByDelegate(unknown, "OUTCOME_UNKNOWN");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"MODEL_UNAVAILABLE", "RETRIEVAL_FAILED", " outcome_unknown ",
+            "OUTCOME_UNKNOWN\nsecret-provider-body"})
+    void otherRetrievalReasonsRemainSanitizedAtDelegateBoundary(String reason) {
+        StepExecutionException other = new StepExecutionException(reason);
+        other.initCause(new IllegalStateException("secret-provider-body"));
+        assertRetrievalFailureObservedByDelegate(other, "RETRIEVAL_FAILED");
+    }
+
+    @Test
+    void arbitraryRuntimeExceptionCannotImpersonateControlledUnknownReason() {
+        assertRetrievalFailureObservedByDelegate(new IllegalStateException("OUTCOME_UNKNOWN",
+                new IllegalStateException("secret-provider-body")), "RETRIEVAL_FAILED");
+    }
+
+    private void assertRetrievalFailureObservedByDelegate(RuntimeException original, String expectedReason) {
+        AtomicReference<StepExecutionException> seenByDelegate = new AtomicReference<>();
+        AtomicInteger actionCalls = new AtomicInteger();
+        StepExecutor observingDelegate = (invocation, action) -> {
+            assertThat(invocation).isSameAs(RETRIEVE);
+            try {
+                return action.call();
+            } catch (StepExecutionException failure) {
+                seenByDelegate.set(failure);
+                throw failure;
+            }
+        };
+        try (ProviderCallDeadline deadline = new ProviderCallDeadline(1)) {
+            StepExecutor bound = deadline.bind(observingDelegate, Duration.ofSeconds(1));
+            StepExecutionException failure = assertThrows(StepExecutionException.class,
+                    () -> bound.execute(RETRIEVE, () -> {
+                        actionCalls.incrementAndGet();
+                        throw original;
+                    }));
+            assertThat(seenByDelegate.get()).isSameAs(failure).isNotSameAs(original);
+            assertThat(failure.reason()).isEqualTo(expectedReason);
+            assertThat(failure.getMessage()).isEqualTo(expectedReason);
+            assertThat(failure.getCause()).isNull();
+            assertThat(failure.getSuppressed()).isEmpty();
+            assertThat(actionCalls).hasValue(1);
         }
     }
 
