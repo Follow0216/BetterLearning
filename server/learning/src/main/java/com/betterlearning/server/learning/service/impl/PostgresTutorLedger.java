@@ -462,7 +462,6 @@ public class PostgresTutorLedger implements TutorLedger {
         sources.publish(accountId, new PublishSource(SourceType.TUTOR_REPLY, result, "历史辅导建议", body,
                 sha(body), null, null, null, "result:" + result));
         transition(run, "SUCCEEDED", null);
-        event(accountId, "RESULT", result, 1, "RESULT_PUBLISHED");
         return true;
     }
 

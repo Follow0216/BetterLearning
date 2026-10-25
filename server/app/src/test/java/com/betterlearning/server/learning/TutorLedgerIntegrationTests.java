@@ -36,6 +36,7 @@ import com.betterlearning.server.multiagent.MultiAgentModels.Image;
 import com.betterlearning.server.multiagent.MultiAgentModels.PipelineContext;
 import com.betterlearning.server.multiagent.MultiAgentModels.PipelineResult;
 import com.betterlearning.server.multiagent.MultiAgentModels.Mode;
+import com.betterlearning.server.multiagent.MultiAgentModels.OutboxEvent;
 import com.betterlearning.server.multiagent.MultiAgentModels.PublishSource;
 import com.betterlearning.server.multiagent.MultiAgentModels.Request;
 import com.betterlearning.server.multiagent.MultiAgentModels.RequestPage;
@@ -292,6 +293,7 @@ class TutorLedgerIntegrationTests {
         assertThat(detail.result().citations()).isEmpty();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_result WHERE run_id = ?", Integer.class,
                 running.runId())).isEqualTo(1);
+        assertPublishedReplyHasOnlySourceOutbox(account, detail.result().resultId());
         assertNoLocationLimitSteps(account, question, request.requestId(), running.runId());
     }
 
@@ -630,6 +632,9 @@ class TutorLedgerIntegrationTests {
                 .doesNotContain(evidence.evidenceId());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_citation WHERE result_id = ?",
                 Integer.class, resultId)).isEqualTo(1);
+        assertThat(ledger.detail(account, question, request.requestId()).run().status())
+                .isEqualTo(Status.SUCCEEDED);
+        assertPublishedReplyHasOnlySourceOutbox(account, resultId);
     }
 
     @Test
@@ -922,6 +927,82 @@ class TutorLedgerIntegrationTests {
     private static String markedBody(List<String> evidenceIds) {
         return "提示：" + evidenceIds.stream().map(value -> "[[evidence:" + value + "]]")
                 .collect(java.util.stream.Collectors.joining("、"));
+    }
+
+    @Test
+    void publicationRollbackLeavesResultReplySourceAndOutboxUnchanged() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        String runId = request.currentRunId();
+        Execution running = start(account, runId);
+        Integer beforeOutbox = jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE account_id = ?",
+                Integer.class, account);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
+            assertThat(ledger.publish(account, runId, running.revision(),
+                    new ResultDraft("事务内核验提示", List.of()))).isTrue();
+            throw new IllegalStateException("rollback published result");
+        })).isInstanceOf(IllegalStateException.class);
+        assertNoResult(runId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_source WHERE account_id = ? "
+                + "AND type = 'TUTOR_REPLY'", Integer.class, account)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE account_id = ?",
+                Integer.class, account)).isEqualTo(beforeOutbox);
+        assertThat(ledger.detail(account, question, request.requestId()).run().status())
+                .isEqualTo(Status.RUNNING);
+        assertThat(ledger.detail(account, question, request.requestId()).result()).isNull();
+    }
+
+    @Test
+    void retiredResultEventCannotBeDispatchedOrAcknowledged() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        String runId = request.currentRunId();
+        String sourceId = note(account, "failed-source-event").source().sourceId();
+        assertThat(jdbc.update("UPDATE ma_outbox SET status = 'FAILED' WHERE aggregate_type = 'SOURCE' "
+                + "AND aggregate_id = ? AND kind = 'SOURCE_VERSION_CREATED'", sourceId)).isEqualTo(1);
+        String retiredId = id();
+        jdbc.update("INSERT INTO ma_outbox(event_id,account_id,aggregate_type,aggregate_id,"
+                + "aggregate_version,kind,payload_digest,index_revision,status,retired_at,retired_reason,"
+                + "retired_by,retired_from_status) VALUES (?,?,'RESULT',?,1,'RESULT_PUBLISHED',?,0,"
+                + "'RETIRED',CURRENT_TIMESTAMP,?,?,?)",
+                retiredId, account, id(), digest("redundant result event"),
+                "REDUNDANT_RESULT_PUBLICATION", "V2026102507__retire_redundant_result_outbox.sql", "PENDING");
+        assertThat(ledger.outstandingEvents(100)).extracting(OutboxEvent::eventId)
+                .doesNotContain(retiredId);
+        assertThat(ledger.outstandingEvents(Set.of("RESULT_PUBLISHED"), 100)).isEmpty();
+        assertThat(ledger.outstandingEvents(Set.of("RESULT_PUBLISHED", "RUN_START",
+                "SOURCE_VERSION_CREATED"), 100)).extracting(OutboxEvent::eventId)
+                .doesNotContain(retiredId);
+        assertThat(ledger.outstandingEvents(Set.of("RUN_START"), 100))
+                .anySatisfy(event -> {
+                    assertThat(event.aggregateId()).isEqualTo(runId);
+                    assertThat(event.status()).isEqualTo("PENDING");
+                });
+        assertThat(ledger.outstandingEvents(Set.of("SOURCE_VERSION_CREATED"), 100))
+                .anySatisfy(event -> {
+                    assertThat(event.aggregateId()).isEqualTo(sourceId);
+                    assertThat(event.status()).isEqualTo("FAILED");
+                });
+        assertThat(ledger.acknowledgeEvent(retiredId)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM ma_outbox WHERE event_id = ?",
+                String.class, retiredId)).isEqualTo("RETIRED");
+    }
+
+    private void assertPublishedReplyHasOnlySourceOutbox(long account, String resultId) {
+        String replySourceId = jdbc.queryForObject("SELECT source_id FROM ma_source WHERE account_id = ? "
+                + "AND type = 'TUTOR_REPLY' AND origin_id = ?", String.class, account, resultId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE account_id = ? "
+                + "AND aggregate_type = 'SOURCE' AND aggregate_id = ? "
+                + "AND kind = 'SOURCE_VERSION_CREATED' AND status = 'PENDING'",
+                Integer.class, account, replySourceId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE account_id = ? "
+                + "AND aggregate_type = 'RESULT' AND aggregate_id = ?",
+                Integer.class, account, resultId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE account_id = ? "
+                + "AND kind = 'RESULT_PUBLISHED'", Integer.class, account)).isZero();
     }
 
     private void assertNoResult(String runId) {

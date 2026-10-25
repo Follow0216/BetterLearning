@@ -23,7 +23,7 @@
 | `Evidence` | `evidenceId`、`runId`、`stepId`、`type=CURRENT_SNAPSHOT\|HISTORY\|DERIVATION`、`sourceId?`、`version?`、`anchorId?`、`claim`、`confidence?` | 当前作答可见证据与历史检索证据分开；模型推断不能自动成为已掌握事实。置信度是模型建议，不替代来源定位。 |
 | `Result` | `resultId`、`runId`、`mode`、`status=VERIFIED\|WITHHELD`、`bodyMarkdown`、`citations[]`、`createdAt` | 每 run 最多一个对外发布的 VERIFIED 结果，发布与 run SUCCEEDED 在同一 CAS 事务；review 未通过为 WITHHELD，不公开不可信答案。正文可有编号引用标记，不内嵌来源原文副本，防止源删除后从历史回答泄露。 |
 | `Citation` | `citationId`、`resultId`、`sourceId`、`version`、`anchorId`、`label` | `(resultId,citationId)` 唯一；Result 中仅存元数据，`quotedText` 如需展示只可在实时授权后的 resolve 响应中返回。旧作答须标“用户历史作答”，旧模型输出须标“历史辅导建议”，不得标标准答案。无命中省略引用，不伪造。 |
-| `Outbox` | `eventId`、`accountId`、`aggregateType`、`aggregateId`、`aggregateVersion`、`kind`、`payloadDigest`、`status` | 与源保存/编辑/删除或结果发布同事务写入；`(aggregateType,aggregateId,aggregateVersion,kind)` 唯一。消费者以 `eventId` 去重并按 version CAS 更新索引；旧事件不得覆盖新版本，失败可重投，撤销权限先于索引清理生效。 |
+| `Outbox` | `eventId`、`accountId`、`aggregateType`、`aggregateId`、`aggregateVersion`、`kind`、`payloadDigest`、`status` | 与源保存/编辑/删除或结果发布同事务写入；结果发布通过同事务的 `TUTOR_REPLY/SOURCE_VERSION_CREATED` 通知索引，不再另发无消费者的 `RESULT_PUBLISHED`。待投递仅 `PENDING/FAILED`，`DELIVERED` 表示消费完成；`RETIRED` 仅用于经 V2026102507 完整发布链核验的旧 RESULT 事件，保留原字段及退役时间、原因、迁移来源、原状态，不代表投递成功；`(aggregateType,aggregateId,aggregateVersion,kind)` 唯一。消费者以 `eventId` 去重并按 version CAS 更新索引；旧事件不得覆盖新版本，失败可重投，撤销权限先于索引清理生效。 |
 
 索引只保存必要的分段、方法标签和向量；不将原图二进制写进 pgvector。`TUTOR_SNAPSHOT` 的 `originId` 为首次 `NEW_CAPTURE` 的 requestId；复用链固定同一个原始源版本，`snapshotOriginRequestId` 记录该原始 request，不能把 M2 当前保存当辅导快照。原文件在 `APP_FILES_ROOT` 的保留/清理需按源版本引用计数与删除政策定义，当前版本覆盖不能删除被辅导快照或引用所需的旧版本。每个读取、文件 GET、resolve、列表和后台索引消费均以 `accountId` 过滤，不信任客户端路径与引用 ID。
 
