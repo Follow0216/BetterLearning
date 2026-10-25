@@ -151,6 +151,7 @@ export struct QuestionLibrary {
         }
         .layoutWeight(1)
         .width('100%')
+        .align(Alignment.TopStart)
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring)
       }

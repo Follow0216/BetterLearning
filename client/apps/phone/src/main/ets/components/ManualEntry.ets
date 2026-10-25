@@ -210,7 +210,7 @@ export struct ManualEntry {
       }
       .width('100%').padding({ left: 18, right: 18, top: 10, bottom: 24 })
     }
-    .layoutWeight(1).width('100%').scrollBar(BarState.Off)
+    .layoutWeight(1).width('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
   }
 
   @Builder
@@ -291,7 +291,7 @@ export struct ManualEntry {
         }
         .width('100%').padding({ left: 18, right: 18, top: 4, bottom: 16 })
       }
-      .width('100%').layoutWeight(1).scrollBar(BarState.Off)
+      .width('100%').layoutWeight(1).align(Alignment.TopStart).scrollBar(BarState.Off)
       this.review_actions()
     }
     .width('100%').layoutWeight(1)
