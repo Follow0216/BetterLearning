@@ -123,6 +123,7 @@
     <select id="candidates" resultType="map">
         WITH authorized AS MATERIALIZED (
             SELECT c.*,s.type,v.answer_state,
+                lower(regexp_replace(normalize(c.text, NFKC), '[[:space:]]+', '', 'g')) AS method_text,
                 CASE WHEN s.type = 'TUTOR_REPLY' THEN (
                     SELECT reply_request.question_id::text FROM ma_result reply_result
                     JOIN ma_run reply_run ON reply_run.run_id = reply_result.run_id
@@ -136,8 +137,11 @@
             SELECT *,1 - (embedding &lt;=&gt; CAST(#{vector} AS vector)) AS vector_score,
                 (SELECT COUNT(*) FROM jsonb_array_elements_text(terms) term
                     WHERE jsonb_exists(CAST(#{terms} AS jsonb), term)) +
-                3 * (SELECT COUNT(*) FROM jsonb_array_elements_text(method_tags) tag
-                    WHERE jsonb_exists(CAST(#{methodTags} AS jsonb), tag)) AS lexical_score
+                3 * (SELECT COUNT(*) FROM jsonb_each(CAST(#{methodAliases} AS jsonb)) query_method
+                    WHERE jsonb_exists(method_tags, query_method.key) OR EXISTS (
+                        SELECT 1 FROM jsonb_array_elements_text(query_method.value) method_alias(value)
+                        WHERE strpos(method_text, method_alias.value) > 0
+                    )) AS lexical_score
             FROM authorized
         ), picked AS (
             (SELECT chunk_id FROM scores ORDER BY vector_score DESC,chunk_id LIMIT 40)
