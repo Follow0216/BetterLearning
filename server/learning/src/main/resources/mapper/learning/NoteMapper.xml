@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.learning.mapper.NoteMapper">
+    <resultMap id="request" type="com.betterlearning.server.learning.mapper.NoteMapper$RequestRow">
+        <constructor>
+            <idArg column="note_id" javaType="java.lang.String"/>
+            <arg column="request_sha256" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="note" type="com.betterlearning.server.learning.mapper.NoteMapper$NoteRow">
+        <constructor>
+            <idArg column="note_id" javaType="java.lang.String"/>
+            <arg column="source_id" javaType="java.lang.String"/>
+            <arg column="version" javaType="_long"/>
+            <arg column="title" javaType="java.lang.String"/>
+            <arg column="body_markdown" javaType="java.lang.String"/>
+            <arg column="index_status" javaType="java.lang.String"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+            <arg column="source_status" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="source" type="com.betterlearning.server.learning.mapper.NoteMapper$SourceRow">
+        <constructor>
+            <idArg column="source_id" javaType="java.lang.String"/>
+            <arg column="type" javaType="java.lang.String"/>
+            <arg column="origin_id" javaType="java.lang.String"/>
+            <arg column="status" javaType="java.lang.String"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="current_version" javaType="_long"/>
+            <arg column="index_status" javaType="java.lang.String"/>
+            <arg column="answer_state" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <select id="lockAccount" resultType="java.lang.Long">
+        SELECT account_id FROM app_user WHERE account_id = #{accountId} FOR UPDATE
+    </select>
+    <select id="request" resultMap="request">
+        SELECT note_id, request_sha256 FROM ma_note_request
+        WHERE account_id = #{accountId} AND idempotency_key = #{key}
+    </select>
+    <insert id="addRequest">
+        INSERT INTO ma_note_request(account_id,idempotency_key,note_id,source_id,request_sha256)
+        VALUES (#{accountId},#{key},#{noteId},#{sourceId},#{digest})
+    </insert>
+    <insert id="addTitle">
+        INSERT INTO ma_note_version(source_id,version,title)
+        VALUES (#{sourceId},#{version},#{title})
+    </insert>
+    <select id="note" resultMap="note">
+        SELECT r.note_id, s.source_id, v.version, n.title, v.body_markdown,
+               v.status AS index_status, v.created_at AS updated_at, s.status AS source_status
+        FROM ma_note_request r JOIN ma_source s
+            ON s.source_id = r.source_id AND s.account_id = r.account_id
+        JOIN ma_source_version v
+            ON v.source_id = s.source_id AND v.version = s.current_version
+        JOIN ma_note_version n ON n.source_id = v.source_id AND n.version = v.version
+        WHERE r.account_id = #{accountId} AND r.note_id = #{noteId} AND s.type = 'NOTE'
+    </select>
+    <select id="notes" resultMap="note">
+        SELECT s.origin_id AS note_id, s.source_id, v.version, n.title, v.body_markdown,
+               v.status AS index_status, v.created_at AS updated_at, s.status AS source_status
+        FROM ma_source s JOIN ma_source_version v
+            ON v.source_id = s.source_id AND v.version = s.current_version
+        JOIN ma_note_version n ON n.source_id = v.source_id AND n.version = v.version
+        WHERE s.account_id = #{accountId} AND s.type = 'NOTE' AND s.status = 'ACTIVE'
+        <if test="beforeTime != null">
+            AND (v.created_at, s.origin_id) &lt; (#{beforeTime}, #{beforeId})
+        </if>
+        ORDER BY v.created_at DESC, s.origin_id DESC LIMIT #{limit}
+    </select>
+    <select id="source" resultMap="source">
+        SELECT s.source_id,s.type,s.origin_id,s.status,s.created_at,s.current_version,
+               v.status AS index_status,v.answer_state
+        FROM ma_source s JOIN ma_source_version v
+            ON v.source_id = s.source_id AND v.version = s.current_version
+        WHERE s.account_id = #{accountId} AND s.source_id = #{sourceId} AND s.status = 'ACTIVE'
+    </select>
+    <select id="sources" resultMap="source">
+        SELECT s.source_id,s.type,s.origin_id,s.status,s.created_at,s.current_version,
+               v.status AS index_status,v.answer_state
+        FROM ma_source s JOIN ma_source_version v
+            ON v.source_id = s.source_id AND v.version = s.current_version
+        WHERE s.account_id = #{accountId} AND s.status = 'ACTIVE'
+        <if test="type != null">AND s.type = #{type}</if>
+        <if test="beforeTime != null">
+            AND (s.created_at, s.source_id) &lt; (#{beforeTime}, #{beforeId})
+        </if>
+        ORDER BY s.created_at DESC,s.source_id DESC LIMIT #{limit}
+    </select>
+</mapper>

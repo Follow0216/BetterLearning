@@ -43,7 +43,7 @@ import org.springframework.web.filter.CorsFilter;
 public class SecurityConfiguration {
 
     private static final List<String> ALLOWED_METHODS =
-            List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS");
+            List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
 
     private static final List<String> ALLOWED_HEADERS =
             List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match");
@@ -153,6 +153,7 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(List.copyOf(properties.getAllowedOrigins()));
         configuration.setAllowedMethods(ALLOWED_METHODS);
         configuration.setAllowedHeaders(ALLOWED_HEADERS);
+        configuration.setExposedHeaders(List.of("ETag"));
         configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

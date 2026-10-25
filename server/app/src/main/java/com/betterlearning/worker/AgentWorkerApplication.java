@@ -7,6 +7,10 @@ import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.config.TemporalClientConfiguration;
 import com.betterlearning.server.config.TemporalWorkerConfiguration;
 import com.betterlearning.server.learning.config.AppFilesProperties;
+import com.betterlearning.server.learning.service.impl.NoteServiceImpl;
+import com.betterlearning.server.retrieval.MybatisRetrievalIndexStore;
+import com.betterlearning.server.retrieval.RetrievalConfiguration;
+import com.betterlearning.server.retrieval.RetrievalIndexWorker;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -23,11 +27,12 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 @EnableAutoConfiguration
 @EnableConfigurationProperties({DataSourcePasswordProperties.class, AppFilesProperties.class})
 @Import({TemporalClientConfiguration.class, TemporalWorkerConfiguration.class,
-        MybatisConfiguration.class, JacksonConfiguration.class})
+        MybatisConfiguration.class, JacksonConfiguration.class,
+        RetrievalConfiguration.class, MybatisRetrievalIndexStore.class, RetrievalIndexWorker.class})
 @ComponentScan(basePackages = {"com.betterlearning.server.agent", "com.betterlearning.server.learning"},
         excludeFilters = {
             @ComponentScan.Filter(type = FilterType.ANNOTATION, classes = {Controller.class, ControllerAdvice.class}),
-            @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = TutorDeadlineReconciler.class)
+            @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = {TutorDeadlineReconciler.class, NoteServiceImpl.class})
         })
 public class AgentWorkerApplication {
     public static void main(String[] args) {
