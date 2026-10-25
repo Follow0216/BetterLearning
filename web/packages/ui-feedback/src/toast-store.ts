@@ -76,7 +76,7 @@ export class ToastStore implements ToastApi {
     if (!key || !message) return;
     const durationMs =
       Number.isFinite(options.durationMs) && (options.durationMs ?? 0) > 0
-        ? options.durationMs!
+        ? Math.ceil(options.durationMs!)
         : options.type === "error"
           ? 6000
           : 3000;

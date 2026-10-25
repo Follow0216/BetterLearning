@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -15,12 +16,30 @@ import { ToastStore, type ToastApi, type ToastItem } from "./toast-store";
 export type { ToastApi, ToastOptions, ToastType } from "./toast-store";
 
 const ToastContext = createContext<ToastApi | null>(null);
-const subscribeHydration = () => () => {};
-const clientSnapshot = () => true;
-const serverSnapshot = () => false;
+function subscribePortalTarget(listener: () => void) {
+  const observer = new MutationObserver(listener);
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["open"],
+  });
+  return () => observer.disconnect();
+}
+
+// An existing native dialog makes its outside content inert. Reuse its layer so
+// notifications stay visible and dismissible without opening another modal.
+const portalTarget = () => document.querySelector("dialog[open]") ?? document.body;
+const serverPortalTarget = () => null;
 
 function ToastCard({ item, store }: { item: ToastItem; store: ToastStore }) {
-  useEffect(() => store.present(item.key, item.revision), [item.key, item.revision, store]);
+  useEffect(() => {
+    store.present(item.key, item.revision);
+    return () => {
+      store.setPaused(item.key, "hover", false);
+      store.setPaused(item.key, "focus", false);
+    };
+  }, [item.key, item.revision, store]);
   return (
     <div
       className="bl-toast"
@@ -60,22 +79,33 @@ function ToastCard({ item, store }: { item: ToastItem; store: ToastStore }) {
 }
 
 function ToastHost({ store }: { store: ToastStore }) {
-  const hydrated = useSyncExternalStore(subscribeHydration, clientSnapshot, serverSnapshot);
+  const target = useSyncExternalStore(subscribePortalTarget, portalTarget, serverPortalTarget);
   const items = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   useEffect(() => store.attachHost(), [store]);
-  if (!hydrated) return null;
+  if (!target) return null;
   return createPortal(
     <div className="bl-toast-host" aria-label="操作通知">
       {items.map((item) => (
         <ToastCard key={item.key} item={item} store={store} />
       ))}
     </div>,
-    document.body,
+    target,
   );
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new ToastStore());
+  const lifecycle = useRef(0);
+  useEffect(() => {
+    const version = ++lifecycle.current;
+    return () => {
+      // StrictMode immediately sets up the same instance again. A real unmount
+      // has no later setup and permanently disposes captured async callbacks.
+      queueMicrotask(() => {
+        if (lifecycle.current === version) store.dispose();
+      });
+    };
+  }, [store]);
   return (
     <ToastContext.Provider value={store}>
       {children}
