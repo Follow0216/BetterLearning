@@ -3,6 +3,7 @@ package com.betterlearning.server.multiagent;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.betterlearning.server.multiagent.MultiAgentModels.*;
 
@@ -32,6 +33,8 @@ public interface TutorLedger {
     void recordEvidence(long accountId, String runId, List<Evidence> evidence);
     List<Evidence> evidence(long accountId, String runId);
     List<OutboxEvent> outstandingEvents(int limit);
+    /** 消费者按所负责kind过滤后再LIMIT，避免别的事件积压饿死任务启动。 */
+    List<OutboxEvent> outstandingEvents(Set<String> kinds, int limit);
     boolean acknowledgeEvent(String eventId);
     int reconcileDeadlines(Instant now, int limit);
 }
