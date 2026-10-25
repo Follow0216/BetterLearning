@@ -1,4 +1,4 @@
-import { AuthError, AuthResult, FrozenTutorAnswer, SolutionDetail, TutorTurn } from 'common';
+import { AuthError, AuthResult, FrozenAnswerUpload, FrozenTutorAnswer, SolutionDetail, TutorTurn } from 'common';
 
 /** A-T 仅消费该状态，不复制画布或服务端模型。 */
 export class CanvasWorkspaceState {

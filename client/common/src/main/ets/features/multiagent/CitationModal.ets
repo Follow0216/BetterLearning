@@ -28,9 +28,9 @@ export struct CitationModal {
   @State private zoom: number = 1;
   @State private offsetX: number = 0;
   @State private offsetY: number = 0;
-  @State private scale: number = 1;
-  private width: number = 320;
-  private height: number = 280;
+  @State private viewScale: number = 1;
+  private viewportWidth: number = 320;
+  private viewportHeight: number = 280;
   private panX: number = 0;
   private panY: number = 0;
   private generation: number = 0;
@@ -127,8 +127,8 @@ export struct CitationModal {
     if (this.resolution === null || this.resolution.handwritingLocator === undefined) { return; }
     try {
       const view: CitationViewport = citation_fit(citation_world_extent(this.resolution.handwritingLocator.segments,this.context),
-        this.width,this.height,this.zoom);
-      this.scale = view.scale; this.offsetX = view.offsetX; this.offsetY = view.offsetY;
+        this.viewportWidth,this.viewportHeight,this.zoom);
+      this.viewScale = view.scale; this.offsetX = view.offsetX; this.offsetY = view.offsetY;
     } catch (error) { this.errorText = '引用步骤无法定位'; }
   }
   private highlightRect(segment: V2HandwritingSegment): CitationRect {
@@ -155,23 +155,23 @@ export struct CitationModal {
       Stack({ alignContent: Alignment.TopStart }) {
         ForEach(this.images,(item: CitationImage) => {
           Image(item.map).draggable(false).objectFit(ImageFit.Fill)
-            .width(item.segment.blockWorldBounds.width * this.scale)
-            .height(item.segment.blockWorldBounds.height * this.scale)
-            .position({ x: item.segment.blockWorldBounds.x * this.scale + this.offsetX,
-              y: item.segment.blockWorldBounds.y * this.scale + this.offsetY })
+            .width(item.segment.blockWorldBounds.width * this.viewScale)
+            .height(item.segment.blockWorldBounds.height * this.viewScale)
+            .position({ x: item.segment.blockWorldBounds.x * this.viewScale + this.offsetX,
+              y: item.segment.blockWorldBounds.y * this.viewScale + this.offsetY })
             .accessibilityText('引用步骤原图块 ' + item.segment.blockIndex.toString())
         },(item: CitationImage) => item.segment.blockIndex.toString())
         ForEach(this.images,(item: CitationImage) => {
-          Row().width(this.highlightRect(item.segment).width * this.scale)
-            .height(this.highlightRect(item.segment).height * this.scale)
-            .position({ x: this.highlightRect(item.segment).x * this.scale + this.offsetX,
-              y: this.highlightRect(item.segment).y * this.scale + this.offsetY })
+          Row().width(this.highlightRect(item.segment).width * this.viewScale)
+            .height(this.highlightRect(item.segment).height * this.viewScale)
+            .position({ x: this.highlightRect(item.segment).x * this.viewScale + this.offsetX,
+              y: this.highlightRect(item.segment).y * this.viewScale + this.offsetY })
             .backgroundColor('#22FACC15').border({ width: 2, color: '#CA8A04' }).hitTestBehavior(HitTestMode.None)
         },(item: CitationImage) => 'highlight-' + item.segment.blockIndex.toString())
       }
       .width('100%').height(280).clip(true).backgroundColor('#F1F5F9')
       .onAreaChange((_old: Area,area: Area) => {
-        this.width = Number(area.width); this.height = Number(area.height); this.fit();
+        this.viewportWidth = Number(area.width); this.viewportHeight = Number(area.height); this.fit();
       })
       .gesture(PanGesture().onActionStart(() => { this.panX = this.offsetX; this.panY = this.offsetY; })
         .onActionUpdate((event: GestureEvent) => { this.offsetX = this.panX + event.offsetX; this.offsetY = this.panY + event.offsetY; }))
