@@ -25,6 +25,10 @@ public interface RetentionMapper {
     @Select("SELECT sequence,hash FROM ma_deletion_replay WHERE singleton=TRUE FOR UPDATE")
     Watermark watermark();
 
+    @Select("SELECT journal_sequence AS sequence,journal_hash AS hash FROM ma_source_deletion "
+            + "ORDER BY journal_sequence DESC LIMIT 1")
+    Watermark highestCommittedDeletion();
+
     @Update("UPDATE ma_deletion_replay SET sequence=#{sequence},hash=#{hash},replayed_at=CURRENT_TIMESTAMP WHERE singleton=TRUE")
     int watermarkSaved(@Param("sequence") long sequence, @Param("hash") String hash);
 
