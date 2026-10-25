@@ -20,7 +20,8 @@ public final class ChineseMathTerms {
             "极值", "最值", "判别式", "韦达定理", "完全平方", "勾股定理",
             "相似三角形", "全等三角形", "辅助线", "数列", "等差数列",
             "等比数列", "概率", "排列组合", "反证法", "递推", "面积",
-            "因式分解", "分式", "绝对值", "三角函数", "解析几何", "圆锥曲线");
+            "因式分解", "平方差公式", "链式法则", "分式", "绝对值",
+            "三角函数", "解析几何", "圆锥曲线");
 
     private ChineseMathTerms() {
     }
@@ -43,6 +44,19 @@ public final class ChineseMathTerms {
             }
         }
         return Set.copyOf(found);
+    }
+
+    /** SQL uses these controlled aliases only to shortlist; Java still validates full method semantics. */
+    public static Map<String, Set<String>> aliasesForMethods(Set<String> labels) {
+        Set<String> canonical = explicitMethods(labels);
+        Map<String, Set<String>> selected = new LinkedHashMap<>();
+        for (Map.Entry<String, String> alias : METHOD_ALIASES.entrySet()) {
+            if (canonical.contains(alias.getValue())) {
+                selected.computeIfAbsent(alias.getValue(), ignored -> new LinkedHashSet<>()).add(alias.getKey());
+            }
+        }
+        selected.replaceAll((method, values) -> Set.copyOf(values));
+        return Map.copyOf(selected);
     }
 
     /** Negated mentions are excluded from positive query methods. */
@@ -116,6 +130,11 @@ public final class ChineseMathTerms {
         aliases.put("配方", "配方法");
         // P3 SOLVE currently emits this exact label in its supported pipeline fixture.
         aliases.put("一元一次方程", "一元一次方程");
+        aliases.put("平方差公式", "平方差公式");
+        aliases.put("平方差", "平方差公式");
+        aliases.put("链式法则", "链式法则");
+        aliases.put("复合函数求导", "链式法则");
+        aliases.put("链式求导", "链式法则");
         aliases.put("换元法", "换元法");
         aliases.put("换元", "换元法");
         aliases.put("分类讨论", "分类讨论");

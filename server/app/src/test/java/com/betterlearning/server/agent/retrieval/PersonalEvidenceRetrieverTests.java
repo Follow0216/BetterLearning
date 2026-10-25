@@ -102,6 +102,41 @@ class PersonalEvidenceRetrieverTests {
                 "二次函数与概率积分，不讨论配方法", List.of("概率积分"), 5));
 
         assertThat(evidence).isEmpty();
+        verify(store, never()).beginQueryEmbedding(any());
+        verify(embedding, never()).embedWithStats(any());
+    }
+
+    @Test
+    void differenceOfSquaresSolveLabelsRecallLegacyRawClaim() {
+        assertRealMethodRecall("化简 x²−9", List.of("平方差公式", "因式分解"),
+                Set.of("平方差公式", "因式分解"), "difference");
+    }
+
+    @Test
+    void chainRuleSolveLabelsReachEmbeddingAndRecallLegacyRawClaim() {
+        assertRealMethodRecall("求复合函数的导数", List.of("链式法则", "复合函数求导"),
+                Set.of("链式法则"), "chain");
+    }
+
+    private void assertRealMethodRecall(String queryText, List<String> labels,
+            Set<String> canonical, String expectedSource) {
+        String difference = "平方差公式：a²−b²=(a−b)(a+b)。识别 9=3²。";
+        String chain = "链式法则：先求外层导数，再乘内层导数。";
+        Candidate differenceCandidate = new Candidate("difference", 1, "anchor-difference", SourceType.NOTE,
+                "q1", difference, Set.of(), 0.767551, 0.0);
+        Candidate chainCandidate = new Candidate("chain", 1, "anchor-chain", SourceType.NOTE,
+                "q2", chain, Set.of(), 0.999, 0.0);
+        when(store.candidates(eq(7L), anySet(), anySet(), any(), eq("test-embedding"), eq(2)))
+                .thenReturn(List.of(differenceCandidate, chainCandidate));
+
+        var evidence = retriever.retrieve(query(queryText, labels, 5));
+
+        assertThat(evidence).extracting(item -> item.sourceId()).containsExactly(expectedSource);
+        assertThat(evidence).extracting(item -> item.claim())
+                .containsExactly("difference".equals(expectedSource) ? difference : chain);
+        verify(store).beginQueryEmbedding(any());
+        verify(embedding).embedWithStats(List.of(queryText));
+        verify(store).candidates(eq(7L), anySet(), eq(canonical), any(), eq("test-embedding"), eq(2));
     }
 
     @Test

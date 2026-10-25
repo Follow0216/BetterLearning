@@ -81,6 +81,61 @@ class HybridRankerTests {
     }
 
     @Test
+    void actualDifferenceOfSquaresLabelsMatchUnlabeledHistoricalTextOnly() {
+        HybridRanker.Query query = new HybridRanker.Query("识别 a²−b² 并分解，9=3²",
+                Set.of("平方差公式", "因式分解"));
+        HybridRanker.Candidate historical = candidate("difference", "q1",
+                "平方差公式：a²−b²=(a−b)(a+b)。识别 9=3²。", Set.of(), 0.767551, 0.0);
+        HybridRanker.Candidate sameSurfaceWrongMethod = candidate("wrong", "q2",
+                "a²−b² 与 9=3² 的题面可先考虑配方法。", Set.of("配方法"), 0.99, 0.99);
+        HybridRanker.Candidate duplicateQuestion = candidate("duplicate", "q1",
+                "平方差公式还可用于相近题目。", Set.of(), 0.10, 0.0);
+        assertEquals(Set.of("平方差公式", "因式分解"),
+                ChineseMathTerms.explicitMethods(query.methodTags()));
+        assertEquals(Set.of("平方差公式"), ChineseMathTerms.methodsInText(historical.text()));
+        HybridRanker.Ranking result = ranker.rank(query,
+                List.of(sameSurfaceWrongMethod, historical, duplicateQuestion),
+                HybridRanker.Limits.defaults(), null);
+        assertEquals(List.of("difference"), result.evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+        assertEquals(Set.of("平方差公式"), result.evidence().get(0).matchedMethods());
+    }
+
+    @Test
+    void actualChainRuleLabelsCanonicalizeAndRejectSurfaceOnlyCandidate() {
+        HybridRanker.Query query = new HybridRanker.Query("复合函数的导数如何求？",
+                Set.of("链式法则", "复合函数求导"));
+        HybridRanker.Candidate historical = candidate("chain", "q1",
+                "链式法则：先求外层导数，再乘内层导数。", Set.of(), 0.36, 0.0);
+        HybridRanker.Candidate sameSurfaceWrongMethod = candidate("wrong", "q2",
+                "复合函数的导数题面，使用待定系数法。", Set.of("待定系数法"), 0.99, 0.99);
+        assertEquals(Set.of("链式法则"), ChineseMathTerms.explicitMethods(query.methodTags()));
+        assertEquals(Set.of("链式法则"), ChineseMathTerms.explicitMethods(
+                Set.of("链式求导")));
+        assertEquals(Set.of("链式法则"), ChineseMathTerms.methodsInText(historical.text()));
+        assertEquals(List.of("chain"), ranker.rank(query,
+                List.of(sameSurfaceWrongMethod, historical), HybridRanker.Limits.defaults(), null)
+                .evidence().stream().map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void newMethodsKeepUnknownAndNegatedMentionsConservative() {
+        HybridRanker.Candidate difference = candidate("difference", "q1",
+                "平方差公式用于因式分解。", Set.of(), 0.99, 0.99);
+        HybridRanker.Candidate chain = candidate("chain", "q2",
+                "链式法则处理复合函数导数。", Set.of(), 0.99, 0.99);
+        assertTrue(ranker.rank(new HybridRanker.Query("平方差公式与链式法则", Set.of("未知解法")),
+                List.of(difference, chain), HybridRanker.Limits.defaults(), 0.1)
+                .evidence().isEmpty());
+        assertEquals(Set.of("平方差公式"), ChineseMathTerms.negatedMethods("不使用平方差公式"));
+        assertEquals(Set.of("链式法则"), ChineseMathTerms.negatedMethods("不讨论复合函数求导"));
+        assertTrue(ranker.rank(new HybridRanker.Query("二次函数不使用平方差公式", Set.of()),
+                List.of(difference), HybridRanker.Limits.defaults(), 0.1).evidence().isEmpty());
+        assertTrue(ranker.rank(new HybridRanker.Query("导数不讨论复合函数求导", Set.of()),
+                List.of(chain), HybridRanker.Limits.defaults(), 0.1).evidence().isEmpty());
+    }
+
+    @Test
     void negatedMethodWithoutLabelsIsNotPositiveEvidence() {
         HybridRanker.Query query = new HybridRanker.Query("二次函数不讨论配方法", Set.of());
         HybridRanker.Candidate excluded = candidate("p1", "q1",

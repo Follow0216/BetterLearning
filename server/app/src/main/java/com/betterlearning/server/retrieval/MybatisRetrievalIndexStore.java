@@ -11,6 +11,7 @@ import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.QueryEmbeddingDecision;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.QueryEmbeddingKey;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.QueryEmbeddingResult;
+import com.betterlearning.server.agent.retrieval.ranking.ChineseMathTerms;
 import com.betterlearning.server.agent.retrieval.ranking.HybridRanker.Candidate;
 import com.betterlearning.server.agent.retrieval.ranking.HybridRanker.SourceType;
 import com.betterlearning.server.multiagent.SourceStore;
@@ -219,7 +220,8 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     public List<Candidate> candidates(long accountId, Set<String> terms, Set<String> methodTags,
             double[] queryVector, String model, int dimensions) {
         Map<String, Object> query = Map.of("accountId", accountId, "terms", json.writeValueAsString(terms),
-                "methodTags", json.writeValueAsString(methodTags), "vector", vector(queryVector, dimensions),
+                "methodAliases", json.writeValueAsString(ChineseMathTerms.aliasesForMethods(methodTags)),
+                "vector", vector(queryVector, dimensions),
                 "model", model, "dimensions", dimensions);
         return mapper.candidates(query).stream().map(row -> new Candidate(text(row, "source_id"),
                 number(row, "version"), text(row, "anchor_id"), SourceType.valueOf(text(row, "type")),

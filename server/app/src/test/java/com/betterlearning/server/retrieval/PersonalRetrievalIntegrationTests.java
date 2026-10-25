@@ -34,6 +34,8 @@ import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
 import com.betterlearning.server.agent.retrieval.anchor.MarkdownAnchorParser;
+import com.betterlearning.server.agent.retrieval.ranking.ChineseMathTerms;
+import com.betterlearning.server.agent.retrieval.ranking.HybridRanker;
 import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
@@ -295,6 +297,45 @@ class PersonalRetrievalIntegrationTests {
                 new NoteModels.Write("方法", "新内容"));
         assertThat(index.candidates(owner, Set.of("旧内容"), Set.of(), new double[] {1, 0}, MODEL, 2))
                 .isEmpty();
+    }
+
+    @Test
+    void readTimeMethodAliasRecallsLegacyEmptyMetadataBeyondTopFortyVectors() {
+        for (int ordinal = 0; ordinal < 41; ordinal++) {
+            String text = "链式法则用于复合函数求导，第" + ordinal + "份旧资料";
+            NoteModels.Note distractor = notes.create(owner, UUID.randomUUID().toString(),
+                    new NoteModels.Write("高向量错方法", text));
+            Job job = index.claim().orElseThrow();
+            Chunk draft = chunk(distractor.sourceId(), 1, text, 1, 0);
+            Chunk legacy = new Chunk(draft.anchor(), null, draft.text(), Set.of(), Set.of(),
+                    new double[] {1, 0});
+            assertThat(index.complete(job, List.of(legacy), MODEL, 2)).isTrue();
+        }
+        String correctText = "平方差公式：a²−b²=(a+b)(a−b)，可据此分解";
+        NoteModels.Note correct = notes.create(owner, UUID.randomUUID().toString(),
+                new NoteModels.Write("旧平方差资料", correctText));
+        Job correctJob = index.claim().orElseThrow();
+        Chunk draft = chunk(correct.sourceId(), 1, correctText, 0.99, 0.15);
+        Chunk legacyCorrect = new Chunk(draft.anchor(), null, draft.text(), Set.of(), Set.of(),
+                new double[] {0.99, 0.15});
+        assertThat(index.complete(correctJob, List.of(legacyCorrect), MODEL, 2)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_retrieval_chunk WHERE account_id=? "
+                + "AND method_tags='[]'::jsonb AND terms='[]'::jsonb", Integer.class, owner))
+                .isEqualTo(42);
+
+        Set<String> methods = Set.of("平方差公式");
+        var candidates = index.candidates(owner, ChineseMathTerms.terms("平方差公式"), methods,
+                new double[] {1, 0}, MODEL, 2);
+        assertThat(candidates).extracting(candidate -> candidate.sourceId())
+                .contains(correct.sourceId());
+        assertThat(candidates.stream().filter(candidate -> candidate.sourceId().equals(correct.sourceId()))
+                .findFirst().orElseThrow().lexicalScore()).isPositive();
+
+        var ranked = new HybridRanker().rank(new HybridRanker.Query("使用平方差公式分解 a²−b²", methods),
+                candidates, HybridRanker.Limits.defaults(), null);
+        assertThat(ranked.evidence()).hasSize(1);
+        assertThat(ranked.evidence().get(0).candidate().sourceId()).isEqualTo(correct.sourceId());
+        assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(correctText);
     }
 
     @Test
