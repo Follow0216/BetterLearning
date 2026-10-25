@@ -19,6 +19,8 @@ import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.QueryEmbeddingKey;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageKey;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.StageResult;
+import com.betterlearning.server.enums.ErrorCode;
+import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.multiagent.MultiAgentModels.Source;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
@@ -142,6 +144,38 @@ class MybatisRetrievalIndexStoreTests {
     }
 
     @Test
+    void unavailableSourceRejectsBeforeEnteringTransactionalSourceRead() {
+        Job job = job();
+        when(mapper.lockAccount(job.accountId())).thenReturn(job.accountId());
+        when(mapper.lockJob(job.eventId(), job.fence())).thenReturn(job.eventId());
+        when(mapper.indexProtocol(job.eventId(), job.fence())).thenReturn("HANDWRITING_METHODS_V1");
+
+        assertThat(store.confirmIndexStage(job, stageKey(), new StageResult("{}", sha("{}"), 1, null)))
+                .isFalse();
+        assertThat(store.beginIndexProtocol(job, "HANDWRITING_METHODS_V1")).isFalse();
+        assertThatThrownBy(() -> store.beginIndexStage(job, stageKey()))
+                .isInstanceOf(StepExecutionException.class).hasMessage("OUTCOME_UNKNOWN");
+        verifyNoInteractions(sources);
+        verify(mapper, org.mockito.Mockito.never()).confirmIndexStage(org.mockito.ArgumentMatchers.anyMap());
+        verify(mapper, org.mockito.Mockito.never()).insertIndexStage(org.mockito.ArgumentMatchers.anyMap());
+        verify(mapper, org.mockito.Mockito.never()).usage(org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
+    void unexpectedTransactionalSourceFailureIsNotSwallowedAsFalse() {
+        Job job = job();
+        stageSource(job);
+        when(mapper.indexProtocol(job.eventId(), job.fence())).thenReturn("HANDWRITING_METHODS_V1");
+        BusinessException failure = new BusinessException(ErrorCode.NOT_FOUND);
+        when(sources.get(job.accountId(), job.sourceId(), job.version())).thenThrow(failure);
+
+        assertThatThrownBy(() -> store.confirmIndexStage(job, stageKey(),
+                new StageResult("{}", sha("{}"), 1, null))).isSameAs(failure);
+        verify(mapper, org.mockito.Mockito.never()).confirmIndexStage(org.mockito.ArgumentMatchers.anyMap());
+        verify(mapper, org.mockito.Mockito.never()).usage(org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
     void confirmingStageRecordsKnownUsageOnce() {
         Job job = job();
         StageKey key = stageKey();
@@ -242,6 +276,8 @@ class MybatisRetrievalIndexStoreTests {
     private void stageSource(Job job) {
         when(mapper.lockJob(job.eventId(), job.fence())).thenReturn(job.eventId());
         when(mapper.lockAccount(job.accountId())).thenReturn(job.accountId());
+        when(mapper.currentIndexEvent(job.eventId(), job.accountId(), job.sourceId(),
+                job.version(), job.indexRevision())).thenReturn(1);
         when(sources.get(job.accountId(), job.sourceId(), job.version())).thenReturn(new SourceContent(
                 new Source(job.sourceId(), job.accountId(), SourceType.SAVED_ANSWER,
                 "question-1", "answer", "ACTIVE", job.version(), null),

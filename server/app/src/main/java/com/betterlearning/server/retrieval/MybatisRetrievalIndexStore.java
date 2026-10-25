@@ -436,21 +436,24 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
                 || !job.eventId().equals(mapper.lockJob(job.eventId(), job.fence()))) {
             return false;
         }
-        try {
-            var content = sources.get(job.accountId(), job.sourceId(), job.version());
-            return content.source().accountId() == job.accountId()
-                    && content.source().type()
-                    == com.betterlearning.server.multiagent.MultiAgentModels.SourceType.SAVED_ANSWER
-                    && job.sourceId().equals(content.source().sourceId())
-                    && "ACTIVE".equals(content.source().status())
-                    && content.source().currentVersion() == job.version()
-                    && "INDEX_PENDING".equals(content.version().status())
-                    && content.version().indexRevision() == job.indexRevision()
-                    && (key == null || key.sourceSha256().equals(content.version().contentSha256())
-                    && java.util.Objects.equals(key.fileRef(), content.version().fileRef()));
-        } catch (com.betterlearning.server.exception.BusinessException exception) {
+        // Expected withdrawal/version loss must not cross SourceStore.get's transactional
+        // exception boundary: catching NOT_FOUND afterwards leaves this transaction rollback-only.
+        // Source changes share the account lock, so this visibility check and get are serialized.
+        if (mapper.currentIndexEvent(job.eventId(), job.accountId(), job.sourceId(),
+                job.version(), job.indexRevision()) != 1) {
             return false;
         }
+        var content = sources.get(job.accountId(), job.sourceId(), job.version());
+        return content.source().accountId() == job.accountId()
+                && content.source().type()
+                == com.betterlearning.server.multiagent.MultiAgentModels.SourceType.SAVED_ANSWER
+                && job.sourceId().equals(content.source().sourceId())
+                && "ACTIVE".equals(content.source().status())
+                && content.source().currentVersion() == job.version()
+                && "INDEX_PENDING".equals(content.version().status())
+                && content.version().indexRevision() == job.indexRevision()
+                && (key == null || key.sourceSha256().equals(content.version().contentSha256())
+                && java.util.Objects.equals(key.fileRef(), content.version().fileRef()));
     }
 
     private void validateChunkMetadata(Job job,
