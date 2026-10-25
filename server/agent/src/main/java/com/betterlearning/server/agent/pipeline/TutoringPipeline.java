@@ -68,6 +68,15 @@ public final class TutoringPipeline {
             if (target == Role.SOLVE || target == Role.DIAGNOSE) {
                 diagnosis = session.call(Role.DIAGNOSE, Map.of("solve", solve, "repair", independentRepair));
             }
+            if (target == Role.TEACH) {
+                // 前稿仅供同一TEACH定向修订；不得把其中的历史或旧解带回独立角色。
+                boundary.checkActive();
+                if (!boundary.authorizeEvidence(Set.copyOf(retrievedIds))) {
+                    throw new PipelineFailure(Reason.EVIDENCE_REJECTED);
+                }
+                boundary.checkActive();
+                repair.put("previousCandidate", teach.deepCopy());
+            }
             Map<String, Object> teaching = context(solve, diagnosis, allowedEvidence);
             teaching.put("repair", repair);
             teach = session.call(Role.TEACH, teaching);

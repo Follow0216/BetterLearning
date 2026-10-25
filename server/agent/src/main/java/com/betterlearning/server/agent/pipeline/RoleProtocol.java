@@ -16,7 +16,7 @@ import tools.jackson.databind.JsonNode;
 
 /** Agent内部角色协议；不是HTTP/common DTO，不含供应商密钥或隐藏思维链。 */
 public final class RoleProtocol {
-    public static final String PROMPT_VERSION = "p3-roles-v6";
+    public static final String PROMPT_VERSION = "p3-roles-v7";
     public static final int MAX_GENERATION_CALLS = 8;
     public static final int MAX_STROKE_LOCATIONS = 2000;
     public static final int MAX_STROKE_LOCATIONS_JSON_BYTES = 256 * 1024;
