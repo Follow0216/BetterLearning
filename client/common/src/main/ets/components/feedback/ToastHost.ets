@@ -1,3 +1,4 @@
+import { accessibility } from '@kit.AccessibilityKit';
 import { ToastItem } from './ToastModels';
 import { ToastStore } from './ToastStore';
 
@@ -7,7 +8,7 @@ struct ToastBubble {
     id: 0, revision: 0, key: '', type: 'info', message: '', description: '', durationMs: 3000
   };
   onDismiss: () => void = () => {};
-  onDisplayed: () => void = () => {};
+  onDisplayed: () => boolean = () => false;
 
   private statusColor(): string {
     return this.item.type === 'error' ? '#C94C5C' : this.item.type === 'success' ? '#238468' : '#246BFF';
@@ -15,6 +16,20 @@ struct ToastBubble {
 
   private statusLabel(): string {
     return this.item.type === 'error' ? '!' : this.item.type === 'success' ? '✓' : 'i';
+  }
+
+  private announce(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) {
+      return;
+    }
+    const event: accessibility.EventInfo = new accessibility.EventInfo(
+      this.item.type === 'error' ? 'announceForAccessibility' : 'announceForAccessibilityNotInterrupt',
+      context.applicationInfo.name, 'common');
+    event.textAnnouncedForAccessibility = this.item.message +
+      (this.item.description.length > 0 ? '，' + this.item.description : '');
+    // 仅播报，不请求输入/无障碍焦点；服务不可用不影响通知和业务。
+    accessibility.sendAccessibilityEvent(event).catch(() => {});
   }
 
   build() {
@@ -41,7 +56,7 @@ struct ToastBubble {
           Text(this.item.description)
             .fontSize(12)
             .fontColor('#5A6B85')
-            .maxLines(2)
+            .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
         }
@@ -55,7 +70,7 @@ struct ToastBubble {
         .fontColor('#5A6B85')
         .backgroundColor(Color.Transparent)
         .borderRadius(10)
-        .accessibilityText('关闭通知：' + this.item.message)
+        .accessibilityText('关闭通知')
         .onClick(() => this.onDismiss())
     }
     .width('100%')
@@ -68,7 +83,11 @@ struct ToastBubble {
     // Block 会连子节点一起阻断，使用允许 × 接收事件的层级阻断模式。
     .hitTestBehavior(HitTestMode.BLOCK_HIERARCHY)
     .onClick(() => {})
-    .onAppear(() => this.onDisplayed())
+    .onAppear(() => {
+      if (this.onDisplayed()) {
+        this.announce();
+      }
+    })
   }
 }
 
@@ -77,7 +96,7 @@ struct ToastBubble {
 export struct ToastHost {
   store: ToastStore = new ToastStore();
   topInset: number = 12;
-  maxWidth: number = 440;
+  maxWidth: number = 420;
   sideInset: number = 16;
   @State private items: ToastItem[] = [];
   private hostId: number = -1;

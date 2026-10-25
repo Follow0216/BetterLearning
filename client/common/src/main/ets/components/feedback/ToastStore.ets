@@ -127,16 +127,17 @@ export class ToastStore {
   }
 
   /** @internal 只认当前 Host 和当前内容版本，重复 onAppear 不重启计时。 */
-  markDisplayed(hostId: number, id: number, revision: number): void {
+  markDisplayed(hostId: number, id: number, revision: number): boolean {
     if (this.disposed || this.listener === null || hostId !== this.hostId) {
-      return;
+      return false;
     }
     const entry: ToastEntry | null = this.findVisible(id);
     if (entry === null || entry.item.revision !== revision || entry.displayed) {
-      return;
+      return false;
     }
     entry.displayed = true;
     this.startTimer(entry);
+    return true;
   }
 
   /** @internal 关闭回调校验 row 身份，旧 row 不能关闭同 key 的后续条目。 */
