@@ -82,8 +82,13 @@ public class SourceAnchorValidator {
                 throw invalid();
             }
         } else {
-            if (anchor.text() != null && !"HANDWRITING_STEP".equals(anchor.kind())) {
-                throw invalid();
+            if (anchor.text() != null) {
+                // OCR 创建端已规范化 CRLF；拒绝非规范文本，不在写入校验时改写内容。
+                if (!"HANDWRITING_STEP".equals(anchor.kind()) || anchor.text().contains("\r\n")
+                        || !AnswerManifestValidator.sha256(anchor.text().getBytes(StandardCharsets.UTF_8))
+                        .equals(anchor.contentSha256())) {
+                    throw invalid();
+                }
             }
             verifyHandwriting(typed.handwritingLocator().segments(), content.version().fileRef());
         }

@@ -757,6 +757,14 @@ class TutorLedgerIntegrationTests {
             Execution execution = ledger.execution(account, runId);
             SourceContent current = sources.get(account, execution.snapshotSourceId(), execution.snapshotVersion());
             Anchor currentAnchor = handwritingAnchor(current);
+            Anchor badDigest = new Anchor(id(), currentAnchor.sourceId(), currentAnchor.version(),
+                    currentAnchor.kind(), currentAnchor.ordinal(), "0".repeat(64),
+                    currentAnchor.locatorJson(), currentAnchor.text());
+            assertThatThrownBy(() -> sources.addAnchors(account, current.source().sourceId(),
+                    current.version().version(), List.of(badDigest)))
+                    .isInstanceOf(BusinessException.class);
+            assertThat(sources.get(account, current.source().sourceId(), current.version().version()).anchors())
+                    .isEmpty();
             sources.addAnchors(account, current.source().sourceId(), current.version().version(),
                     List.of(currentAnchor));
             Evidence allowed = new Evidence(id(), runId, step.stepId(), "CURRENT_SNAPSHOT",
