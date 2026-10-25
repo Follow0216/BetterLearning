@@ -51,6 +51,7 @@ export class ToastStore implements ToastApi {
   private snapshot: readonly ToastItem[] = EMPTY;
   private generation = 0;
   private revision = 0;
+  private providerVersion = 0;
   private scopeId: string | undefined;
   private mounted = false;
   private disposed = false;
@@ -129,6 +130,17 @@ export class ToastStore implements ToastApi {
     if (this.disposed || this.scopeId === scopeId) return;
     this.scopeId = scopeId;
     this.clearScope();
+  };
+
+  attachProvider = (): (() => void) => {
+    const version = ++this.providerVersion;
+    return () => {
+      // StrictMode immediately reattaches. A real root unmount has no later
+      // setup and permanently disposes references held by async callbacks.
+      queueMicrotask(() => {
+        if (this.providerVersion === version) this.dispose();
+      });
+    };
   };
 
   attachHost = (): (() => void) => {
