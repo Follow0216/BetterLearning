@@ -2,11 +2,13 @@ package com.betterlearning.server.learning.service.impl;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.charset.StandardCharsets;
 
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.converter.QuestionConverter;
 import com.betterlearning.server.learning.dao.LearningDao;
+import com.betterlearning.server.learning.mapper.SourceMapper;
 import com.betterlearning.server.learning.exception.CollectionNameConflictException;
 import com.betterlearning.server.learning.model.dataobject.QuestionCollectionDO;
 import com.betterlearning.server.learning.model.dto.CreateQuestionCollectionDTO;
@@ -20,6 +22,10 @@ import com.betterlearning.server.learning.model.vo.QuestionPageVO;
 import com.betterlearning.server.learning.model.vo.QuestionVO;
 import com.betterlearning.server.learning.service.LearningService;
 import com.betterlearning.server.learning.validation.MarkdownSummary;
+import com.betterlearning.server.learning.validation.AnswerManifestValidator;
+import com.betterlearning.server.multiagent.MultiAgentModels.PublishSource;
+import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
+import com.betterlearning.server.multiagent.SourceStore;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -33,15 +39,22 @@ public class LearningServiceImpl implements LearningService {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final LearningDao dao;
+    private final SourceMapper sourceMapper;
+    private final SourceStore sourceStore;
 
-    public LearningServiceImpl(LearningDao dao) {
+    public LearningServiceImpl(LearningDao dao, SourceMapper sourceMapper, SourceStore sourceStore) {
         this.dao = dao;
+        this.sourceMapper = sourceMapper;
+        this.sourceStore = sourceStore;
     }
 
     /** READ_COMMITTED 确保冲突后的下一条查询看见已提交的去重记录。 */
     @Override
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public QuestionVO confirm(long accountId, ConfirmQuestionDTO request) {
+        if (sourceMapper.lockAccount(accountId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
         QuestionDO question = new QuestionDO();
         question.setAccountId(accountId);
         question.setRequestId(request.requestId());
@@ -54,6 +67,13 @@ public class LearningServiceImpl implements LearningService {
         if (insertedId == null && (!persisted.getBodyMarkdown().equals(request.bodyMarkdown())
                 || !persisted.getSubject().equals(request.subject()))) {
             throw new BusinessException(ErrorCode.CONFIRM_REQUEST_CONFLICT);
+        }
+        if (insertedId != null) {
+            String body = persisted.getBodyMarkdown().replace("\r\n", "\n");
+            sourceStore.publish(accountId, new PublishSource(SourceType.QUESTION,
+                    Long.toString(persisted.getQuestionId()), persisted.getSubject(), body,
+                    AnswerManifestValidator.sha256(body.getBytes(StandardCharsets.UTF_8)),
+                    null, null, null, request.requestId()));
         }
         return QuestionConverter.detail(persisted);
     }

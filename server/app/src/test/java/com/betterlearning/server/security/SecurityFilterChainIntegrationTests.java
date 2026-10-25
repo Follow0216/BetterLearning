@@ -304,7 +304,7 @@ class SecurityFilterChainIntegrationTests {
         assertThat(allowed.headers().firstValue("Access-Control-Allow-Methods").orElse(""))
                 .contains("GET");
         assertThat(allowed.headers().firstValue("Access-Control-Allow-Headers").orElse("")
-                .toLowerCase()).contains("authorization").contains("content-type");
+                .toLowerCase()).contains("authorization").contains("content-type").contains("idempotency-key").contains("if-match");
 
         HttpResponse<String> allowedActual = getWithOrigin("/api/v1/test/protected",
                 "http://localhost:3000");
@@ -392,7 +392,7 @@ class SecurityFilterChainIntegrationTests {
                 .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
                 .header("Origin", origin)
                 .header("Access-Control-Request-Method", "GET")
-                .header("Access-Control-Request-Headers", "authorization,content-type");
+                .header("Access-Control-Request-Headers", "authorization,content-type,idempotency-key,if-match");
         return http.send(request);
     }
 
