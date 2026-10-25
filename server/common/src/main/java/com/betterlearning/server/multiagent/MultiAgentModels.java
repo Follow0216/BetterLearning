@@ -57,7 +57,12 @@ public final class MultiAgentModels {
         }
     }
     public record Anchor(String anchorId, String sourceId, long version, String kind, int ordinal,
-            String contentSha256, String locatorJson, String text) { }
+            String contentSha256, String locatorJson, String text) {
+        /** 手写锚点文字只能作为OCR派生材料，不能冒充不可变笔记原文。 */
+        public String textOrigin() {
+            return text == null ? "NONE" : "HANDWRITING_STEP".equals(kind) ? "OCR_DERIVED" : "SOURCE_TEXT";
+        }
+    }
     public record SourceContent(Source source, SourceVersion version, List<Anchor> anchors) { }
     public record SourcePage(List<Source> items, String nextCursor) { }
     /** operationId 在账号内幂等，比较完整规范化命令；同键异内容冲突。 */
