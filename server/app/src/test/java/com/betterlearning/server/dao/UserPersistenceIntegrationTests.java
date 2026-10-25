@@ -77,10 +77,12 @@ class UserPersistenceIntegrationTests {
 
     @Test
     void migratesEmptyDatabaseWithExpectedSchema() {
+        List<String> expectedVersions = List.of("1", "2", "3", "4", "5", "2026102501", "2026102502",
+                "2026102503", "2026102504", "2026102505", "2026102506", "2026102507");
         assertThat(migrateResult.success).isTrue();
-        assertThat(migrateResult.migrationsExecuted).isEqualTo(11);
+        assertThat(migrateResult.migrationsExecuted).isEqualTo(expectedVersions.size());
         assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
-                String.class)).containsExactly("1", "2", "3", "4", "5", "2026102501", "2026102502", "2026102503", "2026102504", "2026102505", "2026102506");
+                String.class)).containsExactlyElementsOf(expectedVersions);
 
         List<String> columns = jdbcTemplate.queryForList(
                 "SELECT column_name FROM information_schema.columns "
