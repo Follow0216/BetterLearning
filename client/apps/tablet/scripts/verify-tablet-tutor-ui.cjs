@@ -43,7 +43,7 @@ class LibraryHarness {
     this.tutor_phase=TabletTutorPhase.STOPPED; this.tutor_bridge=null; this.tutor_revision=0;
     this.tutor_question_id=''; this.tutor_token=''; this.tutor_started=false;
     this.detail_seq=1; this.answer_mount_revision=1; this.list_seq=0; this.pending_action=''; this.canvas_busy=false;
-    this.expirations=0; this.answer_modes=[];
+    this.expirations=0; this.answer_modes=[]; this.canvas_feedback_error=''; this.feedback_text=''; this.feedback_error=false;
     this.on_session_expired=()=>{this.expirations++;};
     this.on_answer_mode_changed=active=>this.answer_modes.push(active);
     this.canvas_controller={flushLocal:async()=>({isSuccess:true,data:true})};
@@ -138,6 +138,41 @@ async function main() {
   for (const phase of Object.values(Phase)) {
     await check('safe status text '+phase,()=>{const h=new AnswerHarness();h.tutor_phase=phase;const text=h.tutor_hint();assert.equal(text.includes('unsafe'),false);if([Phase.READY,Phase.STOPPED].includes(phase))assert.equal(text,'');else assert.ok(text.length>0);});
   }
+  await check('canvas warning clears when public refresh recovers',()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'cloud conflict',isBusy:false});
+    assert.equal(h.feedback_text,'cloud conflict'); assert.equal(h.feedback_error,true);
+    h.apply_canvas_state({isReady:true,errorMessage:'',isBusy:false});
+    assert.equal(h.feedback_text,''); assert.equal(h.feedback_error,false); assert.equal(h.canvas_feedback_error,'');
+  });
+  await check('failed refresh retains its current canvas failure',()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'cloud conflict',isBusy:false});
+    h.apply_canvas_state({isReady:false,errorMessage:'download failed',isBusy:false});
+    assert.equal(h.feedback_text,'download failed'); assert.equal(h.feedback_error,true);
+  });
+  await check('empty canvas state cannot clear an independent error',()=>{
+    const h=new LibraryHarness(); h.feedback_text='save failed'; h.feedback_error=true;
+    h.apply_canvas_state({isReady:true,errorMessage:'',isBusy:false}); assert.equal(h.feedback_text,'save failed'); assert.equal(h.feedback_error,true);
+  });
+  await check('independent replacement survives clearing an old canvas warning',()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'cloud conflict',isBusy:false});
+    h.feedback_text='close failed'; h.feedback_error=true; h.apply_canvas_state({isReady:true,errorMessage:'',isBusy:false});
+    assert.equal(h.feedback_text,'close failed'); assert.equal(h.feedback_error,true); assert.equal(h.canvas_feedback_error,'');
+  });
+  await check('pending action preserves existing warning ownership semantics',()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'cloud conflict',isBusy:false});
+    h.pending_action='save'; h.apply_canvas_state({isReady:true,errorMessage:'',isBusy:false});
+    assert.equal(h.feedback_text,'cloud conflict'); assert.equal(h.canvas_feedback_error,'cloud conflict');
+  });
+  await check('answer reset clears tracked canvas warning',()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'cloud conflict',isBusy:false}); h.reset_answer_view();
+    assert.equal(h.canvas_feedback_error,''); assert.equal(h.feedback_text,''); assert.equal(h.feedback_error,false);
+  });
+  await check('actual independent action failure is not cleared by empty canvas state',async()=>{
+    const h=new LibraryHarness(); h.apply_canvas_state({isReady:true,errorMessage:'操作未完成，请重试',isBusy:false});
+    h.canvas_controller.save=async()=>null; await h.run_answer_action('save');
+    assert.equal(h.canvas_feedback_error,''); assert.equal(h.feedback_text,'操作未完成，请重试');
+    h.apply_canvas_state({isReady:true,errorMessage:'',isBusy:false}); assert.equal(h.feedback_text,'操作未完成，请重试'); assert.equal(h.feedback_error,true);
+  });
   const shell=fs.readFileSync(path.join(base,'components/TabletShell.ets'),'utf8');
   assert.ok(shell.includes('active: this.foreground && this.active_tab === TabletTab.LIBRARY'));
   assert.ok(fs.readFileSync(path.join(base,'pages/Index.ets'),'utf8').includes('foreground: this.page_visible'));

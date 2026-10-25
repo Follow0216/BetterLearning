@@ -107,6 +107,7 @@ export struct LibraryPane {
   private tutor_question_id: string = '';
   private tutor_token: string = '';
   private tutor_started: boolean = false;
+  private canvas_feedback_error: string = '';
 
   aboutToAppear(): void {
     this.alive = true;
@@ -1220,6 +1221,7 @@ export struct LibraryPane {
     this.pending_action = '';
     this.feedback_text = '';
     this.feedback_error = false;
+    this.canvas_feedback_error = '';
     this.closing = false;
   }
 
@@ -1234,9 +1236,19 @@ export struct LibraryPane {
     this.canvas_has_unsaved_changes = state.hasUnsavedChanges;
     this.canvas_local_draft_saved = state.localDraftSaved;
     this.canvas_has_saved_solution = state.hasSavedSolution;
-    if (state.errorMessage.length > 0 && this.pending_action.length === 0) {
-      this.feedback_text = state.errorMessage;
-      this.feedback_error = true;
+    if (this.pending_action.length === 0) {
+      if (state.errorMessage.length > 0) {
+        this.feedback_text = state.errorMessage;
+        this.feedback_error = true;
+        this.canvas_feedback_error = state.errorMessage;
+      } else {
+        if (this.canvas_feedback_error.length > 0 && this.feedback_error &&
+          this.feedback_text === this.canvas_feedback_error) {
+          this.feedback_text = '';
+          this.feedback_error = false;
+        }
+        this.canvas_feedback_error = '';
+      }
     }
     this.sync_tutor();
   }
@@ -1261,6 +1273,7 @@ export struct LibraryPane {
     this.detail_seq += 1;
     const seq: number = this.detail_seq;
     this.pending_action = action;
+    this.canvas_feedback_error = '';
     this.feedback_text = '';
     this.feedback_error = false;
     let result: AuthResult<SolutionDetail> | null = null;
