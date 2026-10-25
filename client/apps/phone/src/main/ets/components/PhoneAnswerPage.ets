@@ -10,13 +10,10 @@ import {
   SolutionDetail,
   TutorApi,
   TutorTurn,
-  TutorTurnStatus,
   UserProfile
 } from 'common';
 import {
-  describe_answer_state,
   describe_learning_error,
-  describe_tutor_status,
   format_question_time
 } from '../model/QuestionFormat';
 import {
@@ -63,7 +60,6 @@ export struct PhoneAnswerPage {
   @State bounds: AnswerTileBounds = { x: 0, y: 0, width: 1, height: 1 };
   @State tiles: AnswerTileImage[] = [];
   @State savedAt: string = '';
-  @State turnStatusText: string = '';
   @State progressLoaded: number = 0;
   @State progressTotal: number = 0;
 
@@ -91,6 +87,9 @@ export struct PhoneAnswerPage {
   build() {
     Column() {
       this.top_bar()
+      if (!this.loading && this.errorText.length === 0 && this.savedAt.length > 0) {
+        this.source_metadata()
+      }
       if (this.loading) {
         this.loading_view()
       } else if (this.errorText.length > 0) {
@@ -103,6 +102,10 @@ export struct PhoneAnswerPage {
             documentKey: this.fileRef,
             bounds: this.bounds,
             tiles: this.tiles,
+            returnLabel: this.back_label(),
+            onReturn: () => {
+              this.onBack();
+            },
             onRetry: () => {
               this.load_answer();
             }
@@ -124,54 +127,53 @@ export struct PhoneAnswerPage {
 
   @Builder
   top_bar() {
-    Row() {
-      Image($r('app.media.bl_back'))
-        .width(22)
-        .height(22)
-        .padding(7)
-        .accessibilityText('返回题目详情')
-        .onClick(() => {
-          this.onBack();
-        })
-      Column() {
-        Text(this.turnId.length > 0 ? '本轮作答' : '完整作答')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(PHONE_COLOR_TITLE)
-        if (this.savedAt.length > 0) {
-          Text((this.turnId.length > 0 ? '更新于 ' : '保存于 ') + format_question_time(this.savedAt))
-            .fontSize(11)
-            .fontColor(PHONE_COLOR_MUTED)
-            .margin({ top: 2 })
+    Row({ space: 6 }) {
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: 2 }) {
+          Image($r('app.media.bl_back'))
+            .width(20)
+            .height(20)
+          Text(this.back_label())
+            .fontSize(14)
+            .fontColor(PHONE_COLOR_TITLE)
         }
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      .margin({ left: 4 })
-      if (!this.loading && this.errorText.length === 0 &&
-        this.answerState !== AnswerState.NOT_STARTED) {
-        if (this.turnStatusText.length > 0) {
-          Text(this.turnStatusText)
-            .fontSize(11)
-            .fontColor(PHONE_COLOR_PRIMARY_DEEP)
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(PHONE_COLOR_SOFT)
-            .borderRadius(10)
-        } else {
-          Text(describe_answer_state(this.answerState))
-            .fontSize(11)
-            .fontColor(this.answerState === AnswerState.COMPLETED ?
-              PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP)
-            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .backgroundColor(this.answerState === AnswerState.COMPLETED ?
-              PHONE_COLOR_PRIMARY : PHONE_COLOR_SOFT)
-            .borderRadius(10)
-        }
-      }
+      .height(44)
+      .padding({ left: 0, right: 4 })
+      .backgroundColor(Color.Transparent)
+      .accessibilityText(this.back_label())
+      .onClick(() => this.onBack())
+      Text(this.turnId.length > 0 ? '本轮作答' : '当前作答')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(PHONE_COLOR_TITLE)
+        .layoutWeight(1)
+        .textAlign(TextAlign.Center)
+      Text('只读')
+        .fontSize(12)
+        .fontColor(PHONE_COLOR_MUTED)
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor(PHONE_COLOR_SOFT)
+        .borderRadius(18)
     }
     .width('100%')
-    .padding({ left: 10, right: 18, top: 12, bottom: 8 })
+    .padding({ left: 12, right: 16, top: 12, bottom: 10 })
     .alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
+  source_metadata() {
+    Column({ space: 5 }) {
+      Text((this.turnId.length > 0 ? '提问于 ' : '保存于 ') + format_question_time(this.savedAt))
+        .fontSize(15)
+        .fontColor(PHONE_COLOR_TITLE)
+      Text(this.turnId.length > 0 ? '与这次提问对应的作答' : '这道题已保存的作答')
+        .fontSize(13)
+        .fontColor(PHONE_COLOR_MUTED)
+    }
+    .width('100%')
+    .padding({ left: 18, right: 18, bottom: 14 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -204,13 +206,13 @@ export struct PhoneAnswerPage {
         .fontWeight(FontWeight.Medium)
         .fontColor(PHONE_COLOR_TITLE)
         .margin({ top: 12 })
-      Text('当前题目还没有完整保存的作答。保存后可在此查看全部解答图像。')
+      Text('先在平板上书写并保存，再回到这里查看。')
         .fontSize(12)
         .fontColor(PHONE_COLOR_MUTED)
         .textAlign(TextAlign.Center)
         .margin({ top: 6 })
       Button('刷新')
-        .height(36)
+        .height(44)
         .fontSize(12)
         .fontColor(PHONE_COLOR_WHITE)
         .backgroundColor(PHONE_COLOR_PRIMARY)
@@ -239,7 +241,7 @@ export struct PhoneAnswerPage {
         .margin({ top: 12 })
       Row() {
         Button('重新加载')
-          .height(38)
+          .height(44)
           .fontSize(13)
           .fontColor(PHONE_COLOR_WHITE)
           .backgroundColor(PHONE_COLOR_PRIMARY)
@@ -248,7 +250,7 @@ export struct PhoneAnswerPage {
             this.load_answer();
           })
         Button(this.turnId.length > 0 ? '返回辅导' : '返回详情')
-          .height(38)
+          .height(44)
           .fontSize(13)
           .fontColor(PHONE_COLOR_PRIMARY_DEEP)
           .backgroundColor(PHONE_COLOR_CARD)
@@ -266,6 +268,10 @@ export struct PhoneAnswerPage {
     .justifyContent(FlexAlign.Center)
     .padding(28)
     .backgroundColor(PHONE_COLOR_BACKGROUND)
+  }
+
+  private back_label(): string {
+    return this.turnId.length > 0 ? '返回辅导' : '返回详情';
   }
 
   private async load_answer(): Promise<void> {
@@ -428,7 +434,7 @@ export struct PhoneAnswerPage {
     }
     const fileRef: string | null = turn.fileRef;
     if (fileRef === null || fileRef.length === 0) {
-      this.fail('本轮尚未冻结完整作答');
+      this.fail('本次提问尚未收到作答，请返回辅导查看进度');
       return;
     }
     const manifestResult: AuthResult<AnswerManifest> =
@@ -445,7 +451,7 @@ export struct PhoneAnswerPage {
         this.handle_unauthorized(token);
         return;
       }
-      this.fail('本轮冻结作答加载失败：' + describe_learning_error(manifestResult.error));
+      this.fail('本轮作答加载失败：' + describe_learning_error(manifestResult.error));
       return;
     }
     const manifest: AnswerManifest = manifestResult.data;
@@ -453,7 +459,7 @@ export struct PhoneAnswerPage {
     const height: number = manifest.canvas.height;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 ||
       manifest.blocks.length === 0) {
-      this.fail('本轮冻结作答范围无效，请重新加载');
+      this.fail('本轮作答范围无效，请重新加载');
       return;
     }
     const filesDir: string = this.files_dir();
@@ -497,10 +503,10 @@ export struct PhoneAnswerPage {
     }
     this.bounds = { x: 0, y: 0, width: width, height: height };
     this.fileRef = fileRef;
-    this.answerState = turn.status === TutorTurnStatus.SUCCEEDED ?
-      AnswerState.COMPLETED : AnswerState.IN_PROGRESS;
-    this.turnStatusText = describe_tutor_status(turn.status);
-    this.savedAt = turn.updatedAt;
+    // 辅导是否生成成功不能代表学生已完成作答；此处只表明存在只读快照。
+    this.answerState = AnswerState.IN_PROGRESS;
+    // 契约没有快照采集时间。明确标为提问时间，不把 AI 状态更新时间当作作答时间。
+    this.savedAt = turn.createdAt;
     this.tiles = downloaded;
     this.loading = false;
   }
@@ -533,19 +539,19 @@ export struct PhoneAnswerPage {
 
   private download_error(error: AuthError | null, blockIndex: number): string {
     if (error !== null && error.httpStatus === 404) {
-      return this.turnId.length > 0 ? '本轮冻结文件不可用，请返回后重新打开' :
+      return this.turnId.length > 0 ? '本轮作答暂不可用，请返回后重新打开' :
         '当前作答已更新，请重新加载完整作答';
     }
-    return '解答图块 ' + (blockIndex + 1).toString() + ' 加载失败：' +
+    return '作答图像 ' + (blockIndex + 1).toString() + ' 加载失败：' +
       describe_learning_error(error);
   }
 
   private progress_total_text(): string {
     if (this.progressTotal > 0) {
-      return '正在下载解答图块 ' + this.progressLoaded.toString() + '/' +
+      return '正在加载作答图像 ' + this.progressLoaded.toString() + '/' +
         this.progressTotal.toString();
     }
-    return this.turnId.length > 0 ? '正在加载本轮冻结作答…' : '正在加载完整作答…';
+    return this.turnId.length > 0 ? '正在加载本轮作答…' : '正在加载已保存的作答…';
   }
 
   private fail(message: string): void {
@@ -560,7 +566,6 @@ export struct PhoneAnswerPage {
     this.bounds = { x: 0, y: 0, width: 1, height: 1 };
     this.tiles = [];
     this.savedAt = '';
-    this.turnStatusText = '';
   }
 
   private handle_unauthorized(token: string): void {
