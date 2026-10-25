@@ -81,7 +81,7 @@ export struct AnswerTileViewer {
         height: tile.height, source: tile.source, generation: this.generation });
     }
     this.renderTiles = prepared;
-    this.resetView();
+    this.resetReadingView();
   }
 
   build() {
@@ -146,7 +146,7 @@ export struct AnswerTileViewer {
           this.measured = true;
           this.pinching = false;
           this.suppressPan = true;
-          this.resetView();
+          this.resetReadingView();
         }
       })
       .gesture(
@@ -328,6 +328,17 @@ export struct AnswerTileViewer {
       this.offsetX = view.offsetX;
       this.offsetY = view.offsetY;
     }
+  }
+
+  private resetReadingView(): void {
+    this.resetView();
+    if (this.viewportWidth <= 32 || this.viewportHeight <= 32 || this.displayBounds.width <= 0) {
+      return;
+    }
+    const scale: number = clampAnswerScale((this.viewportWidth - 32) / this.displayBounds.width, this.fitScale);
+    this.applyView({ scale: scale,
+      offsetX: 16 - this.displayBounds.x * scale,
+      offsetY: 16 - this.displayBounds.y * scale });
   }
 
   private resetView(): void {
