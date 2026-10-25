@@ -90,3 +90,7 @@ export { OcrApi } from './src/main/ets/features/tutor/OcrApi';
 
 export { CANVAS_DEFAULT_PRESSURE, valid_canvas_pen, valid_canvas_pressure, canvas_point_width }
   from './src/main/ets/features/canvas/CanvasPens';
+
+export { ToastType, ToastOptions, ToastItem } from './src/main/ets/components/feedback/ToastModels';
+export { ToastStore } from './src/main/ets/components/feedback/ToastStore';
+export { ToastHost } from './src/main/ets/components/feedback/ToastHost';
