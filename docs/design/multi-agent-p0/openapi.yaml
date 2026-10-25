@@ -1,0 +1,913 @@
+openapi: 3.1.0
+info:
+  title: BetterLearning 多 Agent P0 设计契约
+  version: 2.0.0-design
+  description: |
+    仅供设计审核和契约验证，尚未实现。所有操作要求 Bearer，accountId 仅取认证上下文。
+    错误体复用现有 ApiErrorVO；新增业务错误码待实施阶段批准。
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: Notes
+  - name: Sources
+  - name: TutorRequests
+  - name: Citations
+paths:
+  /api/v2/learning/notes:
+    get:
+      tags: [Notes]
+      operationId: listNotes
+      summary: 账号内笔记列表（Phone/Tablet/Web 可读）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 按更新时间倒序
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NotePage' }
+        '401': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Notes]
+      operationId: createNote
+      summary: 创建 Markdown/公式笔记（首版 Web 写）
+      description: 账号级 Idempotency-Key 同内容重放返回同一笔记；异内容 409。正文 UTF-8 最多 64 KiB（P0 待审核建议）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteCreate' }
+      responses:
+        '201':
+          description: 新笔记，首次版本为 1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/notes/{noteId}:
+    parameters:
+      - $ref: '#/components/parameters/NoteId'
+    get:
+      tags: [Notes]
+      operationId: getNote
+      responses:
+        '200':
+          description: 当前版本笔记
+          headers:
+            ETag:
+              description: 不透明的笔记版本标签，后续 PUT If-Match 使用
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Notes]
+      operationId: updateNote
+      summary: 以 ETag/If-Match CAS 新建不可变版本（首版 Web 写）
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteUpdate' }
+      responses:
+        '200':
+          description: 更新后的版本
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Note' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '412': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Notes]
+      operationId: deleteNote
+      summary: 先撤销源访问，再异步清理索引；幂等
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: 已撤销 }
+        '404': { $ref: '#/components/responses/Error' }
+        '412': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/sources:
+    get:
+      tags: [Sources]
+      operationId: listSources
+      summary: 账号内可检索来源及索引状态
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/SourceType' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 来源列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourcePage' }
+  /api/v2/learning/sources/{sourceId}:
+    get:
+      tags: [Sources]
+      operationId: getSource
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '200':
+          description: 来源与当前版本状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Source' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/questions/{questionId}/tutor-requests:
+    parameters:
+      - $ref: '#/components/parameters/QuestionId'
+    post:
+      tags: [TutorRequests]
+      operationId: createTutorRequest
+      summary: Phone 发问；新快照等待 Tablet 或复用同题前序快照
+      description: |
+        同账号 Idempotency-Key 必须等于 requestId；同键同题/同 prompt/同 mode/
+        同 snapshotInput 重放返回原对象，异参 409。FULL_SOLUTION 须服务端确认显式字段；
+        默认 HINT。NEW_CAPTURE 创建后 WAITING_INPUT/currentRunId=null；
+        REUSE_REQUEST 仅可复用当前账号同题、已绑定且仍有效的前序 request 快照，
+        创建时原子固定引用并立即 QUEUED/currentRunId 非空。创建/重复均 200。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TutorRequestCreate' }
+      responses:
+        '200':
+          description: 创建或幂等取得；两种 snapshotInput 的状态见上
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequest' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+    get:
+      tags: [TutorRequests]
+      operationId: listTutorRequests
+      summary: 同题请求历史，Web/Phone 只读；createdAt/requestId 倒序键集分页
+      description: nextCursor 不透明且绑定账号/questionId，跨范围复用或篡改为 400；null 表示结束。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 新版请求历史
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequestPage' }
+        '400': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/questions/{questionId}/tutor-requests/pending:
+    get:
+      tags: [TutorRequests]
+      operationId: pendingTutorRequest
+      summary: Tablet 当前题前台轮询，只有 WAITING_INPUT 且未绑定文件
+      parameters:
+        - $ref: '#/components/parameters/QuestionId'
+      responses:
+        '200':
+          description: 无待冻结请求时 request 为 null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PendingRequest' }
+  /api/v2/learning/questions/{questionId}/tutor-requests/{requestId}:
+    get:
+      tags: [TutorRequests]
+      operationId: getTutorRequest
+      summary: 查询 request、run 与最终结果
+      parameters:
+        - $ref: '#/components/parameters/QuestionId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 请求详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequestDetail' }
+        '404': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/snapshot:
+    post:
+      tags: [TutorRequests]
+      operationId: uploadTutorSnapshot
+      summary: Tablet 上传一次不可变冻结包
+      description: |
+        multipart 由 manifest JSON part 与 manifest 声明的全部 PNG part 组成。
+        manifest 沿 M2 SaveManifest（含 Point.pressure 可空）；saveRequestId=requestId、
+        baseFileRef=null。完整校验/落盘/事务绑定后才可创建首 run；同包重放不替换文件。
+        仅 NEW_CAPTURE 可上传；REUSE_REQUEST 创建时已绑定，上传返回 409。
+        后续书写须新建 NEW_CAPTURE request/新快照；显式 follow-up 可以复用原快照，
+        retry 只为同一 request 新建 run 并复用已绑定快照。
+      parameters:
+        - $ref: '#/components/parameters/QuestionId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [manifest]
+              properties:
+                manifest:
+                  $ref: '#/components/schemas/SaveManifest'
+              additionalProperties:
+                type: string
+                format: binary
+            encoding:
+              manifest:
+                contentType: application/json
+      responses:
+        '200':
+          description: 接受或幂等返回
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequestDetail' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/cancel:
+    post:
+      tags: [TutorRequests]
+      operationId: cancelTutorRun
+      summary: 指定 expectedRunId 幂等取消；与完成由 DB CAS 决胜
+      description: |
+        expectedRunId=null 仅用于 WAITING_INPUT。服务端锁定当前账号 request，
+        与 currentRunId 不符返回 409，旧取消包不能取消新 retry run。
+        null 取消与快照绑定竞争：绑定先提交返回 409，取消先提交禁止绑定。
+      parameters:
+        - $ref: '#/components/parameters/QuestionId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelRequest' }
+      responses:
+        '200':
+          description: 当前状态；已完成则返回完成结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequestDetail' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/retry:
+    post:
+      tags: [TutorRequests]
+      operationId: retryTutorRun
+      summary: 用户显式重试终结的旧 run，新建 run 并复用快照
+      description: targetRunId 必须与 currentRunId 相同且为 FAILED/TIMED_OUT；旧目标 409。
+      parameters:
+        - $ref: '#/components/parameters/QuestionId'
+        - $ref: '#/components/parameters/RequestId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RetryRequest' }
+      responses:
+        '200':
+          description: 新 run 或相同 Idempotency-Key 对应原新 run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TutorRequestDetail' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/citations/{citationId}/resolve:
+    get:
+      tags: [Citations]
+      operationId: resolveCitation
+      summary: 逐次校验已发布 result 归属、citation、源版本及锚点
+      parameters:
+        - $ref: '#/components/parameters/CitationId'
+      responses:
+        '200':
+          description: 模态框精确定位资料
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CitationResolution' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /api/v2/learning/citations/{citationId}/assets/{blockIndex}:
+    get:
+      tags: [Citations]
+      operationId: getCitationAsset
+      summary: 原版本手写步骤 PNG，逐次校验已发布 result 到 anchor 全链授权
+      description: blockIndex 必须属于已解析的 locator.segments；assetUrl 不是授权凭证。
+      parameters:
+        - $ref: '#/components/parameters/CitationId'
+        - name: blockIndex
+          in: path
+          required: true
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: 原冻结 PNG，不缓存
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    QuestionId:
+      name: questionId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[1-9][0-9]{0,18}$' }
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    CitationId:
+      name: citationId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 账号级动作去重 UUID；创建辅导请求时须与 body.requestId 相同
+      schema: { $ref: '#/components/schemas/Uuid' }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: GET 笔记返回的 ETag；版本不符返回 412
+      schema: { type: string }
+  responses:
+    Error:
+      description: 复用现有 ApiErrorVO；具体状态码由已批准 ErrorCode 映射
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    DateTime:
+      type: string
+      format: date-time
+    ApiError:
+      type: object
+      required: [code, message, traceId]
+      properties:
+        code: { type: string, pattern: '^[ABC][0-9]{4}$' }
+        message: { type: string }
+        traceId: { type: string }
+        fieldErrors:
+          type: object
+          additionalProperties: { type: string }
+      additionalProperties: false
+    SourceType:
+      type: string
+      description: TUTOR_SNAPSHOT 是当前证据，默认不参与普通历史 RAG
+      enum: [QUESTION, SAVED_ANSWER, TUTOR_SNAPSHOT, TUTOR_REPLY, NOTE]
+    Source:
+      type: object
+      required: [sourceId, type, originId, status, createdAt, currentVersion, indexStatus]
+      properties:
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/SourceType' }
+        originId: { type: string }
+        status: { type: string, enum: [ACTIVE, DELETED] }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        currentVersion: { type: integer, format: int64, minimum: 1 }
+        indexStatus: { type: string, enum: [INDEX_PENDING, READY, FAILED, WITHDRAWN] }
+        answerState: { type: [string, 'null'], enum: [DRAFT, COMPLETED, null] }
+      additionalProperties: false
+    SourceVersion:
+      type: object
+      required: [sourceId, version, contentSha256, status, createdAt]
+      properties:
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        contentSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        status: { type: string, enum: [INDEX_PENDING, READY, FAILED, WITHDRAWN] }
+        answerState: { type: [string, 'null'], enum: [DRAFT, COMPLETED, null] }
+        fileRef:
+          oneOf:
+            - { $ref: '#/components/schemas/Uuid' }
+            - { type: 'null' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+      additionalProperties: false
+    Anchor:
+      type: object
+      required: [anchorId, sourceId, version, kind, ordinal, contentSha256]
+      properties:
+        anchorId: { $ref: '#/components/schemas/Uuid' }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        kind: { type: string, enum: [MARKDOWN_BLOCK, HANDWRITING_STEP, QUESTION_BLOCK] }
+        ordinal: { type: integer, minimum: 0 }
+        contentSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        markdownLocator: { $ref: '#/components/schemas/MarkdownLocator' }
+        handwritingLocator: { $ref: '#/components/schemas/HandwritingLocator' }
+      additionalProperties: false
+    Chunk:
+      type: object
+      description: 内部检索索引记录，不作为用户事实源；普通历史只召回 ACTIVE source 的当前 READY version，TUTOR_SNAPSHOT 默认排除
+      required: [chunkId, anchorId, sourceId, version, text, methodTags, indexRevision]
+      properties:
+        chunkId: { $ref: '#/components/schemas/Uuid' }
+        anchorId: { $ref: '#/components/schemas/Uuid' }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        text: { type: string }
+        methodTags:
+          type: array
+          items: { type: string }
+        indexRevision: { type: integer, format: int64, minimum: 1 }
+      additionalProperties: false
+    SourcePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Source' }
+        nextCursor: { type: [string, 'null'] }
+      additionalProperties: false
+    NoteCreate:
+      type: object
+      required: [title, bodyMarkdown]
+      properties:
+        title: { type: string, minLength: 1 }
+        bodyMarkdown: { type: string, minLength: 1, description: Markdown 与公式原文；UTF-8 64 KiB 上限服务端按字节校验 }
+      additionalProperties: false
+    NoteUpdate:
+      type: object
+      required: [title, bodyMarkdown]
+      properties:
+        title: { type: string, minLength: 1 }
+        bodyMarkdown: { type: string, minLength: 1, description: UTF-8 64 KiB 上限服务端按字节校验 }
+      additionalProperties: false
+    Note:
+      type: object
+      required: [noteId, sourceId, version, title, bodyMarkdown, indexStatus, updatedAt]
+      properties:
+        noteId: { $ref: '#/components/schemas/Uuid' }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        title: { type: string }
+        bodyMarkdown: { type: string }
+        indexStatus: { type: string, enum: [INDEX_PENDING, READY, FAILED, WITHDRAWN] }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+      additionalProperties: false
+    NotePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Note' }
+        nextCursor: { type: [string, 'null'] }
+      additionalProperties: false
+    TutorMode:
+      type: string
+      enum: [HINT, FULL_SOLUTION]
+    TutorRequestStatus:
+      type: string
+      description: 绑定前为 WAITING_INPUT，绑定后投影 currentRun 状态；旧 run 终态不可回退
+      enum: [WAITING_INPUT, QUEUED, RUNNING, CANCELLING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT]
+    NewCaptureInput:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, const: NEW_CAPTURE }
+      additionalProperties: false
+    ReuseRequestInput:
+      type: object
+      required: [kind, sourceRequestId]
+      properties:
+        kind: { type: string, const: REUSE_REQUEST }
+        sourceRequestId: { $ref: '#/components/schemas/Uuid' }
+      additionalProperties: false
+    SnapshotInput:
+      description: 缺省 NEW_CAPTURE；REUSE_REQUEST 不调用 Tablet 上传
+      oneOf:
+        - { $ref: '#/components/schemas/NewCaptureInput' }
+        - { $ref: '#/components/schemas/ReuseRequestInput' }
+    TutorRequestCreate:
+      type: object
+      required: [requestId, prompt]
+      properties:
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        prompt: { type: string, minLength: 1, maxLength: 4000 }
+        mode:
+          allOf:
+            - { $ref: '#/components/schemas/TutorMode' }
+          default: HINT
+          description: 缺省 HINT；FULL_SOLUTION 只能由显式字段触发并由服务端校验
+        snapshotInput: { $ref: '#/components/schemas/SnapshotInput' }
+      additionalProperties: false
+    TutorRequest:
+      type: object
+      required: [requestId, questionId, prompt, mode, snapshotInput, snapshotOriginRequestId, snapshotFileRef, currentRunId, status, revision, createdAt, updatedAt]
+      properties:
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        questionId: { type: string, pattern: '^[1-9][0-9]{0,18}$' }
+        prompt: { type: string }
+        mode: { $ref: '#/components/schemas/TutorMode' }
+        snapshotInput: { $ref: '#/components/schemas/SnapshotInput' }
+        snapshotOriginRequestId:
+          oneOf:
+            - { $ref: '#/components/schemas/Uuid' }
+            - { type: 'null' }
+        status: { $ref: '#/components/schemas/TutorRequestStatus' }
+        snapshotFileRef: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        currentRunId: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        revision: { type: integer, format: int64, minimum: 0 }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+        updatedAt: { $ref: '#/components/schemas/DateTime' }
+      additionalProperties: false
+    TutorRequestPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TutorRequest' }
+        nextCursor: { type: [string, 'null'], description: 账号/题目范围绑定的倒序键集游标 }
+      additionalProperties: false
+    PendingRequest:
+      type: object
+      required: [request]
+      properties:
+        request:
+          oneOf:
+            - { $ref: '#/components/schemas/TutorRequest' }
+            - { type: 'null' }
+      additionalProperties: false
+    RunStatus:
+      type: string
+      enum: [QUEUED, RUNNING, CANCELLING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT]
+    StepStatus:
+      type: string
+      enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED, UNKNOWN]
+    Step:
+      type: object
+      required: [stepId, role, status, revision]
+      properties:
+        stepId: { $ref: '#/components/schemas/Uuid' }
+        role: { type: string, enum: [RETRIEVE, SOLVE, DIAGNOSE, TEACH, REVIEW] }
+        status: { $ref: '#/components/schemas/StepStatus' }
+        revision: { type: integer, format: int64, minimum: 0 }
+      additionalProperties: false
+    Attempt:
+      type: object
+      description: 仅安全状态对外可见；供应商原始错误和配置不得输出
+      required: [attemptId, stepId, attemptNo, status, providerCallState, fence, startedAt]
+      properties:
+        attemptId: { $ref: '#/components/schemas/Uuid' }
+        stepId: { $ref: '#/components/schemas/Uuid' }
+        attemptNo: { type: integer, minimum: 1 }
+        status: { type: string, enum: [PENDING, RUNNING, SUCCEEDED, FAILED, CANCELLED, UNKNOWN] }
+        providerCallState: { type: string, enum: [NOT_SENT, CALL_INTENT, CONFIRMED, UNKNOWN] }
+        fence: { type: integer, format: int64, minimum: 1 }
+        startedAt: { $ref: '#/components/schemas/DateTime' }
+        endedAt:
+          oneOf:
+            - { $ref: '#/components/schemas/DateTime' }
+            - { type: 'null' }
+      additionalProperties: false
+    Evidence:
+      type: object
+      required: [evidenceId, runId, stepId, type, claim]
+      properties:
+        evidenceId: { $ref: '#/components/schemas/Uuid' }
+        runId: { $ref: '#/components/schemas/Uuid' }
+        stepId: { $ref: '#/components/schemas/Uuid' }
+        type: { type: string, enum: [CURRENT_SNAPSHOT, HISTORY, DERIVATION] }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        anchorId: { $ref: '#/components/schemas/Uuid' }
+        claim: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+      additionalProperties: false
+    OutboxEvent:
+      type: object
+      description: 内部事务 outbox，不作为公开 HTTP 响应
+      required: [eventId, accountId, aggregateType, aggregateId, aggregateVersion, kind, payloadDigest, status]
+      properties:
+        eventId: { $ref: '#/components/schemas/Uuid' }
+        accountId: { type: integer, format: int64, minimum: 1 }
+        aggregateType: { type: string, enum: [SOURCE, REQUEST, RUN, RESULT] }
+        aggregateId: { $ref: '#/components/schemas/Uuid' }
+        aggregateVersion: { type: integer, format: int64, minimum: 1 }
+        kind: { type: string }
+        payloadDigest: { type: string, pattern: '^[0-9a-f]{64}$' }
+        status: { type: string, enum: [PENDING, DELIVERED, FAILED] }
+      additionalProperties: false
+    Run:
+      type: object
+      required: [runId, requestId, runNo, status, revision, steps]
+      properties:
+        runId: { $ref: '#/components/schemas/Uuid' }
+        requestId: { $ref: '#/components/schemas/Uuid' }
+        runNo: { type: integer, minimum: 1 }
+        retryOfRunId:
+          oneOf:
+            - { $ref: '#/components/schemas/Uuid' }
+            - { type: 'null' }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        reason: { type: string, enum: [OUTCOME_UNKNOWN, MODEL_UNAVAILABLE, INPUT_TIMEOUT, QUEUE_TIMEOUT, RUN_TIMEOUT, BUDGET_EXCEEDED, REVIEW_REJECTED] }
+        revision: { type: integer, format: int64, minimum: 0 }
+        cancelRequestedAt:
+          oneOf:
+            - { $ref: '#/components/schemas/DateTime' }
+            - { type: 'null' }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/Step' }
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/Attempt' }
+      additionalProperties: false
+    TutorResult:
+      type: object
+      required: [resultId, mode, status, bodyMarkdown, citations, createdAt]
+      properties:
+        resultId: { $ref: '#/components/schemas/Uuid' }
+        mode: { $ref: '#/components/schemas/TutorMode' }
+        status: { type: string, const: VERIFIED }
+        bodyMarkdown: { type: string }
+        citations:
+          type: array
+          items: { $ref: '#/components/schemas/Citation' }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/Evidence' }
+        createdAt: { $ref: '#/components/schemas/DateTime' }
+      additionalProperties: false
+    TutorRequestDetail:
+      type: object
+      required: [request, run, runs, result]
+      properties:
+        request: { $ref: '#/components/schemas/TutorRequest' }
+        run:
+          oneOf:
+            - { $ref: '#/components/schemas/Run' }
+            - { type: 'null' }
+        runs:
+          type: array
+          description: 按 runNo 升序的旧 run 与当前 run；旧 run 终态不变
+          items: { $ref: '#/components/schemas/Run' }
+        result:
+          oneOf:
+            - { $ref: '#/components/schemas/TutorResult' }
+            - { type: 'null' }
+      additionalProperties: false
+    CancelRequest:
+      type: object
+      required: [expectedRunId]
+      properties:
+        expectedRunId:
+          description: null 仅用于未绑定快照的 WAITING_INPUT
+          oneOf:
+            - { $ref: '#/components/schemas/Uuid' }
+            - { type: 'null' }
+      additionalProperties: false
+    RetryRequest:
+      type: object
+      required: [targetRunId]
+      properties:
+        targetRunId: { $ref: '#/components/schemas/Uuid' }
+      additionalProperties: false
+    Citation:
+      type: object
+      required: [citationId, sourceId, version, anchorId, label, sourceType]
+      properties:
+        citationId: { $ref: '#/components/schemas/Uuid' }
+        sourceId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, format: int64, minimum: 1 }
+        anchorId: { $ref: '#/components/schemas/Uuid' }
+        label: { type: string }
+        sourceType: { $ref: '#/components/schemas/SourceType' }
+      additionalProperties: false
+    MarkdownLocator:
+      type: object
+      description: 偏移针对 resolve 返回的 markdown 原文块，单位 UTF-16 code units，[startOffset,endOffset)，不得切开代理对
+      required: [blockOrdinal, startOffset, endOffset]
+      properties:
+        blockOrdinal: { type: integer, minimum: 0 }
+        startOffset: { type: integer, minimum: 0 }
+        endOffset: { type: integer, minimum: 1 }
+      additionalProperties: false
+    WorldBounds:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        width: { type: number, exclusiveMinimum: 0 }
+        height: { type: number, exclusiveMinimum: 0 }
+      additionalProperties: false
+    HandwritingSegment:
+      type: object
+      required: [blockIndex, assetUrl, blockWorldBounds, pixelWidth, pixelHeight, regionWorldBounds]
+      properties:
+        blockIndex: { type: integer, minimum: 0 }
+        assetUrl: { type: string, format: uri-reference }
+        blockWorldBounds: { $ref: '#/components/schemas/WorldBounds' }
+        pixelWidth: { type: integer, minimum: 1 }
+        pixelHeight: { type: integer, minimum: 1 }
+        regionWorldBounds: { $ref: '#/components/schemas/WorldBounds' }
+        strokeIds:
+          type: array
+          items: { type: string }
+      additionalProperties: false
+    HandwritingLocator:
+      type: object
+      description: 多块完整覆盖同一手写步骤；每块给实际像素尺寸，不猜题面/合成图密度
+      required: [segments]
+      properties:
+        segments:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/HandwritingSegment' }
+      additionalProperties: false
+    CitationResolution:
+      type: object
+      description: 只有已发布 result、来源及锚点全链授权通过后返回原文；contentSha256 对保存时仅 CRLF→LF 的原始 UTF-8 块字节计算，公式不改写
+      required: [citation, sourceTitle, sourceCreatedAt, sourceVersionCreatedAt, currentVersion, answerState, anchorKind, contentSha256]
+      properties:
+        citation: { $ref: '#/components/schemas/Citation' }
+        sourceTitle: { type: string }
+        sourceCreatedAt: { $ref: '#/components/schemas/DateTime' }
+        sourceVersionCreatedAt: { $ref: '#/components/schemas/DateTime' }
+        currentVersion: { type: integer, format: int64, minimum: 1 }
+        answerState: { type: [string, 'null'], enum: [DRAFT, COMPLETED, null] }
+        anchorKind: { type: string, enum: [MARKDOWN_BLOCK, HANDWRITING_STEP, QUESTION_BLOCK] }
+        contentSha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        markdown: { type: string, description: 授权后的原始 Markdown 块，保存时仅 CRLF→LF }
+        quotedText: { type: string, description: 如有摘录仅在本次实时授权后返回，不存于公开 Result.Citation }
+        markdownLocator: { $ref: '#/components/schemas/MarkdownLocator' }
+        handwritingLocator: { $ref: '#/components/schemas/HandwritingLocator' }
+      allOf:
+        - if:
+            properties: { anchorKind: { const: MARKDOWN_BLOCK } }
+          then:
+            required: [markdown, markdownLocator]
+        - if:
+            properties: { anchorKind: { const: HANDWRITING_STEP } }
+          then:
+            required: [handwritingLocator]
+        - if:
+            properties: { anchorKind: { const: QUESTION_BLOCK } }
+          then:
+            oneOf:
+              - { required: [markdown, markdownLocator] }
+              - { required: [handwritingLocator] }
+      additionalProperties: false
+    SaveManifest:
+      type: object
+      description: |
+        与现有 M2 SaveManifest 字段/约束一致；更细的字节、尺寸、坐标限额
+        以 docs/design/mvp-m2-contract.md 为准。point.pressure 可缺省。
+      required: [schemaVersion, saveRequestId, baseFileRef, canvas, document, blocks]
+      properties:
+        schemaVersion: { type: integer, const: 1 }
+        saveRequestId: { $ref: '#/components/schemas/Uuid' }
+        baseFileRef: { type: 'null' }
+        canvas: { $ref: '#/components/schemas/Canvas' }
+        document: { $ref: '#/components/schemas/AnswerDocument' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/AnswerBlock' }
+      additionalProperties: false
+    Canvas:
+      type: object
+      required: [width, height, originX, originY, coordinateUnit]
+      properties:
+        width: { type: number, exclusiveMinimum: 0 }
+        height: { type: number, exclusiveMinimum: 0 }
+        originX: { type: number }
+        originY: { type: number }
+        coordinateUnit: { type: string }
+      additionalProperties: false
+    Bounds:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        width: { type: number, exclusiveMinimum: 0 }
+        height: { type: number, exclusiveMinimum: 0 }
+      additionalProperties: false
+    AnswerPoint:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        pressure: { type: [number, 'null'], minimum: 0, maximum: 1 }
+      additionalProperties: false
+    AnswerStroke:
+      type: object
+      required: [strokeId, color, width, points]
+      properties:
+        strokeId: { type: string }
+        color: { type: string }
+        width: { type: number, exclusiveMinimum: 0 }
+        penKind: { type: [string, 'null'], enum: [ballpoint, fountain, highlighter, null] }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/AnswerPoint' }
+      additionalProperties: false
+    LayoutBlock:
+      type: object
+      required: [blockId, x, y, width, height]
+      properties:
+        blockId: { type: string }
+        x: { type: number }
+        y: { type: number }
+        width: { type: number, exclusiveMinimum: 0 }
+        height: { type: number, exclusiveMinimum: 0 }
+      additionalProperties: false
+    AnswerBlock:
+      type: object
+      required: [index, partName, x, y, width, height, pixelWidth, pixelHeight, sha256]
+      properties:
+        index: { type: integer, minimum: 0 }
+        partName: { type: string }
+        x: { type: number }
+        y: { type: number }
+        width: { type: number, exclusiveMinimum: 0 }
+        height: { type: number, exclusiveMinimum: 0 }
+        pixelWidth: { type: integer, minimum: 1 }
+        pixelHeight: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+      additionalProperties: false
+    QuestionLayout:
+      type: object
+      required: [questionBodySha256, contentWidth, fontSize, rendererId, bounds, blocks, rasterBlocks]
+      properties:
+        questionBodySha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        contentWidth: { type: number, exclusiveMinimum: 0 }
+        fontSize: { type: number, exclusiveMinimum: 0 }
+        rendererId: { type: string }
+        bounds: { $ref: '#/components/schemas/Bounds' }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/LayoutBlock' }
+        rasterBlocks:
+          type: array
+          items: { $ref: '#/components/schemas/AnswerBlock' }
+      additionalProperties: false
+    AnswerDocument:
+      type: object
+      required: [schemaVersion, questionLayout, strokes]
+      properties:
+        schemaVersion: { type: integer, const: 1 }
+        questionLayout: { $ref: '#/components/schemas/QuestionLayout' }
+        strokes:
+          type: array
+          items: { $ref: '#/components/schemas/AnswerStroke' }
+      additionalProperties: false
