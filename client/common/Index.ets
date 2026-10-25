@@ -8,6 +8,7 @@ export const COMMON_LAYER_VERSION: string = '0.0.1';
 
 export {
   UserProfile,
+  UpdateProfileInput,
   AuthSessionData,
   ServerErrorPayload,
   AuthFailureKind,
@@ -47,7 +48,9 @@ export {
   validate_registration_password,
   validate_confirm_password,
   validate_register_form,
-  validate_login_form
+  validate_login_form,
+  validate_profile_update,
+  validate_change_password
 } from './src/main/ets/features/auth/AuthValidation';
 
 export {
@@ -105,3 +108,6 @@ export { LearningNotesView } from './src/main/ets/features/multiagent/LearningNo
 export { CitationModal } from './src/main/ets/features/multiagent/CitationModal';
 
 export { CitationFocusController, citationFocusController } from './src/main/ets/features/multiagent/CitationFocusController';
+export { ToastType, ToastOptions, ToastItem } from './src/main/ets/components/feedback/ToastModels';
+export { ToastStore } from './src/main/ets/components/feedback/ToastStore';
+export { ToastHost } from './src/main/ets/components/feedback/ToastHost';

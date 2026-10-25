@@ -8,6 +8,7 @@ const scripts=[
  'client/scripts/verify-client-v2-parse.cjs',
  'client/common/scripts/verify-learning-v2-state.cjs',
  'client/common/scripts/verify-learning-v2-transport.cjs',
+ 'client/common/scripts/verify-v2-account-transport.cjs',
  'client/common/scripts/verify-citation-geometry.cjs',
  'client/common/scripts/verify-citation-markers.cjs',
  'client/common/scripts/verify-citation-inline.cjs',

@@ -1,4 +1,4 @@
-import { AuthScreen, UserProfile, authSession } from 'common';
+import { AuthScreen, UserProfile, ToastHost, ToastStore, authSession } from 'common';
 import { TabletShell } from '../components/TabletShell';
 import { TabletBackController } from '../components/TabletBackController';
 
@@ -15,17 +15,26 @@ struct Index {
   @State display_name: string = '';
   @State page_visible: boolean = false;
   private backController: TabletBackController = new TabletBackController();
+  @State toast_top: number = 12;
+  private toast: ToastStore = new ToastStore();
+  private account_id: string = '';
+  private toast_context: string = 'auth';
 
-  onPageShow(): void { this.page_visible = true; }
-  onPageHide(): void { this.page_visible = false; }
-  aboutToDisappear(): void { this.page_visible = false; }
+  onPageShow(): void { this.page_visible = true; this.sync_toast_scope(this.toast_context); }
+  onPageHide(): void { this.page_visible = false; this.toast.clearScope(); }
+  aboutToDisappear(): void { this.page_visible = false; this.toast.dispose(); }
   onBackPress(): boolean { return this.backController.handle(); }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.Top }) {
       if (this.signed_in) {
         TabletShell({
           display_name: this.display_name,
+          toast: this.toast,
+          on_context_changed: (context: string, answer: boolean) => {
+            this.toast_top = answer ? 72 : 76;
+            this.sync_toast_scope(context);
+          },
           foreground: this.page_visible,
           backController: this.backController,
           on_signed_out: () => {
@@ -34,7 +43,11 @@ struct Index {
         })
       } else {
         AuthScreen({
+          toast: this.toast,
           onAuthenticated: (user: UserProfile) => {
+            this.account_id = user.accountId;
+            this.toast_top = 76;
+            this.sync_toast_scope('library:all');
             this.display_name = user.username;
             this.signed_in = true;
           },
@@ -43,13 +56,23 @@ struct Index {
           }
         })
       }
+      ToastHost({ store: this.toast, topInset: this.toast_top })
     }
     .width('100%')
     .height('100%')
     .backgroundColor('#F5F8FE')
   }
 
+  private sync_toast_scope(context: string): void {
+    this.toast_context = context;
+    this.toast.onScopeChange('tablet:' + this.account_id + ':' + context);
+  }
+
   private handle_signed_out(): void {
+    this.toast.clearScope();
+    this.account_id = '';
+    this.toast_top = 12;
+    this.sync_toast_scope('auth');
     authSession.clear_session();
     this.display_name = '';
     this.signed_in = false;

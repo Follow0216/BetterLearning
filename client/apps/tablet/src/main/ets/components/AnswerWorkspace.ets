@@ -1,3 +1,4 @@
+import { ToastStore } from 'common';
 import { AnswerState, QuestionDetail } from 'common';
 import { TabletTutorPhase } from '../features/tutor/TabletTutorBridge';
 import { TabletV2HistoryView } from '../features/tutor/TabletV2HistoryView';
@@ -30,6 +31,7 @@ import {
  */
 @Component
 export struct AnswerWorkspace {
+  toast?: ToastStore;
   @Prop @Watch('question_changed') question: QuestionDetail | null = null;
   @Prop active: boolean = false;
   backController: TabletBackController = new TabletBackController();
@@ -113,6 +115,7 @@ export struct AnswerWorkspace {
       }
 
       TabletCanvasWorkspace({
+        toast: this.toast,
         question: this.question,
         controller: this.controller,
         onStateChange: (state: CanvasWorkspaceState) => {

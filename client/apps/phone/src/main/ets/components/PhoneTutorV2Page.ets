@@ -1,14 +1,16 @@
 import { util } from '@kit.ArkTS';
 import {
   authSession, AuthError, AuthResult, citationFocusController, citation_marker_ids,
-  LearningV2Api, QuestionMarkdownView, UserProfile,
+  LearningApi, LearningV2Api, QuestionDetail, QuestionMarkdownView, ToastStore, UserProfile,
   V2Citation, V2TutorMode, V2TutorRequest, V2TutorRequestDetail, V2TutorRequestPage, V2TutorRequestStatus,
   V2SnapshotInput
 } from 'common';
 import {
-  phone_v2_active, phone_v2_apply_created, phone_v2_apply_detail, phone_v2_intent_for,
-  phone_v2_merge_requests, phone_v2_retryable, PhoneV2CreateIntent, PhoneV2ViewState
+  phone_v2_active, phone_v2_apply_created, phone_v2_apply_detail, phone_v2_draft_for,
+  phone_v2_intent_for, phone_v2_merge_requests, phone_v2_retryable, PhoneV2CreateIntent,
+  PhoneV2Draft, PhoneV2ViewState
 } from '../model/PhoneTutorV2Logic';
+import { PhoneBackController } from '../model/PhoneHomeState';
 import { format_question_time } from '../model/QuestionFormat';
 import {
   PHONE_COLOR_BACKGROUND, PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_DANGER,
@@ -22,6 +24,13 @@ const V2_PROMPT_MAX: number = 4000;
 
 @Component
 export struct PhoneTutorV2Page {
+  toast?: ToastStore;
+  @Prop embedded: boolean = false;
+  editorNavigation: PhoneBackController = new PhoneBackController();
+  onComposingChanged: (value: boolean) => void = () => {};
+  onChooseQuestion: () => void = () => {};
+  onRead: (title: string, body: string, plainText: boolean, citations?: V2Citation[]) => void = () => {};
+  onSessionSummary: (questionId: string, label: string, prompt: string) => void = () => {};
   @Prop @Watch('on_question_changed') questionId: string = '';
   @Prop @Watch('on_visibility_changed') visible: boolean = true;
   @StorageProp('phoneForeground') @Watch('on_visibility_changed') foreground: boolean = true;
@@ -43,6 +52,8 @@ export struct PhoneTutorV2Page {
   @State errorMessage: string = '';
   @State nextCursor: string | null = null;
   @State loadedOnce: boolean = false;
+  @State editorFocused: boolean = false;
+  @State questionDetail: QuestionDetail | null = null;
 
   private api: LearningV2Api = LearningV2Api.create_default();
   private createIntent: PhoneV2CreateIntent = new PhoneV2CreateIntent();
@@ -55,15 +66,29 @@ export struct PhoneTutorV2Page {
   private pollGeneration: number = 0;
   private pollBusy: boolean = false;
   private alive: boolean = false;
+  private editorController: TextAreaController = new TextAreaController();
+  private loadedQuestionId: string = '';
+  private learningApi: LearningApi = LearningApi.create_default();
 
   aboutToAppear(): void {
     this.alive = true;
     this.accountId = authSession.read_user()?.accountId ?? '';
+    this.loadedQuestionId = this.questionId;
+    this.editorNavigation.handleBack = (): boolean => {
+      if (!this.editorFocused) { return false; }
+      this.stop_editing();
+      return true;
+    };
     this.adopt_intent();
+    this.adopt_draft();
     this.refresh_list();
+    this.load_question();
   }
 
   aboutToDisappear(): void {
+    this.save_draft();
+    this.stop_editing();
+    this.editorNavigation.handleBack = (): boolean => false;
     this.alive = false;
     this.seq++;
     this.listSeq++;
@@ -71,10 +96,14 @@ export struct PhoneTutorV2Page {
   }
 
   on_question_changed(): void {
+    this.save_draft();
+    this.stop_editing();
+    this.loadedQuestionId = this.questionId;
     this.seq++;
     this.listSeq++;
     this.stop_poll();
     this.requests = [];
+    this.questionDetail = null;
     this.detail = null;
     this.selectedRequestId = '';
     this.prompt = '';
@@ -91,11 +120,15 @@ export struct PhoneTutorV2Page {
     this.busy = false;
     this.pollBusy = false;
     this.adopt_intent();
+    this.adopt_draft();
     this.refresh_list();
+    this.load_question();
   }
 
   on_visibility_changed(): void {
     if (!this.poll_allowed()) {
+      this.stop_editing();
+      this.save_draft();
       this.stop_poll();
       return;
     }
@@ -104,9 +137,10 @@ export struct PhoneTutorV2Page {
 
   build() {
     Column() {
-      this.top_bar()
+      if (!this.embedded) { this.top_bar() }
       Scroll() {
         Column() {
+          if (this.embedded) { this.embedded_toolbar() }
           this.compose_card()
           if (this.errorMessage.length > 0) {
             this.notice(this.errorMessage, PHONE_COLOR_DANGER, PHONE_COLOR_DANGER_SOFT)
@@ -149,16 +183,52 @@ export struct PhoneTutorV2Page {
   }
 
   @Builder
+  embedded_toolbar() {
+    Column({ space: 8 }) {
+      Row() {
+        Text('题库选题 · 新版辅导').fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP)
+          .layoutWeight(1)
+        Button('换题').height(44).fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP)
+          .backgroundColor(Color.Transparent).onClick(() => { this.onChooseQuestion(); })
+      }.width('100%')
+      if (this.questionDetail !== null) {
+        Row() {
+          QuestionMarkdownView({ bodyMarkdown: (this.questionDetail as QuestionDetail).bodyMarkdown,
+            fontSize: 16 }).layoutWeight(1).height(78).hitTestBehavior(HitTestMode.None)
+          Image($r('app.media.bl_chevron_right')).width(18).height(18)
+        }
+        .width('100%').onClick(() => {
+          if (this.questionDetail !== null) {
+            this.onRead('完整题目', (this.questionDetail as QuestionDetail).bodyMarkdown, false);
+          }
+        })
+      }
+      Row({ space: 10 }) {
+        Button('学习笔记').fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP)
+          .backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.onOpenNotes(); })
+        Button('旧版记录').fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP)
+          .backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.onOpenLegacy(); })
+      }
+      Text('尚未确认平板当前题目，请在平板上打开本题。')
+        .fontSize(11).fontColor(PHONE_COLOR_MUTED)
+    }
+    .width('100%').padding(14).backgroundColor(PHONE_COLOR_CARD)
+    .borderRadius(PHONE_RADIUS_CARD).margin({ bottom: 10 })
+  }
+
+  @Builder
   compose_card() {
     Column() {
       Text('向 AI 提问').fontSize(14).fontWeight(FontWeight.Medium).fontColor(PHONE_COLOR_TITLE)
-      TextArea({ text: this.prompt, placeholder: '写下你对这道题的具体疑问' })
+      TextArea({ text: this.prompt, placeholder: '写下你对这道题的具体疑问', controller: this.editorController })
         .width('100%').height(92).fontSize(14).maxLength(V2_PROMPT_MAX)
         .backgroundColor(PHONE_COLOR_BACKGROUND)
         .border({ width: 1, color: PHONE_COLOR_BORDER }).borderRadius(PHONE_RADIUS_CONTROL)
         .padding(10).margin({ top: 8 })
         .enabled(!this.busy && this.createIntent.requestId.length === 0)
-        .onChange((value: string) => { this.prompt = value; this.errorMessage = ''; })
+        .onFocus(() => { this.editorFocused = true; this.onComposingChanged(true); })
+        .onBlur(() => { this.editorFocused = false; this.onComposingChanged(false); })
+        .onChange((value: string) => { this.prompt = value; this.errorMessage = ''; this.save_draft(); })
       Text(this.prompt.length.toString() + ' / ' + V2_PROMPT_MAX.toString())
         .fontSize(11).fontColor(PHONE_COLOR_MUTED).margin({ top: 4 })
       Row() {
@@ -166,13 +236,13 @@ export struct PhoneTutorV2Page {
           .fontSize(12).fontColor(this.fullSolution ? PHONE_COLOR_PRIMARY_DEEP : PHONE_COLOR_WHITE)
           .backgroundColor(this.fullSolution ? PHONE_COLOR_SOFT : PHONE_COLOR_PRIMARY)
           .enabled(this.createIntent.requestId.length === 0 && !this.busy)
-          .onClick(() => { this.fullSolution = false; })
+          .onClick(() => { this.fullSolution = false; this.save_draft(); })
         Button('完整解答')
           .fontSize(12).fontColor(this.fullSolution ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP)
           .backgroundColor(this.fullSolution ? PHONE_COLOR_PRIMARY : PHONE_COLOR_SOFT)
           .enabled(this.createIntent.requestId.length === 0 && !this.busy)
           .margin({ left: 8 })
-          .onClick(() => { this.fullSolution = true; })
+          .onClick(() => { this.fullSolution = true; this.save_draft(); })
       }.margin({ top: 8 })
       Text(this.reuseRequestId.length > 0 ? '沿用已冻结作答追问' : '检查新作答：等待平板冻结当前画布')
         .fontSize(12).fontColor(PHONE_COLOR_MUTED).margin({ top: 10 })
@@ -180,7 +250,7 @@ export struct PhoneTutorV2Page {
         Button('改为检查新作答').fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP)
           .backgroundColor(PHONE_COLOR_SOFT).margin({ top: 6 })
           .enabled(this.createIntent.requestId.length === 0 && !this.busy)
-          .onClick(() => { this.reuseRequestId = ''; })
+          .onClick(() => { this.reuseRequestId = ''; this.save_draft(); })
       }
       Button(this.createIntent.requestId.length > 0 ? '确认原提问' :
         (this.fullSolution ? '明确请求完整解答' : '发送提示请求'))
@@ -277,7 +347,15 @@ export struct PhoneTutorV2Page {
         QuestionMarkdownView({ bodyMarkdown: this.detail.result.bodyMarkdown, fontSize: 15,
           maxLength: 65536, citations: this.detail.result.citations,
           onCitation: (citationId: string) => { this.onOpenCitation(citationId); } })
-          .width('100%').height(300).margin({ top: 10 })
+          .width('100%').height(132).margin({ top: 10 }).hitTestBehavior(HitTestMode.None)
+        Button('完整阅读 ›').height(44).fontSize(14).fontColor(PHONE_COLOR_PRIMARY_DEEP)
+          .backgroundColor(PHONE_COLOR_SOFT).margin({ top: 8 })
+          .onClick(() => {
+            const result = this.detail?.result;
+            if (result !== null && result !== undefined) {
+              this.onRead('新版辅导解答', result.bodyMarkdown, false, result.citations);
+            }
+          })
         ForEach(this.visible_citations(), (citation: V2Citation) => {
           Button('[' + citation.label + '] 查看来源')
             .id('citation-' + citation.citationId)
@@ -297,7 +375,10 @@ export struct PhoneTutorV2Page {
         Button('沿此快照追问')
           .fontSize(12).fontColor(PHONE_COLOR_PRIMARY_DEEP).backgroundColor(PHONE_COLOR_SOFT)
           .enabled(this.createIntent.requestId.length === 0 && !this.busy)
-          .margin({ top: 8 }).onClick(() => { this.reuseRequestId = request.requestId; })
+          .margin({ top: 8 }).onClick(() => {
+            this.reuseRequestId = request.requestId;
+            this.save_draft();
+          })
       }
       if (phone_v2_retryable(request)) {
         Button(this.busy ? '处理中…' : '重试本次运行')
@@ -368,6 +449,7 @@ export struct PhoneTutorV2Page {
     const user: UserProfile | null = authSession.read_user();
     if (token === null || user === null) { this.onUnauthorized(''); return null; }
     if (this.accountId.length > 0 && this.accountId !== user.accountId) {
+      this.loadedQuestionId = '';
       this.accountId = user.accountId;
       this.on_question_changed();
       return null;
@@ -375,6 +457,50 @@ export struct PhoneTutorV2Page {
     this.accountId = user.accountId;
     this.adopt_intent();
     return token;
+  }
+
+  private stop_editing(): void {
+    this.editorController.stopEditing();
+    this.editorFocused = false;
+    this.onComposingChanged(false);
+  }
+
+  private save_draft(): void {
+    if (this.accountId.length === 0 || this.loadedQuestionId.length === 0) { return; }
+    const draft: PhoneV2Draft = phone_v2_draft_for(this.accountId, this.loadedQuestionId);
+    draft.prompt = this.prompt;
+    draft.fullSolution = this.fullSolution;
+    draft.reuseRequestId = this.reuseRequestId;
+    draft.selectedRequestId = this.selectedRequestId;
+    this.onSessionSummary(this.loadedQuestionId, '题目 #' + this.loadedQuestionId, this.prompt);
+  }
+
+  private adopt_draft(): void {
+    if (this.accountId.length === 0 || this.questionId.length === 0) { return; }
+    const draft: PhoneV2Draft = phone_v2_draft_for(this.accountId, this.questionId);
+    if (this.createIntent.requestId.length === 0) {
+      this.prompt = draft.prompt;
+      this.fullSolution = draft.fullSolution;
+      this.reuseRequestId = draft.reuseRequestId;
+    }
+    this.selectedRequestId = draft.selectedRequestId;
+    this.onSessionSummary(this.questionId, '题目 #' + this.questionId, this.prompt);
+  }
+
+  private async load_question(): Promise<void> {
+    const token: string | null = this.session();
+    if (token === null || this.questionId.length === 0) { return; }
+    const accountId: string = this.accountId;
+    const seq: number = this.seq;
+    const questionId: string = this.questionId;
+    try {
+      const result: AuthResult<QuestionDetail> = await this.learningApi.getQuestion(token, questionId);
+      if (this.valid_context(seq, token, accountId) && this.questionId === questionId &&
+        result.isSuccess && result.data !== null) {
+        this.questionDetail = result.data;
+        this.onSessionSummary(questionId, '题目 #' + questionId, this.prompt);
+      }
+    } catch (error) {}
   }
 
   private adopt_intent(): void {
@@ -471,10 +597,12 @@ export struct PhoneTutorV2Page {
     if (this.selectedRequestId === requestId) {
       this.selectedRequestId = '';
       this.detail = null;
+      this.save_draft();
       return;
     }
     this.selectedRequestId = requestId;
     this.detail = null;
+    this.save_draft();
     this.refresh_detail(requestId);
   }
 
@@ -556,6 +684,7 @@ export struct PhoneTutorV2Page {
     const snapshotInput: V2SnapshotInput = this.reuseRequestId.length > 0 ?
       { kind: 'REUSE_REQUEST', sourceRequestId: this.reuseRequestId } : { kind: 'NEW_CAPTURE' };
     const seq: number = ++this.seq;
+    const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
     this.errorMessage = '';
     try {
@@ -573,6 +702,7 @@ export struct PhoneTutorV2Page {
         return;
       }
       this.on_created(result.data);
+      this.toast?.show({ key: 'phone-v2-create', type: 'success', message: '新版辅导请求已发送' }, toastScope);
     } catch (error) {
       if (this.valid_context(seq, token, accountId)) {
         this.message = '创建结果未知，正在查询原 requestId';
@@ -588,12 +718,14 @@ export struct PhoneTutorV2Page {
     this.prompt = '';
     this.fullSolution = false;
     this.reuseRequestId = '';
+    this.stop_editing();
     const next: PhoneV2ViewState = phone_v2_apply_created({
       requests: this.requests, detail: this.detail, selectedRequestId: this.selectedRequestId
     }, request);
     this.requests = next.requests;
     this.selectedRequestId = next.selectedRequestId;
     this.detail = next.detail;
+    this.save_draft();
     this.message = request.status === V2TutorRequestStatus.WAITING_INPUT ?
       '请求已创建，请让平板前台打开本题冻结作答' : '请求已创建，正在执行';
     if (fetchDetail && this.detail === null) { this.refresh_detail(request.requestId); }
@@ -629,12 +761,16 @@ export struct PhoneTutorV2Page {
     if (token === null) { return; }
     const seq: number = ++this.seq;
     const accountId: string = this.accountId;
+    const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
     try {
       const result: AuthResult<V2TutorRequestDetail> = await this.api.cancelRequest(token, this.questionId,
         request.requestId, request.currentRunId);
       if (!this.valid_context(seq, token, accountId)) { return; }
-      if (result.isSuccess && result.data !== null) { this.receive_detail(result.data); }
+      if (result.isSuccess && result.data !== null) {
+        this.receive_detail(result.data);
+        this.toast?.show({ key: 'phone-v2-cancel', type: 'info', message: '本次辅导状态已更新' }, toastScope);
+      }
       else { this.errorMessage = this.failed(result.error, token); this.refresh_detail(request.requestId); }
     } catch (error) {
       if (this.valid_context(seq, token, accountId)) {
@@ -657,6 +793,7 @@ export struct PhoneTutorV2Page {
       this.retryTargetRunId = targetRunId;
     }
     const seq: number = ++this.seq;
+    const toastScope: number | undefined = this.toast?.captureScope();
     this.busy = true;
     try {
       const result: AuthResult<V2TutorRequestDetail> = await this.api.retryRequest(token, this.questionId,
@@ -667,6 +804,7 @@ export struct PhoneTutorV2Page {
         this.retryTargetRunId = '';
         this.receive_detail(result.data);
         this.start_poll();
+        this.toast?.show({ key: 'phone-v2-retry', type: 'info', message: '已重试本次辅导' }, toastScope);
       } else {
         this.errorMessage = this.failed(result.error, token);
         this.refresh_detail(request.requestId);

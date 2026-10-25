@@ -39,18 +39,23 @@ const code = [
   moduleCode(path.join(multi, 'CitationMarkers.ets')),
   moduleCode(path.join(phone, 'model/PhoneTutorV2Logic.ets')),
   componentCode(path.join(phone, 'components/PhoneTutorV2Page.ets'), 'PhoneTutorV2Page',
-    ['build', 'top_bar', 'compose_card', 'notice', 'request_section', 'request_card', 'selected_detail']),
+    ['build', 'top_bar', 'embedded_toolbar', 'compose_card', 'notice', 'request_section',
+      'request_card', 'selected_detail']),
   'globalThis.types = { PhoneTutorV2Page, V2TutorMode, V2TutorRequestStatus };'
 ].join('\n');
 const emitted = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 },
   reportDiagnostics: true });
-assert.equal(emitted.diagnostics.length, 0, 'actual component method transpilation failed');
+assert.equal(emitted.diagnostics.length, 0,
+  'actual component method transpilation failed: ' + emitted.diagnostics.map((d) => d.messageText));
 let token = 'one';
 let account = 'account';
 let api = {};
 let nextUuid = 0;
 const sandbox = {
   LearningV2Api: { create_default: () => api },
+  LearningApi: { create_default: () => ({ getQuestion: async () => ({ isSuccess: false }) }) },
+  PhoneBackController: class { constructor() { this.handleBack = () => false; } },
+  TextAreaController: class { stopEditing() {} },
   authSession: {
     read_access_token: () => token,
     read_user: () => token ? { accountId: account } : null,

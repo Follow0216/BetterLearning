@@ -77,6 +77,27 @@ export function phone_v2_intent_for(accountId: string, questionId: string): Phon
 
 export function phone_v2_clear_all_intents(): void {
   phoneV2Intents.clear();
+  phoneV2Drafts.clear();
+}
+
+/** 首页切题时保留尚未发送的 V2 表单，不跨账号复用。 */
+export class PhoneV2Draft {
+  prompt: string = '';
+  fullSolution: boolean = false;
+  reuseRequestId: string = '';
+  selectedRequestId: string = '';
+}
+
+const phoneV2Drafts: Map<string, PhoneV2Draft> = new Map<string, PhoneV2Draft>();
+
+export function phone_v2_draft_for(accountId: string, questionId: string): PhoneV2Draft {
+  const key: string = accountId + ':' + questionId;
+  let draft: PhoneV2Draft | undefined = phoneV2Drafts.get(key);
+  if (draft === undefined) {
+    draft = new PhoneV2Draft();
+    phoneV2Drafts.set(key, draft);
+  }
+  return draft;
 }
 
 /** 选中的详情仅允许同 request 且较新 revision 的回写。 */

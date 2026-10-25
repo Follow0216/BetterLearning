@@ -4,14 +4,15 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--auth-border, #dce6f5);
-  border-radius: 16px;
+  border-radius: 8px;
   background: white;
   color: var(--auth-text, #142b4f);
 }
 
 .toolbar {
   display: flex;
-  min-height: 52px;
+  min-height: 48px;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
@@ -105,7 +106,7 @@
   bottom: 12px;
   border-radius: 8px;
   padding: 6px 10px;
-  background: #eef4ffed;
+  background: var(--auth-primary-soft, #eaf1ff);
   color: var(--auth-muted, #64799b);
   font-size: 12px;
   pointer-events: none;
@@ -139,6 +140,14 @@
     padding-inline: 8px;
   }
   .title {
+    flex-basis: 100%;
     font-size: 13px;
+  }
+}
+
+@media (pointer: coarse) {
+  .toolbar button,
+  .error button {
+    min-height: 44px;
   }
 }

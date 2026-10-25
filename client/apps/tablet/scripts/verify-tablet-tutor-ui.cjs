@@ -32,8 +32,8 @@ function extract(sf, name, wanted) {
 }
 const methods = extract(library, 'LibraryPane', ['tutor_eligible', 'sync_tutor', 'tutor_context_current',
   'stop_tutor', 'dispose_tutor', 'reset_answer_view', 'apply_canvas_state', 'close_detail',
-  'aboutToDisappear', 'expire_session', 'answer_callback_current', 'flush_then_close', 'is_detail_request_current', 'run_answer_action']);
-const indexMethods = extract(index, 'Index', ['onPageShow', 'onPageHide', 'aboutToDisappear', 'handle_signed_out']);
+  'aboutToDisappear', 'expire_session', 'notify_toast_context', 'answer_callback_current', 'flush_then_close', 'is_detail_request_current', 'run_answer_action']);
+const indexMethods = extract(index, 'Index', ['onPageShow', 'onPageHide', 'aboutToDisappear', 'handle_signed_out', 'sync_toast_scope']);
 const answerMethods = extract(answer, 'AnswerWorkspace', ['tutor_hint', 'tutor_hint_color']);
 const code = `${phase}
 class LibraryHarness {
@@ -45,13 +45,21 @@ class LibraryHarness {
     this.detail_seq=1; this.answer_mount_revision=1; this.list_seq=0; this.pending_action=''; this.canvas_busy=false;
     this.expirations=0; this.answer_modes=[]; this.canvas_feedback_error=''; this.feedback_text=''; this.feedback_error=false;
     this.on_session_expired=()=>{this.expirations++;};
+    this.context_changes=[]; this.on_context_changed=context=>this.context_changes.push(context);
     this.on_answer_mode_changed=active=>this.answer_modes.push(active);
     this.canvas_controller={flushLocal:async()=>({isSuccess:true,data:true})};
     this.backController={attach:()=>{},detach:()=>{}};
   }
   ${methods}
 }
-class IndexHarness { ${indexMethods} }
+class IndexHarness {
+  constructor() {
+    this.account_id=''; this.toast_context='auth'; this.toast_calls=[];
+    this.toast={clearScope:()=>this.toast_calls.push('clear'),dispose:()=>this.toast_calls.push('dispose'),
+      onScopeChange:scope=>this.toast_calls.push(scope)};
+  }
+  ${indexMethods}
+}
 class AnswerHarness { ${answerMethods} }
 globalThis.LibraryHarness=LibraryHarness; globalThis.IndexHarness=IndexHarness;
 globalThis.AnswerHarness=AnswerHarness; globalThis.Phase=TabletTutorPhase;

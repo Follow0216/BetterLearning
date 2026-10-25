@@ -1,7 +1,7 @@
 import { image } from '@kit.ImageKit';
 import {
+  PHONE_COLOR_BACKGROUND,
   PHONE_COLOR_BORDER,
-  PHONE_COLOR_CARD,
   PHONE_COLOR_DANGER,
   PHONE_COLOR_MUTED,
   PHONE_COLOR_PRIMARY,
@@ -35,6 +35,7 @@ export struct QuestionCropView {
   @Prop @Watch('resetImage') imageWidth: number = 0;
   @Prop @Watch('resetImage') imageHeight: number = 0;
   @Prop @Watch('busyChanged') busy: boolean = false;
+  @Prop message: string = '';
   onConfirm: (rect: QuestionCropRect) => void = () => {};
   onCancel: () => void = () => {};
 
@@ -81,13 +82,13 @@ export struct QuestionCropView {
   build() {
     Column({ space: 10 }) {
       Row({ space: 10 }) {
-        Text('裁剪题目')
-          .fontSize(18)
+        Text('框住完整的一道题')
+          .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor(PHONE_COLOR_TITLE)
           .layoutWeight(1)
-        Button('复位')
-          .height(36)
+        Button('重置选区')
+          .height(44)
           .fontSize(13)
           .fontColor(PHONE_COLOR_PRIMARY)
           .backgroundColor(PHONE_COLOR_SOFT)
@@ -99,7 +100,7 @@ export struct QuestionCropView {
           })
       }
       .width('100%')
-      Text('拖动框内区域移动，拖动蓝色角点调整范围。')
+      Text('保留全部条件、公式和图形。拖动框内移动，拖动四角调整。')
         .width('100%')
         .fontSize(12)
         .lineHeight(18)
@@ -142,8 +143,10 @@ export struct QuestionCropView {
                   .onActionEnd(() => { this.dragActive = false; })
                   .onActionCancel(() => { this.dragActive = false; })
               )
-            this.corner(true)
-            this.corner(false)
+            this.corner(QuestionCropDrag.TOP_LEFT)
+            this.corner(QuestionCropDrag.TOP_RIGHT)
+            this.corner(QuestionCropDrag.BOTTOM_LEFT)
+            this.corner(QuestionCropDrag.BOTTOM_RIGHT)
           }
         }
         if (this.errorText.length > 0) {
@@ -173,13 +176,20 @@ export struct QuestionCropView {
           this.updateFit();
         }
       })
+      if (this.message.length > 0) {
+        Text(this.message)
+          .width('100%')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(PHONE_COLOR_DANGER)
+      }
       Text(this.selectionText())
         .width('100%')
         .fontSize(12)
         .fontColor(PHONE_COLOR_MUTED)
         .textAlign(TextAlign.Center)
       Row({ space: 12 }) {
-        Button('取消')
+        Button('返回')
           .height(44)
           .layoutWeight(1)
           .fontSize(14)
@@ -188,7 +198,7 @@ export struct QuestionCropView {
           .borderRadius(PHONE_RADIUS_CONTROL)
           .enabled(!this.busy)
           .onClick(() => { if (this.alive && !this.busy) { this.onCancel(); } })
-        Button(this.busy ? '处理中…' : '使用选中区域')
+        Button(this.busy ? '处理中…' : '识别这道题')
           .height(44)
           .layoutWeight(1)
           .fontSize(14)
@@ -208,8 +218,8 @@ export struct QuestionCropView {
     }
     .width('100%')
     .height('100%')
-    .padding(12)
-    .backgroundColor(PHONE_COLOR_CARD)
+    .padding({ left: 18, right: 18, top: 4, bottom: 12 })
+    .backgroundColor(PHONE_COLOR_BACKGROUND)
   }
 
   @Builder
@@ -241,11 +251,12 @@ export struct QuestionCropView {
   }
 
   @Builder
-  corner(topLeft: boolean) {
+  corner(kind: QuestionCropDrag) {
     Stack() {
-      Circle()
-        .width(16)
-        .height(16)
+      Rect()
+        .width(13)
+        .height(13)
+        .radius(3)
         .fill(PHONE_COLOR_PRIMARY)
         .stroke(PHONE_COLOR_WHITE)
         .strokeWidth(2)
@@ -253,18 +264,27 @@ export struct QuestionCropView {
     .width(HANDLE_SIZE)
     .height(HANDLE_SIZE)
     .position({
-      x: (topLeft ? this.left() : this.right()) - HANDLE_SIZE / 2,
-      y: (topLeft ? this.top() : this.bottom()) - HANDLE_SIZE / 2
+      x: (kind === QuestionCropDrag.TOP_LEFT || kind === QuestionCropDrag.BOTTOM_LEFT ?
+        this.left() : this.right()) - HANDLE_SIZE / 2,
+      y: (kind === QuestionCropDrag.TOP_LEFT || kind === QuestionCropDrag.TOP_RIGHT ?
+        this.top() : this.bottom()) - HANDLE_SIZE / 2
     })
     .backgroundColor(Color.Transparent)
-    .accessibilityText(topLeft ? '拖动调整左上角' : '拖动调整右下角')
+    .accessibilityText(this.cornerLabel(kind))
     .gesture(
       PanGesture({ fingers: 1, distance: 0 })
-        .onActionStart(() => this.beginDrag(topLeft ? QuestionCropDrag.TOP_LEFT : QuestionCropDrag.BOTTOM_RIGHT))
+        .onActionStart(() => this.beginDrag(kind))
         .onActionUpdate((event: GestureEvent) => this.drag(event))
         .onActionEnd(() => { this.dragActive = false; })
         .onActionCancel(() => { this.dragActive = false; })
     )
+  }
+
+  private cornerLabel(kind: QuestionCropDrag): string {
+    if (kind === QuestionCropDrag.TOP_LEFT) { return '拖动调整左上角'; }
+    if (kind === QuestionCropDrag.TOP_RIGHT) { return '拖动调整右上角'; }
+    if (kind === QuestionCropDrag.BOTTOM_LEFT) { return '拖动调整左下角'; }
+    return '拖动调整右下角';
   }
 
   private beginDrag(kind: QuestionCropDrag): void {

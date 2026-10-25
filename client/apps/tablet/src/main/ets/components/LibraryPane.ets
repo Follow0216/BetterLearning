@@ -11,6 +11,7 @@ import {
   QuestionPage,
   QuestionSummary,
   SolutionDetail,
+  ToastStore,
   authSession
 } from 'common';
 import {
@@ -62,6 +63,8 @@ class CollectionNode {
  */
 @Component
 export struct LibraryPane {
+  toast?: ToastStore;
+  on_context_changed: (context: string) => void = () => {};
   @Prop @Watch('sync_tutor') active: boolean = false;
   backController: TabletBackController = new TabletBackController();
   private backHandler: () => boolean = () => {
@@ -406,7 +409,7 @@ export struct LibraryPane {
       .enabled(!this.loading)
       .opacity(this.loading ? 0.5 : 1)
       .onClick(() => {
-        this.refresh_all();
+        this.refresh_all(true);
       })
     }
     .width('100%')
@@ -579,7 +582,7 @@ export struct LibraryPane {
         .borderRadius(TABLET_RADIUS_SMALL)
         .margin({ top: 4 })
         .onClick(() => {
-          this.refresh_all();
+          this.refresh_all(true);
         })
     }
     .width('100%')
@@ -609,7 +612,7 @@ export struct LibraryPane {
         .padding({ left: 12, right: 12 })
         .backgroundColor(Color.Transparent)
         .onClick(() => {
-          this.refresh_all();
+          this.refresh_all(true);
         })
     }
     .width('100%')
@@ -659,6 +662,7 @@ export struct LibraryPane {
           AnswerWorkspace({
             backController: this.backController,
             active: this.active,
+            toast: this.toast,
             question: this.detail,
             tutor_phase: this.tutor_phase,
             collection_name: this.scope_title(),
@@ -1020,6 +1024,7 @@ export struct LibraryPane {
       return;
     }
     this.scope_collection_id = next;
+    this.notify_toast_context();
     this.page = 1;
     this.items = [];
     this.total = 0;
@@ -1028,7 +1033,8 @@ export struct LibraryPane {
     this.refresh_all();
   }
 
-  private async refresh_all(): Promise<void> {
+  private async refresh_all(manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     this.list_seq += 1;
     const seq: number = this.list_seq;
     const token: string | null = authSession.read_access_token();
@@ -1049,6 +1055,11 @@ export struct LibraryPane {
       return;
     }
     await this.load_questions(token, seq, this.page);
+    if (manual && this.check_session(token, seq) &&
+      (this.error_text.length > 0 || this.collections_error.length > 0)) {
+      this.toast?.show({ key: 'tablet-library-refresh', type: 'error',
+        message: '题库刷新未完成', description: '请查看页面提示后重试' }, toast_scope);
+    }
   }
 
   private async load_collections(token: string, seq: number): Promise<void> {
@@ -1139,6 +1150,7 @@ export struct LibraryPane {
   private open_detail(item: QuestionSummary): void {
     this.reset_answer_view();
     this.open_question_id = item.questionId;
+    this.notify_toast_context();
     this.current_answer_state = item.answerState;
     this.detail = null;
     this.detail_error = '';
@@ -1212,11 +1224,17 @@ export struct LibraryPane {
   private close_detail(): void {
     this.detail_seq += 1;
     this.open_question_id = '';
+    this.notify_toast_context();
     this.detail = null;
     this.detail_error = '';
     this.detail_loading = false;
     this.reset_answer_view();
     this.on_answer_mode_changed(false);
+  }
+
+  private notify_toast_context(): void {
+    this.on_context_changed(this.open_question_id.length > 0 ? 'question:' + this.open_question_id :
+      'library:' + (this.scope_collection_id ?? 'all'));
   }
 
   private reset_answer_view(): void {
@@ -1281,6 +1299,7 @@ export struct LibraryPane {
       }
       return;
     }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const question_id: string = this.open_question_id;
     this.detail_seq += 1;
     const seq: number = this.detail_seq;
@@ -1304,6 +1323,8 @@ export struct LibraryPane {
       this.pending_action = '';
       this.feedback_text = '操作未完成，请重试';
       this.feedback_error = true;
+      this.toast?.show({ key: 'tablet-answer-action', type: 'error', message: '作答操作未完成',
+        description: '请查看页面提示后重试' }, toast_scope);
       return;
     }
     if (!this.is_detail_request_current(token, question_id, seq)) {
@@ -1319,6 +1340,8 @@ export struct LibraryPane {
     if (result === null) {
       this.feedback_text = '操作未完成，请重试';
       this.feedback_error = true;
+      this.toast?.show({ key: 'tablet-answer-action', type: 'error', message: '作答操作未完成',
+        description: '请查看页面提示后重试' }, toast_scope);
       return;
     }
     if (result.error !== null && result.error.is_unauthorized()) {
@@ -1330,16 +1353,25 @@ export struct LibraryPane {
     if (!result.isSuccess || result.data === null) {
       this.feedback_text = this.answer_failure_text(result.error);
       this.feedback_error = true;
+      this.toast?.show({ key: 'tablet-answer-action', type: 'error', message: '作答操作未完成',
+        description: '请查看页面提示后重试' }, toast_scope);
       return;
     }
     if (!this.is_valid_solution(action, result.data, question_id)) {
       this.feedback_text = '服务返回的作答结果异常，请重试。';
       this.feedback_error = true;
+      this.toast?.show({ key: 'tablet-answer-action', type: 'error', message: '作答操作未完成',
+        description: '请查看页面提示后重试' }, toast_scope);
       return;
     }
     this.current_answer_state = result.data.state;
-    this.feedback_error = false;
-    this.feedback_text = '';
+    this.feedback_error = !this.canvas_local_draft_saved;
+    this.feedback_text = this.canvas_local_draft_saved ? '' :
+      '云端操作已完成，本机草稿尚未保存成功，请重试本机保存。';
+    this.toast?.show({ key: 'tablet-answer-action', type: this.feedback_error ? 'error' : 'success',
+      message: this.feedback_error ? '云端操作已完成，本机草稿仍需处理' :
+        (action === 'save' ? '作答已保存，可以继续书写' :
+          (action === 'complete' ? '已标记完成' : '已恢复继续作答')) }, toast_scope);
     await this.refresh_answer_views(question_id, seq, token);
   }
 
@@ -1509,6 +1541,7 @@ export struct LibraryPane {
     this.inbox_count = -1;
     this.detail = null;
     this.open_question_id = '';
+    this.notify_toast_context();
     this.error_text = '';
     this.detail_error = '';
     this.reset_answer_view();

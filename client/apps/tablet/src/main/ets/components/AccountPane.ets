@@ -3,6 +3,7 @@ import {
   AuthError,
   AuthResult,
   UserProfile,
+  ToastStore,
   authSession
 } from 'common';
 import {
@@ -30,6 +31,7 @@ import { format_created_at } from '../utils/DateTimeText';
  */
 @Component
 export struct AccountPane {
+  toast?: ToastStore;
   on_signed_out: () => void = () => {
   };
   @State profile: UserProfile | null = null;
@@ -274,11 +276,12 @@ export struct AccountPane {
       this.expire_session();
       return;
     }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     this.loading = true;
     this.error_text = '';
     try {
       const result: AuthResult<UserProfile> = await this.api.getCurrentUser(token);
-      if (!authSession.matches_access_token(token)) {
+      if (!this.alive || !authSession.matches_access_token(token)) {
         return;
       }
       if (!authSession.has_valid_session()) {
@@ -295,12 +298,17 @@ export struct AccountPane {
       }
       if (!result.isSuccess || result.data === null) {
         this.error_text = this.failure_text(result.error);
+        this.toast?.show({ key: 'tablet-profile-refresh', type: 'error', message: '账号资料刷新失败',
+          description: '当前资料已保留，请稍后重试' }, toast_scope);
         return;
       }
       this.profile = result.data;
+      this.toast?.show({ key: 'tablet-profile-refresh', type: 'success', message: '账号资料已刷新' }, toast_scope);
     } catch (error) {
-      if (authSession.matches_access_token(token)) {
+      if (this.alive && authSession.matches_access_token(token)) {
         this.error_text = '网络连接失败，请检查网络后重试';
+        this.toast?.show({ key: 'tablet-profile-refresh', type: 'error', message: '账号资料刷新失败',
+          description: '请检查网络后重试' }, toast_scope);
       }
     } finally {
       if (this.alive) {
@@ -323,7 +331,7 @@ export struct AccountPane {
     this.logging_out = true;
     try {
       const result: AuthResult<boolean> = await this.api.logout(token);
-      if (!authSession.matches_access_token(token)) {
+      if (!this.alive || !authSession.matches_access_token(token)) {
         return;
       }
       if (result.isSuccess || (result.error !== null && result.error.is_unauthorized())) {

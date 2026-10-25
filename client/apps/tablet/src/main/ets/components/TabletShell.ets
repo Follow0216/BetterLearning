@@ -1,3 +1,4 @@
+import { ToastStore } from 'common';
 import { AccountPane } from './AccountPane';
 import { LibraryPane } from './LibraryPane';
 import { LearningNotesView } from 'common';
@@ -28,6 +29,10 @@ enum TabletTab {
  */
 @Component
 export struct TabletShell {
+  toast?: ToastStore;
+  on_context_changed: (context: string, answer: boolean) => void = () => {};
+  private library_context: string = 'library:all';
+
   @Prop display_name: string = '';
   @Prop foreground: boolean = false;
   backController: TabletBackController = new TabletBackController();
@@ -54,17 +59,24 @@ export struct TabletShell {
       Stack() {
         LibraryPane({
           backController: this.backController,
+          toast: this.toast,
+          on_context_changed: (context: string) => {
+            this.library_context = context;
+            this.notify_context();
+          },
           active: this.foreground && this.active_tab === TabletTab.LIBRARY,
           on_session_expired: () => {
             this.on_signed_out();
           },
           on_answer_mode_changed: (active: boolean) => {
             this.answer_mode = active;
+            this.notify_context();
           }
         })
           .visibility(this.active_tab === TabletTab.LIBRARY ? Visibility.Visible : Visibility.None)
 
         AccountPane({
+          toast: this.toast,
           on_signed_out: () => {
             this.on_signed_out();
           }
@@ -75,7 +87,7 @@ export struct TabletShell {
           LearningNotesView({
             backToken: this.notesBackToken,
             onUnauthorized: () => this.on_signed_out(),
-            onBack: () => { this.active_tab = TabletTab.LIBRARY; }
+            onBack: () => { this.active_tab = TabletTab.LIBRARY; this.notify_context(); }
           })
         }
       }
@@ -85,6 +97,12 @@ export struct TabletShell {
     .width('100%')
     .height('100%')
     .backgroundColor(TABLET_COLOR_CARD)
+  }
+
+  private notify_context(): void {
+    this.on_context_changed(this.active_tab === TabletTab.LIBRARY ? this.library_context :
+      (this.active_tab === TabletTab.NOTES ? 'notes' : 'account'),
+      this.active_tab === TabletTab.LIBRARY && this.answer_mode);
   }
 
   @Builder
@@ -139,6 +157,7 @@ export struct TabletShell {
         .padding({ left: 8, right: 8 })
         .onClick(() => {
           this.active_tab = TabletTab.LIBRARY;
+          this.notify_context();
         })
 
         Column() {
@@ -158,6 +177,7 @@ export struct TabletShell {
         .padding({ left: 8, right: 8 })
         .onClick(() => {
           this.active_tab = TabletTab.NOTES;
+          this.notify_context();
         })
 
         Column() {
@@ -177,6 +197,7 @@ export struct TabletShell {
         .padding({ left: 8, right: 8 })
         .onClick(() => {
           this.active_tab = TabletTab.ACCOUNT;
+          this.notify_context();
         })
       }
     }

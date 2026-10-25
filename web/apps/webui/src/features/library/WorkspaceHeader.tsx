@@ -2,36 +2,57 @@ import Link from "next/link";
 
 import { BlIcon } from "@/components/icons/BlIcon";
 
-import { LogoutButton } from "./LogoutButton";
+import styles from "./workspace.module.css";
 
-export function WorkspaceHeader() {
+export function WorkspaceHeader({
+  active = "library",
+  username,
+  showAccount = true,
+}: {
+  active?: "home" | "library" | "account";
+  username?: string;
+  showAccount?: boolean;
+}) {
   return (
-    <header className="sticky top-0 z-20 border-b border-[var(--auth-border)] bg-white">
-      <div className="mx-auto flex min-h-14 w-full max-w-[1200px] flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 md:px-6">
-        <Link
-          href="/workspace"
-          aria-label="BetterLearning 题库"
-          className="flex items-baseline text-[18px] leading-none font-bold tracking-tight"
-        >
-          <span className="text-[var(--auth-text)]">Better</span>
+    <header className={styles.header}>
+      <a href="#workspace-content" className={styles.skipLink}>
+        跳到主要内容
+      </a>
+      <div className={styles.headerInner}>
+        <Link href="/" aria-label="BetterLearning 学习首页" className={styles.brand} translate="no">
+          <span>Better</span>
           <span className="text-[var(--auth-primary)]">Learning</span>
         </Link>
-        <span className="inline-flex shrink-0 items-center rounded-full border border-[#cfe0ff] bg-[var(--auth-primary-soft)] px-2 py-0.5 text-[11px] leading-4 font-medium text-[var(--auth-primary)]">
-          题库
-        </span>
-        <nav
-          aria-label="账号操作"
-          className="ml-auto flex items-center gap-2 text-sm text-[var(--auth-muted)]"
-        >
+        <nav aria-label="主要导航" className={styles.primaryNav}>
           <Link
             href="/"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 font-medium transition-colors hover:text-[var(--auth-text)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none"
+            aria-label="学习首页"
+            aria-current={active === "home" ? "page" : undefined}
+            className={styles.headerLink}
           >
-            <BlIcon name="user" size={16} />
-            账号资料
+            <span className="hidden sm:inline">学习</span>首页
           </Link>
-          <LogoutButton />
+          <Link
+            href="/workspace"
+            aria-current={active === "library" ? "page" : undefined}
+            className={styles.headerLink}
+          >
+            题库
+          </Link>
         </nav>
+        {showAccount ? (
+          <Link
+            href="/account"
+            title="账号资料"
+            className={styles.accountLink}
+            aria-current={active === "account" ? "page" : undefined}
+          >
+            <BlIcon name="user" size={17} />
+            <span className="sr-only max-w-32 truncate sm:not-sr-only">
+              {username ?? "账号资料"}
+            </span>
+          </Link>
+        ) : null}
       </div>
     </header>
   );

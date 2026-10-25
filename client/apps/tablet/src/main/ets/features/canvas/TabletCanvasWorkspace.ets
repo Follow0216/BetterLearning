@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import {
   AnswerManifest, AnswerState, AuthError, AuthResult, CanvasEditableDocument, CanvasImageBlock, CanvasLocalFile, CanvasView,
   FrozenAnswerUpload, FrozenTutorAnswer, TutorApi, TutorTurn, QuestionDetail, QuestionRasterHost, QuestionRasterResult, SolutionApi, SolutionDetail,
-  UserProfile, authSession, canvas_exists, canvas_read, canvas_text, canvas_sha256, canvas_utf8, canvas_write, clone_canvas_document,
+  ToastStore, UserProfile, authSession, canvas_exists, canvas_read, canvas_text, canvas_sha256, canvas_utf8, canvas_write, clone_canvas_document,
   valid_canvas_view, validate_answer_manifest, validate_canvas_document
 } from 'common';
 import { CanvasWorkspaceActions, CanvasWorkspaceState, TabletCanvasController } from './CanvasWorkspaceController';
@@ -58,6 +58,8 @@ class V2FreezeContext {
 /** 固定题面与可编辑笔迹共用一个原生世界画布；页面按钮只经 controller 调用真实结果。 */
 @Component
 export struct TabletCanvasWorkspace {
+  toast?: ToastStore;
+  private manual_refresh_scope: number | undefined = undefined;
   @Prop @Watch('question_changed') question: QuestionDetail | null = null;
   controller: TabletCanvasController = new TabletCanvasController();
   onStateChange: (state: CanvasWorkspaceState) => void = () => {};
@@ -163,6 +165,7 @@ export struct TabletCanvasWorkspace {
     this.mountKey = this.accountId + ':' + this.questionId + ':' + this.generation.toString();
   }
   private async initialize(refresh: boolean): Promise<void> {
+    if (!refresh) { this.manual_refresh_scope = undefined; }
     this.cancel_tutor_context(); this.freezeHandle = null;
     this.cancel_v2_context();
     const generation: number = ++this.generation;
@@ -260,11 +263,11 @@ export struct TabletCanvasWorkspace {
     try { validate_canvas_document(doc); } catch (error) { this.raster_failed('固定题面布局校验失败',request); return; }
     this.document = doc; this.files = result.files; this.rasterizing = false; this.dirty = true;
     this.mountKey = this.accountId + ':' + this.questionId + ':' + this.generation.toString();
-    this.persist(); this.emit();
+    this.persist(); this.emit(); this.finish_manual_refresh();
   }
   private raster_failed(message: string, request: RasterRequest): void {
     if (!this.raster_current(request)) { return; }
-    this.rasterizing = false; this.message = message; this.emit();
+    this.rasterizing = false; this.message = message; this.emit(); this.finish_manual_refresh();
   }
   private document_changed(doc: CanvasEditableDocument, key: string): void {
     if (!this.alive || key !== this.mountKey || this.busy || this.completed || this.needsRefresh || !authSession.has_valid_session() || !authSession.matches_access_token(this.token)) { return; }
@@ -628,12 +631,25 @@ export struct TabletCanvasWorkspace {
     if (saved && this.question !== null && this.question.questionId !== this.questionId && !this.busy) { this.initialize(false); }
     return saved ? AuthResult.success<boolean>(true) : AuthResult.failure<boolean>(AuthError.local_validation(this.message, {}));
   }
-  private refresh(): void {
+  private async refresh(): Promise<void> {
     if (this.busy) { return; }
+    this.manual_refresh_scope = this.toast?.captureScope();
     if (this.document !== null && this.store !== null) {
-      try { this.store.preserve(this.draft()); } catch (error) { this.message = '本机草稿保留失败，本次未刷新'; this.emit(); return; }
+      try { this.store.preserve(this.draft()); } catch (error) {
+        this.message = '本机草稿保留失败，本次未刷新'; this.emit(); this.finish_manual_refresh(); return;
+      }
     }
-    this.initialize(true);
+    const generation: number = this.generation + 1;
+    await this.initialize(true);
+    if (this.current(generation) && !this.rasterizing) { this.finish_manual_refresh(); }
+  }
+  private finish_manual_refresh(): void {
+    const scope: number | undefined = this.manual_refresh_scope;
+    this.manual_refresh_scope = undefined;
+    if (scope !== undefined && this.message.length > 0 && authSession.matches_access_token(this.token)) {
+      this.toast?.show({ key: 'tablet-canvas-refresh', type: 'error', message: '云端作答刷新未完成',
+        description: '请查看页面提示，本机草稿仍保留' }, scope);
+    }
   }
   build() {
     Stack({ alignContent: Alignment.Center }) {
