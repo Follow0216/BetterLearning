@@ -1,12 +1,13 @@
 import { AuthError, AuthResult, CitationModal, LearningV2Api, QuestionMarkdownView, V2Citation, V2TutorRequest, V2TutorRequestDetail,
-  V2TutorRequestPage, authSession } from 'common';
+  V2TutorRequestPage, accept_v2_detail, authSession, citationFocusController, citation_marker_ids,
+  v2_detail_is_active } from 'common';
 import { TabletBackController } from '../../components/TabletBackController';
 
 /** 当前题 V2 历史只读浏览；每次详情和引用都由服务端按当前账号重新授权。 */
 @Component
 export struct TabletV2HistoryView {
   @Prop questionId: string = '';
-  @Prop active: boolean = false;
+  @Prop @Watch('activeChanged') active: boolean = false;
   backController: TabletBackController = new TabletBackController();
   onBack: () => void = () => {};
   onUnauthorized: () => void = () => {};
@@ -25,11 +26,14 @@ export struct TabletV2HistoryView {
   private accountId: string = '';
   private citationDialog: CustomDialogController | null = null;
   private sessionTimer: number = -1;
+  private detailTimer: number = -1;
+  private detailPollCount: number = 0;
+  private detailInFlightEpoch: number = -1;
   private backHandler: () => boolean = () => {
     if (!this.active) { return false; }
     if (this.citationDialog !== null) {
       this.citationDialog.close(); this.citationDialog = null;
-      focusControl.requestFocus('tablet-citation-' + this.citationId);
+      this.restoreCitationFocus(this.citationId);
       return true;
     }
     this.goBack(); return true;
@@ -37,6 +41,7 @@ export struct TabletV2HistoryView {
 
   private goBack(): void {
     if (this.selectedRequestId.length > 0 || this.detail !== null) {
+      this.stopDetailPolling();
       this.detailEpoch += 1; this.selectedRequestId = ''; this.detail = null;
       this.loading = false; this.message = ''; return;
     }
@@ -49,32 +54,70 @@ export struct TabletV2HistoryView {
     this.accountId = authSession.read_user()?.accountId ?? ''; this.reload();
     this.sessionTimer = setInterval(() => {
       if (authSession.read_access_token() !== this.token || authSession.read_user()?.accountId !== this.accountId) {
+        this.stopDetailPolling();
         this.epoch += 1; this.detailEpoch += 1; this.selectedRequestId = '';
         this.requests = []; this.detail = null; this.nextCursor = null; this.loading = false;
-        this.citationDialog?.close(); this.citationDialog = null;
+        this.citationDialog?.close(); this.citationDialog = null; citationFocusController.clear();
       }
     },1000);
   }
   aboutToDisappear(): void {
     this.backController.detach(this.backHandler);
+    this.stopDetailPolling();
     this.alive = false; this.epoch += 1; this.detailEpoch += 1; this.selectedRequestId = '';
     if (this.sessionTimer !== -1) { clearInterval(this.sessionTimer); this.sessionTimer = -1; }
     this.citationDialog?.close(); this.citationDialog = null;
+    citationFocusController.clear();
   }
   private current(epoch: number): boolean {
-    return this.alive && epoch === this.epoch && this.token.length > 0 && this.accountId.length > 0 &&
+    return this.alive && this.active && epoch === this.epoch && this.token.length > 0 && this.accountId.length > 0 &&
       authSession.read_access_token() === this.token && authSession.read_user()?.accountId === this.accountId;
+  }
+  private activeChanged(): void {
+    if (!this.active) {
+      this.epoch += 1; this.detailInFlightEpoch = -1; this.loading = false;
+      this.citationDialog?.close(); this.citationDialog = null; citationFocusController.clear();
+      this.stopDetailPolling(); return;
+    }
+    if (this.selectedRequestId.length > 0) {
+      if (this.detail !== null && v2_detail_is_active(this.detail)) { this.startDetailPolling(); }
+      this.refreshSelectedDetail(false);
+    } else if (this.requests.length === 0) {
+      this.reload();
+    }
+  }
+  private stopDetailPolling(): void {
+    if (this.detailTimer !== -1) { clearInterval(this.detailTimer); this.detailTimer = -1; }
+  }
+  private startDetailPolling(): void {
+    this.stopDetailPolling();
+    if (!this.active || this.detail === null || !v2_detail_is_active(this.detail)) { return; }
+    this.detailPollCount = 0;
+    this.detailTimer = setInterval(() => { this.pollSelectedDetail(); },2000);
+  }
+  private pollSelectedDetail(): void {
+    if (!this.active || this.detail === null || !v2_detail_is_active(this.detail)) {
+      this.stopDetailPolling(); return;
+    }
+    if (this.detailPollCount >= 600) {
+      this.stopDetailPolling(); this.message = '自动更新已暂停，请手动刷新辅导详情'; return;
+    }
+    this.detailPollCount += 1;
+    this.refreshSelectedDetail(false);
   }
   private fail(error: AuthError | null): void {
     const actual: AuthError = error ?? AuthError.protocol_failure('辅导历史响应无效');
     this.message = actual.message;
     if (actual.is_unauthorized()) {
+      this.stopDetailPolling();
       this.epoch += 1; this.detailEpoch += 1; this.selectedRequestId = '';
       this.requests = []; this.detail = null; this.nextCursor = null; this.loading = false;
       if (authSession.clear_session_if_token(this.token)) { this.onUnauthorized(); }
     }
   }
   private async reload(): Promise<void> {
+    if (this.selectedRequestId.length > 0) { await this.refreshSelectedDetail(true); return; }
+    this.stopDetailPolling();
     this.epoch += 1; this.detailEpoch += 1; this.selectedRequestId = ''; const epoch: number = this.epoch;
     this.requests = []; this.detail = null; this.nextCursor = null; this.message = ''; this.loading = false;
     await this.loadPage(epoch,null);
@@ -95,6 +138,7 @@ export struct TabletV2HistoryView {
   private async openRequest(requestId: string): Promise<void> {
     const epoch: number = this.epoch;
     if (!this.current(epoch)) { return; }
+    this.stopDetailPolling();
     const detailEpoch: number = ++this.detailEpoch;
     this.selectedRequestId = requestId; this.detail = null; this.loading = true; this.message = '';
     try {
@@ -104,23 +148,61 @@ export struct TabletV2HistoryView {
       if (result.data.request.requestId !== requestId || result.data.request.questionId !== this.questionId) {
         this.message = '辅导详情与当前题不一致'; return;
       }
-      this.detail = result.data;
+      if (!accept_v2_detail(this.detail,result.data)) { this.message = '辅导状态暂未同步，请重试'; return; }
+      this.detail = result.data; this.startDetailPolling();
     } catch (error) {
       if (this.current(epoch) && detailEpoch === this.detailEpoch) { this.message = '辅导详情暂不可用，请重试'; }
     } finally { if (this.current(epoch) && detailEpoch === this.detailEpoch) { this.loading = false; } }
   }
+  private async refreshSelectedDetail(showLoading: boolean): Promise<void> {
+    const epoch: number = this.epoch;
+    const detailEpoch: number = this.detailEpoch;
+    const requestId: string = this.selectedRequestId;
+    if (!this.current(epoch) || requestId.length === 0 || this.detailInFlightEpoch === detailEpoch) { return; }
+    this.detailInFlightEpoch = detailEpoch;
+    if (showLoading) { this.loading = true; this.message = ''; }
+    try {
+      const result: AuthResult<V2TutorRequestDetail> = await this.api.getRequest(this.token,this.questionId,requestId);
+      if (!this.current(epoch) || detailEpoch !== this.detailEpoch || this.selectedRequestId !== requestId) { return; }
+      if (!result.isSuccess || result.data === null) { this.fail(result.error); return; }
+      if (!accept_v2_detail(this.detail,result.data)) { return; }
+      this.detail = result.data;
+      if (!v2_detail_is_active(result.data)) { this.stopDetailPolling(); }
+      else if (this.detailTimer === -1) { this.startDetailPolling(); }
+    } catch (error) {
+      if (this.current(epoch) && detailEpoch === this.detailEpoch) { this.message = '辅导详情暂不可用，请重试'; }
+    } finally {
+      if (this.detailInFlightEpoch === detailEpoch) { this.detailInFlightEpoch = -1; }
+      if (showLoading && this.current(epoch) && detailEpoch === this.detailEpoch) { this.loading = false; }
+    }
+  }
   private openCitation(citationId: string): void {
+    if (!this.allowedCitationIds().includes(citationId)) { return; }
     this.citationId = citationId;
     this.citationDialog?.close();
     this.citationDialog = new CustomDialogController({
       builder: CitationModal({ citationId: this.citationId,
         onUnauthorized: () => this.onUnauthorized(),
         onClose: () => { this.citationDialog?.close(); this.citationDialog = null;
-          focusControl.requestFocus('tablet-citation-' + citationId); } }),
-      cancel: () => { this.citationDialog = null; focusControl.requestFocus('tablet-citation-' + citationId); },
+          this.restoreCitationFocus(citationId); } }),
+      cancel: () => { this.citationDialog = null; this.restoreCitationFocus(citationId); },
       autoCancel: true, customStyle: true
     });
     this.citationDialog.open();
+  }
+  private allowedCitationIds(): string[] {
+    if (this.detail === null || this.detail.result === null) { return []; }
+    return citation_marker_ids(this.detail.result.bodyMarkdown,this.detail.result.citations);
+  }
+  private visibleCitations(): V2Citation[] {
+    if (this.detail === null || this.detail.result === null) { return []; }
+    const allowed: string[] = this.allowedCitationIds();
+    return this.detail.result.citations.filter((citation: V2Citation) => allowed.includes(citation.citationId));
+  }
+  private restoreCitationFocus(citationId: string): void {
+    if (!citationFocusController.restore(citationId)) {
+      focusControl.requestFocus('tablet-citation-' + citationId);
+    }
   }
 
   build() {
@@ -140,13 +222,15 @@ export struct TabletV2HistoryView {
             Text(this.detail.request.mode === 'FULL_SOLUTION' ? '完整解答' : '提示与下一步')
             Text(this.detail.request.status).fontSize(13)
             if (this.detail.result !== null) {
-              QuestionMarkdownView({ bodyMarkdown: this.detail.result.bodyMarkdown, maxLength: 65536 })
+              QuestionMarkdownView({ bodyMarkdown: this.detail.result.bodyMarkdown, maxLength: 65536,
+                citations: this.detail.result.citations,
+                onCitation: (citationId: string) => this.openCitation(citationId) })
                 .width('100%').height(400)
-              ForEach(this.detail.result.citations, (citation: V2Citation) => {
+              ForEach(this.visibleCitations(), (citation: V2Citation) => {
                 Button('[' + citation.label + '] ' + citation.sourceType)
                   .id('tablet-citation-' + citation.citationId)
                   .accessibilityText('打开引用 ' + citation.label)
-                  .onClick(() => this.openCitation(citation.citationId))
+                  .onClick(() => { citationFocusController.clear(); this.openCitation(citation.citationId); })
               }, (citation: V2Citation) => citation.citationId)
             }
           }.alignItems(HorizontalAlign.Start).width('100%').padding(20)

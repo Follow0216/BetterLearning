@@ -32,12 +32,13 @@ const tabEnum=shellAst.statements.find(s=>s.name?.text==='TabletTab').getText(sh
 const code=tabEnum+'\n'+controller+
   '\nclass Shell {'+member(shell,'TabletShell','backHandler')+'}\n'+
   'class Answer {'+member(answer,'AnswerWorkspace','backHandler')+'}\n'+
-  'class History {'+member(history,'TabletV2HistoryView','backHandler')+member(history,'TabletV2HistoryView','goBack')+'}\n'+
+  'class History {'+member(history,'TabletV2HistoryView','backHandler')+member(history,'TabletV2HistoryView','goBack')+
+    member(history,'TabletV2HistoryView','stopDetailPolling')+'}\n'+
   'class Notes {'+member(notes,'LearningNotesView','goBack')+'}\n'+
   'class Page {'+member(index,'Index','onBackPress')+'}\n'+
   'globalThis.Classes={TabletBackController,Shell,Answer,History,Notes,Page};';
 const js=ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText;
-const sandbox={focusControl:{requestFocus:()=>{}}};vm.createContext(sandbox);vm.runInContext(js,sandbox);
+const sandbox={focusControl:{requestFocus:()=>{}},clearInterval:()=>{}};vm.createContext(sandbox);vm.runInContext(js,sandbox);
 const {TabletBackController,Shell,Answer,History,Notes,Page}=sandbox.Classes;
 const controllerInstance=new TabletBackController(),page=new Page();page.backController=controllerInstance;
 const shellInstance=new Shell();shellInstance.foreground=true;shellInstance.active_tab='library';shellInstance.notesBackToken=0;
