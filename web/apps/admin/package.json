@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@betterlearning/ui-feedback": "workspace:*",
     "@tanstack/react-query": "5.104.5",
     "next": "catalog:",
     "react": "catalog:",
