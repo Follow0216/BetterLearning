@@ -62,7 +62,7 @@ export function AdminLogoutButton() {
   return (
     <div className="flex flex-col gap-2">
       {error.length > 0 ? (
-        <p id="admin-logout-error" className="text-[13px] text-[var(--admin-danger)]">
+        <p id="admin-logout-error" role="alert" className="text-[13px] text-[var(--admin-danger)]">
           {error}
         </p>
       ) : null}
