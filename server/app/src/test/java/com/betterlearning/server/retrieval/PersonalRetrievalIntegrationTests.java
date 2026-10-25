@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -30,6 +33,8 @@ import java.util.concurrent.TimeoutException;
 import javax.sql.DataSource;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
+import com.betterlearning.server.agent.config.EmbeddingProperties;
+import com.betterlearning.server.agent.embedding.HttpEmbeddingClient;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
@@ -407,6 +412,82 @@ class PersonalRetrievalIntegrationTests {
         assertThat(ranked.evidence()).hasSize(1);
         assertThat(ranked.evidence().get(0).candidate().sourceId()).isEqualTo(correct.sourceId());
         assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(correctText);
+    }
+
+    @Test
+    void noteTitleMethodsIndexWithoutChangingFormulaAnchorEmbeddingOrCitation() {
+        String formula = "$$x^2+2x=(x+1)^2-1$$";
+        EmbeddingProperties properties = new EmbeddingProperties();
+        properties.setEnabled(true);
+        properties.setModel(MODEL);
+        properties.setDimensions(2);
+        HttpEmbeddingClient embedding = mock(HttpEmbeddingClient.class);
+        when(embedding.embedWithStats(List.of(formula))).thenReturn(
+                new HttpEmbeddingClient.EmbeddingResult(List.of(new double[] {1, 0}),
+                1, 5L, 5L, MODEL));
+        HandwritingSourceReader handwriting = mock(HandwritingSourceReader.class);
+        RetrievalIndexWorker worker = new RetrievalIndexWorker(sources, index, embedding, properties,
+                JsonMapper.builder().build(), handwriting);
+
+        NoteModels.Note matching = notes.create(owner, UUID.randomUUID().toString(),
+                new NoteModels.Write("配方法", formula));
+        worker.process(index.claim().orElseThrow());
+        assertThat(sources.get(owner, matching.sourceId(), 1).version().status()).isEqualTo("READY");
+        for (String title : List.of("普通公式笔记", "换元法", "不使用配方法",
+                "柯西施瓦茨不等式")) {
+            NoteModels.Note other = notes.create(owner, UUID.randomUUID().toString(),
+                    new NoteModels.Write(title, formula));
+            Job job = index.claim().orElseThrow();
+            assertThat(job.sourceId()).isEqualTo(other.sourceId());
+            worker.process(job);
+            assertThat(sources.get(owner, other.sourceId(), 1).version().status()).isEqualTo("READY");
+        }
+        Anchor matchingAnchor = sources.get(owner, matching.sourceId(), 1).anchors().get(0);
+        assertThat(matchingAnchor.text()).isEqualTo(formula);
+        assertThat(matchingAnchor.contentSha256()).isEqualTo(sha256(formula.getBytes(StandardCharsets.UTF_8)));
+        String citation = citationFixture(owner, matching.sourceId(), 1, matchingAnchor.anchorId(), "VERIFIED");
+        assertThat(citations.resolve(owner, citation).markdown()).isEqualTo(formula);
+
+        NoteModels.Note legacy = notes.create(owner, UUID.randomUUID().toString(),
+                new NoteModels.Write("配方法", formula));
+        Job oldJob = index.claim().orElseThrow();
+        Chunk draft = chunk(legacy.sourceId(), 1, formula, 1, 0);
+        Chunk emptyMetadata = new Chunk(draft.anchor(), null, draft.text(), Set.of(), Set.of(),
+                new double[] {1, 0});
+        assertThat(index.complete(oldJob, List.of(emptyMetadata), MODEL, 2)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT method_tags::text FROM ma_retrieval_chunk "
+                + "WHERE account_id=? AND source_id=?", String.class, owner, legacy.sourceId()))
+                .isEqualTo("[]");
+        Set<String> methods = Set.of("配方法");
+        var before = new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                index.candidates(owner, ChineseMathTerms.terms("配方法"), methods,
+                        new double[] {1, 0}, MODEL, 2), HybridRanker.Limits.defaults(), null);
+        assertThat(before.evidence()).extracting(hit -> hit.candidate().sourceId())
+                .containsExactly(matching.sourceId());
+        assertThat(jdbc.queryForObject("SELECT method_tags::text FROM ma_retrieval_chunk "
+                + "WHERE account_id=? AND source_id=?", String.class, owner, legacy.sourceId()))
+                .isEqualTo("[]");
+
+        assertThat(sources.reindex(owner, legacy.sourceId(), 1, 1).indexRevision()).isEqualTo(2);
+        Job rebuilt = index.claim().orElseThrow();
+        assertThat(rebuilt.sourceId()).isEqualTo(legacy.sourceId());
+        worker.process(rebuilt);
+        assertThat(sources.get(owner, legacy.sourceId(), 1).version().status()).isEqualTo("READY");
+        assertThat(jdbc.queryForObject("SELECT method_tags::text FROM ma_retrieval_chunk "
+                + "WHERE account_id=? AND source_id=?", String.class, owner, legacy.sourceId()))
+                .contains("配方法");
+        Anchor rebuiltAnchor = sources.get(owner, legacy.sourceId(), 1).anchors().get(0);
+        assertThat(rebuiltAnchor.anchorId()).isEqualTo(draft.anchor().anchorId());
+        assertThat(rebuiltAnchor.text()).isEqualTo(formula);
+        assertThat(rebuiltAnchor.contentSha256()).isEqualTo(draft.anchor().contentSha256());
+        var after = new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                index.candidates(owner, ChineseMathTerms.terms("配方法"), methods,
+                        new double[] {1, 0}, MODEL, 2), HybridRanker.Limits.defaults(), null);
+        assertThat(after.evidence()).extracting(hit -> hit.candidate().sourceId())
+                .containsExactlyInAnyOrder(matching.sourceId(), legacy.sourceId());
+        assertThat(citations.resolve(owner, citation).markdown()).isEqualTo(formula);
+        verify(embedding, times(6)).embedWithStats(List.of(formula));
+        verifyNoInteractions(handwriting);
     }
 
     @Test
