@@ -21,10 +21,10 @@ function parse(file, source) {
 }
 const surface = parse(surfacePath, surfaceText);
 const component = surface.statements.find(s => s.name?.text === 'CanvasSurface');
-const methods = new Set(['touch', 'cancel_gesture', 'discard_edit', 'control_touch', 'point', 'append_point',
+const methods = new Set(['reset', 'aboutToDisappear', 'touch', 'cancel_gesture', 'discard_edit', 'control_touch', 'point', 'append_point',
   'erase_path', 'erase', 'commit', 'undo', 'update_undo', 'read_only_changed',
   'stop_stroke', 'capture_at_pen_up', 'fulfill_freeze', 'cancel_freeze', 'document_changed']);
-const fields = new Set(['tool', 'readOnly', 'document', 'undoEnabled', 'pointers', 'pointerSources', 'editPointerId',
+const fields = new Set(['freezeHandle', 'paintGeneration', 'backgroundMap', 'viewSet', 'tool', 'readOnly', 'document', 'undoEnabled', 'pointers', 'pointerSources', 'editPointerId',
   'penKind', 'penColor', 'penSize', 'pressureSampler', 'strokeBudget', 'strokeStopped', 'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
   'erased', 'undoHistory', 'pointBudget', 'view', 'alive', 'committedDocument', 'waitingFreeze']);
 const extracted = [];
@@ -83,10 +83,11 @@ class InputHarness {
     this.changes = []; this.savedViews = []; this.failures = [];
     this.onDocumentChange = doc => { this.document = doc; this.changes.push(JSON.stringify(doc)); };
     this.onViewChange = view => this.savedViews.push(JSON.stringify(view));
-    this.onUndoChange = () => {};
+    this.onUndoChange = () => {}; this.onFreezeHandle = () => {};
     this.onFailure = message => this.failures.push(message);
   }
   paint() {}
+  configure_view() {}
   change_view(view, persist) { this.view = view; if (persist) this.onViewChange(view); }
 }
 globalThis.InputHarness = InputHarness;
@@ -356,7 +357,7 @@ check('capacity rejects the next sample explicitly and preserves the accepted pr
   assert.equal(h.strokeBudget.begin(h.committedDocument, h.liveStroke), true);
   event(h, Phase.Move, Source.Pen, [pt(1, 20, 20)]);
   assert.equal(h.strokeStopped, true); assert.equal(json(h.liveStroke), starter);
-  assert.equal(json(h.document), before); assert.ok(h.failures[0].includes('新增采样已停止'));
+  assert.equal(json(h.document), before); assert.ok(h.failures[0].includes('新的笔迹已停止'));
   event(h, Phase.Up, Source.Pen, [pt(1, 30, 30)]);
   assert.equal(h.document.strokes.length, 2); assert.equal(json(h.document.strokes[1]), starter);
   assert.ok(h.failures[h.failures.length - 1].includes('已保留'));
@@ -367,6 +368,7 @@ check('capacity refuses new pen without modifying the old document and recovers 
   h.strokeBudget = new sandbox.CanvasStrokeBudget(1);
   drag(h, Source.Pen); assert.equal(json(h.document), before); assert.equal(h.changes.length, 0);
   assert.ok(h.failures.length > 0);
+  assert.ok(!h.failures[h.failures.length - 1].includes('本笔已接收'));
   h.strokeBudget = new sandbox.CanvasStrokeBudget(); h.tool = Tool.ERASER;
   drag(h, Source.Pen); assert.equal(h.document.strokes.length, 0);
   h.tool = Tool.PEN; drag(h, Source.Pen, 2); assert.equal(h.document.strokes.length, 1);
@@ -376,6 +378,28 @@ check('point budget stops explicitly without silently discarding samples', () =>
   event(h, Phase.Move, Source.Pen, [pt(1, 20, 20)]); assert.equal(h.strokeStopped, true);
   event(h, Phase.Up, Source.Pen, [pt(1, 30, 30)]);
   assert.equal(h.document.strokes[1].points.length, 1); assert.ok(h.failures.length > 0);
+});
+for (const lifecycle of ['reset', 'aboutToDisappear']) {
+  check('budget releases old question references immediately on ' + lifecycle, () => {
+    const h = new InputHarness();
+    drag(h, Source.Pen);
+    assert.ok(h.strokeBudget.sizes.size > 0); assert.notEqual(h.strokeBudget.layout, null);
+    if (lifecycle === 'reset') h.document = { ...h.document, questionLayout: { bounds: { x: 0, y: 0, width: 720, height: 1024 } }, strokes: [] };
+    h[lifecycle]();
+    assert.equal(h.strokeBudget.sizes.size, 0); assert.equal(h.strokeBudget.layout, null);
+    assert.equal(h.strokeBudget.stroke, null); assert.equal(h.strokeBudget.emptyBytes, 0);
+    assert.equal(h.strokeBudget.documentBytes, 0);
+  });
+}
+check('normal up keeps old stroke cache while erasure and undo prune removed identities immediately', () => {
+  const h = new InputHarness(); const old = h.document.strokes[0]; drag(h, Source.Pen);
+  assert.ok(h.strokeBudget.sizes.has(old), 'normal up must not clear cache');
+  const added = h.document.strokes[1];
+  h.strokeBudget.begin(h.document, { strokeId: 'future', color: '#152744', width: 2, points: [{ x: 0, y: 0 }] });
+  h.strokeBudget.finish(); assert.ok(h.strokeBudget.sizes.has(added));
+  h.undo(); assert.equal(h.strokeBudget.sizes.has(added), false); assert.ok(h.strokeBudget.sizes.has(old));
+  h.tool = Tool.ERASER; drag(h, Source.Pen, 3);
+  assert.equal(h.strokeBudget.sizes.has(old), false); assert.equal(h.document.strokes.length, 0);
 });
 async function freezeChecks() {
   async function checkAsync(name, run) {

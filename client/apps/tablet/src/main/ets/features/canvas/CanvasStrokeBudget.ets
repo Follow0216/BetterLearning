@@ -31,6 +31,17 @@ export class CanvasStrokeBudget {
   finish(): void {
     this.stroke = null; this.remaining = 0;
   }
+  /** 仅用于切题/卸载；正常抬笔继续复用已提交笔迹尺寸。 */
+  clear(): void {
+    this.finish(); this.sizes.clear(); this.layout = null; this.emptyBytes = 0; this.documentBytes = 0;
+  }
+  /** 擦除/撤销只裁掉已移除对象，保留其他笔画的尺寸缓存，不重新扫描点。 */
+  retain(strokes: CanvasStroke[]): void {
+    const kept: Set<CanvasStroke> = new Set<CanvasStroke>(strokes);
+    this.sizes.forEach((_size: number, stroke: CanvasStroke) => {
+      if (!kept.has(stroke)) { this.sizes.delete(stroke); }
+    });
+  }
   private sync(document: CanvasEditableDocument): void {
     if (this.layout !== document.questionLayout) {
       const empty: CanvasEditableDocument = { schemaVersion: document.schemaVersion,

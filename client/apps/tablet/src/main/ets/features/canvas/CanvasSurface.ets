@@ -84,11 +84,11 @@ export struct CanvasSurface {
     this.alive = true; this.committedDocument = this.document; this.onFreezeHandle(this.freezeHandle,true);
   }
   aboutToDisappear(): void {
-    this.alive = false; this.paintGeneration++; this.cancel_gesture(); this.onFreezeHandle(this.freezeHandle,false);
+    this.alive = false; this.paintGeneration++; this.cancel_gesture(); this.strokeBudget.clear(); this.onFreezeHandle(this.freezeHandle,false);
     this.release_background();
   }
   private reset(): void {
-    this.cancel_gesture(); this.committedDocument = this.document; this.undoHistory = []; this.update_undo(); this.viewSet = false;
+    this.cancel_gesture(); this.strokeBudget.clear(); this.committedDocument = this.document; this.undoHistory = []; this.update_undo(); this.viewSet = false;
     this.paintGeneration++;
     this.release_background();
     this.configure_view();
@@ -272,7 +272,7 @@ export struct CanvasSurface {
     this.undoHistory.push(before); if (this.undoHistory.length > 50) { this.undoHistory.shift(); }
     this.update_undo();
     const next: CanvasEditableDocument = { schemaVersion: 1, questionLayout: this.committedDocument.questionLayout, strokes: strokes };
-    this.committedDocument = next; this.onDocumentChange(next);
+    this.committedDocument = next; this.strokeBudget.retain(strokes); this.onDocumentChange(next);
   }
   private undo(): void {
     if (this.readOnly || this.committedDocument === null || this.undoHistory.length === 0) { return; }
@@ -280,7 +280,7 @@ export struct CanvasSurface {
     const strokes: CanvasStroke[] = this.undoHistory.pop() as CanvasStroke[];
     this.update_undo();
     const next: CanvasEditableDocument = { schemaVersion: 1, questionLayout: this.committedDocument.questionLayout, strokes: strokes };
-    this.committedDocument = next; this.onDocumentChange(next);
+    this.committedDocument = next; this.strokeBudget.retain(strokes); this.onDocumentChange(next);
   }
   private capture_at_pen_up(): Promise<AuthResult<CanvasEditableDocument>> {
     // Promise executor 在调用栈内执行：检查当前笔与登记等待之间没有 await/Prop 传播竞态。
@@ -346,7 +346,7 @@ export struct CanvasSurface {
   }
   private stop_stroke(): void {
     this.strokeStopped = true;
-    this.onFailure('本笔已达到作答容量上限，新增采样已停止；已保留此前笔迹，请抬笔后擦除部分内容再写');
+    this.onFailure('作答容量已满，新的笔迹已停止；已有笔迹已保留，请抬笔后擦除部分内容再写');
   }
   private erase_path(point: CanvasPoint): void {
     const from: CanvasPoint = this.last ?? point;
@@ -438,7 +438,7 @@ export struct CanvasSurface {
           this.commit(this.erased,this.eraseBefore);
         }
         if (this.strokeStopped) {
-          this.onFailure('已达到作答容量上限，本笔已接收部分与已有笔迹已保留；请擦除部分内容再写');
+          this.onFailure('作答容量已满，已有笔迹已保留；请擦除部分内容后继续');
         }
         this.discard_edit(false); this.last = null; this.fulfill_freeze();
       }

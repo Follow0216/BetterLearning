@@ -26,7 +26,8 @@ const emitted = ts.transpileModule(modules.join('\n'), {
   compilerOptions: { target: ts.ScriptTarget.ES2020 }, reportDiagnostics: true
 });
 assert.equal(emitted.diagnostics.length, 0);
-const sandbox = vm.createContext({ canvas_utf8: text => new TextEncoder().encode(text) });
+const encodedValues = [];
+const sandbox = vm.createContext({ canvas_utf8: text => { encodedValues.push(text); return new TextEncoder().encode(text); } });
 vm.runInContext(emitted.outputText, sandbox);
 const api = vm.runInContext('({ CanvasPressureSampler, CanvasPenKind, CanvasStrokeBudget, CANVAS_EDITABLE_JSON_LIMIT, canvas_stored_pressure, canvas_pen_width, canvas_pen_color, ' +
   'canvas_point_width, validate_canvas_document, validate_answer_manifest, canvas_extent, canvas_grid, ' +
@@ -217,6 +218,27 @@ check('200000 high precision coordinate points stop before JSON overflow and pre
   assert.ok(acceptedBytes <= api.CANVAS_EDITABLE_JSON_LIMIT);
   assert.equal(d.strokes.length, 1); assert.equal(d.strokes[0].strokeId, 's');
   Object.assign(longTraceEvidence, { highPrecisionAcceptedPoints: live.points.length, acceptedBytes });
+});
+check('clear immediately releases a large old document layout and cached stroke identities', () => {
+  const old = doc(stroke({ points: Array.from({ length: 200000 }, (_, i) => ({ x: i / 10, y: i / 20 })) }));
+  const budget = new api.CanvasStrokeBudget();
+  budget.begin(old, stroke({ strokeId: 'new' })); budget.finish();
+  assert.equal(budget.sizes.size, 1); assert.equal(budget.layout, old.questionLayout);
+  budget.clear();
+  assert.equal(budget.sizes.size, 0); assert.equal(budget.layout, null); assert.equal(budget.stroke, null);
+  assert.equal(budget.emptyBytes, 0); assert.equal(budget.documentBytes, 0); assert.equal(budget.remaining, 0);
+});
+check('finish reuses old encoded sizes while retain prunes removed cache keys without recoding points', () => {
+  const first = stroke({ strokeId: 'first' }); const second = stroke({ strokeId: 'second' });
+  const d = doc(first); d.strokes.push(second); const budget = new api.CanvasStrokeBudget();
+  budget.begin(d, stroke({ strokeId: 'active1' })); budget.finish();
+  const serialized = JSON.stringify(first); const count = encodedValues.filter(value => value === serialized).length;
+  budget.begin(d, stroke({ strokeId: 'active2' })); budget.finish();
+  assert.equal(encodedValues.filter(value => value === serialized).length, count, 'normal up reuses committed stroke size');
+  budget.retain([first]);
+  assert.equal(budget.sizes.has(second), false); assert.equal(budget.sizes.has(first), true);
+  assert.equal(encodedValues.filter(value => value === serialized).length, count, 'pruning must not reserialize kept points');
+  budget.retain([]); assert.equal(budget.sizes.size, 0);
 });
 console.log(JSON.stringify({ scenarios, longTraceEvidence, result: 'PASS', source: files,
   boundary: 'pure source execution + Canvas call recording; no ArkUI rasterization, disk/network round trip or physical stylus' }));
