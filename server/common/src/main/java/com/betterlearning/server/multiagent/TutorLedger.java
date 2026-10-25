@@ -21,6 +21,9 @@ public interface TutorLedger {
     Optional<Execution> start(long accountId, String runId, long expectedRevision);
     Attempt beginAttempt(long accountId, String runId, Role role, int sequence, String inputDigest);
     boolean callIntent(long accountId, String runId, String attemptId, long fence);
+    /** 外部调用确认结束时释放执行预算，即使取消已废止发布fence也可释放；本方法不授予发布权。 */
+    boolean finishProviderCall(long accountId, String runId, String attemptId);
+    int providerCallsInFlight(Long accountId);
     boolean confirm(long accountId, String runId, String attemptId, long fence, String output, String outputDigest);
     /** 同事务将attempt置UNKNOWN、run置FAILED/OUTCOME_UNKNOWN并释放交互槽，禁止自动重发。 */
     boolean unknown(long accountId, String runId, String attemptId, long fence);
