@@ -168,9 +168,13 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         }
         AnswerModels.StoredManifest stored = files.manifest(request.snapshotFileRef());
         List<MultiAgentModels.Image> images = new ArrayList<>();
+        AnswerModels.Canvas canvas = stored.source().canvas();
         for (AnswerModels.Block block : stored.source().blocks()) {
-            String position = "index=" + block.index() + ", x=" + block.x() + ", y=" + block.y()
-                    + ", width=" + block.width() + ", height=" + block.height();
+            double worldX = canvas.originX() + block.x();
+            double worldY = canvas.originY() + block.y();
+            String position = "index=" + block.index() + ", worldX=" + worldX + ", worldY=" + worldY
+                    + ", width=" + block.width() + ", height=" + block.height()
+                    + ", pixelWidth=" + block.pixelWidth() + ", pixelHeight=" + block.pixelHeight();
             images.add(new MultiAgentModels.Image(files.block(request.snapshotFileRef(), block.partName()),
                     "image/png", position));
         }
