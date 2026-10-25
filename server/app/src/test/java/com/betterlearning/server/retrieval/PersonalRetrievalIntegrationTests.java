@@ -114,8 +114,8 @@ class PersonalRetrievalIntegrationTests {
             .asCompatibleSubstituteFor("postgres");
 
     @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(IMAGE)
-            .withDatabaseName("betterlearning").withUsername("test").withPassword("test");
+    static final PostgreSQLContainer POSTGRES =
+            com.betterlearning.server.support.IntegrationContainers.postgres();
 
     private static AnnotationConfigApplicationContext context;
     private static JdbcTemplate jdbc;
@@ -552,6 +552,48 @@ class PersonalRetrievalIntegrationTests {
                     + "WHERE c.citation_id=?", String.class, citation)).isEqualTo(formula);
             assertThat(citations.resolve(owner, citation).quotedText()).isNull();
             assertThat(citations.resolve(owner, citation).handwritingLocator()).isNotNull();
+        } finally {
+            handwritingMethods.setRecallEnabled(false);
+            handwritingMethods.setEnabled(false);
+        }
+    }
+
+    @Test
+    void negatedStructuredCandidatesCannotSaturateSqlShortlistAheadOfActualMethod() throws Exception {
+        handwritingMethods.setEnabled(true);
+        try {
+            StructuredSaved actual = readyStructuredSaved(owner, "$$x^2+2x=(x+1)^2-1$$");
+            // Make both top-40 arms deterministic: the actual method has a lower
+            // vector score and sorts after every negated row on lexical ties.
+            assertThat(jdbc.update("UPDATE ma_retrieval_chunk SET chunk_id=?, "
+                    + "embedding=CAST(? AS vector) WHERE source_id=?",
+                    "ffffffff-ffff-ffff-ffff-ffffffffffff", "[0,1]", actual.sourceId())).isEqualTo(1);
+            Set<String> negatedSources = new java.util.HashSet<>();
+            for (int ordinal = 0; ordinal < 41; ordinal++) {
+                StructuredSaved negated = readyStructuredSaved(owner,
+                        "不采用配方法。第 " + ordinal + " 步仅作对照");
+                negatedSources.add(negated.sourceId());
+                assertThat(jdbc.update("UPDATE ma_retrieval_chunk SET chunk_id=?, "
+                        + "embedding=CAST(? AS vector) WHERE source_id=?",
+                        String.format("00000000-0000-0000-0000-%012x", ordinal + 1),
+                        "[1,0]", negated.sourceId())).isEqualTo(1);
+            }
+            assertThat(negatedSources).hasSize(41);
+            handwritingMethods.setRecallEnabled(true);
+            Set<String> methods = Set.of("配方法");
+            var candidates = index.candidates(owner, Set.of(), methods,
+                    new double[] {1, 0}, MODEL, 2);
+            assertThat(candidates).extracting(item -> item.sourceId())
+                    .contains(actual.sourceId());
+            for (var candidate : candidates) {
+                if (negatedSources.contains(candidate.sourceId())) {
+                    assertThat(candidate.lexicalScore()).isZero();
+                }
+            }
+            var ranked = new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                    candidates, HybridRanker.Limits.defaults(), null);
+            assertThat(ranked.evidence()).extracting(item -> item.candidate().sourceId())
+                    .containsExactly(actual.sourceId());
         } finally {
             handwritingMethods.setRecallEnabled(false);
             handwritingMethods.setEnabled(false);
