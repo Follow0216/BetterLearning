@@ -322,6 +322,77 @@ class PersonalRetrievalIntegrationTests {
     }
 
     @Test
+    void unknownLongTailMethodRecallsLegacyTextButRejectsNegationAndRevokedSources() {
+        String method = "柯西施瓦茨不等式";
+        for (int ordinal = 0; ordinal < 41; ordinal++) {
+            readyLegacyNote(owner, "高向量干扰", "数列公差计算，第" + ordinal + "份无关资料", 1, 0);
+        }
+        String correctText = "使用柯西施瓦茨不等式，可得内积平方不超过两个平方和之积。";
+        NoteModels.Note correct = readyLegacyNote(owner, "旧长尾方法", correctText, 0.99, 0.15);
+        NoteModels.Note negated = readyLegacyNote(owner, "否定资料",
+                "这里不推荐使用柯西施瓦茨不等式，应改用其他方法。", 0.995, 0.1);
+        NoteModels.Note foreign = readyLegacyNote(stranger, "别人的方法", correctText, 1, 0);
+        NoteModels.Note deleted = readyLegacyNote(owner, "随后删除", correctText, 1, 0);
+        NoteModels.Note stale = readyLegacyNote(owner, "随后编辑", correctText, 1, 0);
+        notes.delete(owner, deleted.noteId(), NoteContent.etag(deleted.noteId(), 1));
+        notes.update(owner, stale.noteId(), NoteContent.etag(stale.noteId(), 1),
+                new NoteModels.Write("新版本尚未索引", "更新后不使用旧版证据"));
+        assertThat(sources.get(owner, stale.sourceId(), 2).version().status()).isEqualTo("INDEX_PENDING");
+
+        Set<String> methods = Set.of(method);
+        var candidates = index.candidates(owner, ChineseMathTerms.terms(method), methods,
+                new double[] {1, 0}, MODEL, 2);
+        assertThat(candidates).extracting(candidate -> candidate.sourceId())
+                .contains(correct.sourceId())
+                .doesNotContain(negated.sourceId(), foreign.sourceId(), deleted.sourceId(), stale.sourceId());
+        assertThat(candidates.stream().filter(candidate -> candidate.sourceId().equals(correct.sourceId()))
+                .findFirst().orElseThrow().methodTags()).isEmpty();
+
+        var ranked = new HybridRanker().rank(new HybridRanker.Query(methods.iterator().next(), methods),
+                candidates, HybridRanker.Limits.defaults(), null);
+        assertThat(ranked.evidence()).hasSize(1);
+        assertThat(ranked.evidence().get(0).candidate().sourceId()).isEqualTo(correct.sourceId());
+        assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(correctText);
+    }
+
+    @Test
+    void unknownLongTailLabelDoesNotMatchSuffixInsideGeneralizedMethodName() {
+        String method = "切比雪夫不等式";
+        for (int ordinal = 0; ordinal < 41; ordinal++) {
+            readyLegacyNote(owner, "广义方法干扰",
+                    "广义切比雪夫不等式适用，第" + ordinal + "份资料", 1, 0);
+        }
+        String correctText = "切比雪夫不等式：用于概率偏差的上界估计。";
+        NoteModels.Note correct = readyLegacyNote(owner, "原方法资料", correctText, 0.99, 0.15);
+        String lastChunkId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        assertThat(jdbc.update("UPDATE ma_retrieval_chunk SET chunk_id=? "
+                + "WHERE account_id=? AND source_id=?", lastChunkId, owner, correct.sourceId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_retrieval_chunk WHERE account_id=? "
+                + "AND method_tags='[]'::jsonb AND terms='[]'::jsonb", Integer.class, owner))
+                .isEqualTo(42);
+
+        Set<String> methods = Set.of(method);
+        var candidates = index.candidates(owner, ChineseMathTerms.terms(method), methods,
+                new double[] {1, 0}, MODEL, 2);
+        assertThat(candidates).extracting(candidate -> candidate.sourceId()).contains(correct.sourceId());
+        var distractors = candidates.stream()
+                .filter(candidate -> !candidate.sourceId().equals(correct.sourceId())).toList();
+        assertThat(distractors).hasSize(40)
+                .allSatisfy(candidate -> {
+                    assertThat(candidate.text()).startsWith("广义切比雪夫不等式适用");
+                    assertThat(candidate.lexicalScore()).isZero();
+                });
+        assertThat(candidates.stream().filter(candidate -> candidate.sourceId().equals(correct.sourceId()))
+                .findFirst().orElseThrow().lexicalScore()).isPositive();
+
+        var ranked = new HybridRanker().rank(new HybridRanker.Query(method, methods),
+                candidates, HybridRanker.Limits.defaults(), null);
+        assertThat(ranked.evidence()).hasSize(1);
+        assertThat(ranked.evidence().get(0).candidate().sourceId()).isEqualTo(correct.sourceId());
+        assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(correctText);
+    }
+
+    @Test
     void citationResolvesPinnedOldTextThenDeletionAndWithheldResultRevokeIt() {
         NoteModels.Note note = notes.create(owner, UUID.randomUUID().toString(),
                 new NoteModels.Write("旧标题", "旧😀内容"));
@@ -559,6 +630,18 @@ class PersonalRetrievalIntegrationTests {
         Anchor anchor = new Anchor(UUID.randomUUID().toString(), sourceId, version, "MARKDOWN_BLOCK", 0,
                 block.contentSha256(), locator, block.text());
         return new Chunk(anchor, null, block.text(), Set.of("换元"), Set.of("方法"), new double[] {x, y});
+    }
+
+    private NoteModels.Note readyLegacyNote(long accountId, String title, String text, double x, double y) {
+        NoteModels.Note note = notes.create(accountId, UUID.randomUUID().toString(),
+                new NoteModels.Write(title, text));
+        Job job = index.claim().orElseThrow();
+        assertThat(job.sourceId()).isEqualTo(note.sourceId());
+        Chunk draft = chunk(note.sourceId(), 1, text, x, y);
+        Chunk legacy = new Chunk(draft.anchor(), null, draft.text(), Set.of(), Set.of(),
+                new double[] {x, y});
+        assertThat(index.complete(job, List.of(legacy), MODEL, 2)).isTrue();
+        return note;
     }
 
     private String citationFixture(long accountId, String sourceId, long version,
