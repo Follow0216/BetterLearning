@@ -40,9 +40,9 @@ class HandwritingMethodProjectionMigrationIntegrationTests {
                 .target(MigrationVersion.fromVersion("2026102509")).load().migrate();
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         long owner = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) "
-                + "VALUES (?,'test-hash') RETURNING account_id", Long.class, id());
+                + "VALUES (?,'test-hash') RETURNING account_id", Long.class, id().replace("-", ""));
         long other = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) "
-                + "VALUES (?,'test-hash') RETURNING account_id", Long.class, id());
+                + "VALUES (?,'test-hash') RETURNING account_id", Long.class, id().replace("-", ""));
 
         Fixture formula = oldStructuredRow(jdbc, owner, "$$x^2+2x=(x+1)^2-1$$", true, owner);
         Fixture negated = oldStructuredRow(jdbc, owner, "不采用配方法，改用展开式。", true, owner);

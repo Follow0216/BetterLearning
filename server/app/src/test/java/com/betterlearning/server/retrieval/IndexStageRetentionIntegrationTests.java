@@ -407,7 +407,7 @@ class IndexStageRetentionIntegrationTests {
 
     private static Fixture fixture(JdbcTemplate target, int currentVersion, String jobStatus) {
         long accountId = target.queryForObject("INSERT INTO app_user(username,password_hash) "
-                + "VALUES (?, 'hash') RETURNING account_id", Long.class, UUID.randomUUID().toString());
+                + "VALUES (?, 'hash') RETURNING account_id", Long.class, UUID.randomUUID().toString().replace("-", ""));
         String sourceId = UUID.randomUUID().toString();
         String eventId = UUID.randomUUID().toString();
         String fileRef = UUID.randomUUID().toString();

@@ -105,7 +105,7 @@ class IndexStageRecoveryIntegrationTests {
     void fixture() {
         jdbc.execute("TRUNCATE TABLE app_user RESTART IDENTITY CASCADE");
         accountId = jdbc.queryForObject("INSERT INTO app_user(username,password_hash) "
-                + "VALUES (?,?) RETURNING account_id", Long.class, UUID.randomUUID().toString(), "test");
+                + "VALUES (?,?) RETURNING account_id", Long.class, UUID.randomUUID().toString().replace("-", ""), "test");
         sourceId = UUID.randomUUID().toString();
         eventId = UUID.randomUUID().toString();
         fileRef = UUID.randomUUID().toString();
