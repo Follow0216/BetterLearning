@@ -346,7 +346,6 @@ export function AuthForm() {
         setStage("profile");
         if (options?.loginJustCompleted) {
           rememberAuthNavigationNotice({ event: "login", accountId: user.accountId });
-          notifySessionChange("changed");
           setStage("opening-home");
           // Start a fresh document for the new session, bypassing retained client navigation state.
           window.location.replace("/");
@@ -373,7 +372,7 @@ export function AuthForm() {
         setStage("retry");
       }
     },
-    [beginRequest, isCurrent, toast, notifySessionChange],
+    [beginRequest, isCurrent, toast],
   );
 
   useEffect(() => {
