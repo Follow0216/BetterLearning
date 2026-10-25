@@ -2,6 +2,8 @@ package com.betterlearning.server.agent.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
+
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.learning.service.impl.NoteServiceImpl;
 import com.betterlearning.server.retrieval.HandwritingSourceReader;
@@ -15,14 +17,17 @@ import org.junit.jupiter.api.Test;
 class PureP4WorkerContextIntegrationTests {
     @Test
     void workerLoadsRetrievalWithoutHttpOnlyNoteService() {
+        List<String> expectedVersions = List.of("1", "2", "3", "4", "5", "2026102501", "2026102502",
+                "2026102503", "2026102504", "2026102505", "2026102506", "2026102507");
         try (RuntimeBusinessFixture fixture = RuntimeBusinessFixture.start()) {
             var context = fixture.context();
             assertThat(context.getBean(RetrievalIndexStore.class)).isInstanceOf(MybatisRetrievalIndexStore.class);
             assertThat(context.getBean(RetrievalIndexWorker.class)).isNotNull();
             assertThat(context.getBean(HandwritingSourceReader.class)).isNotNull();
             assertThat(context.getBeansOfType(NoteServiceImpl.class)).isEmpty();
-            assertThat(fixture.jdbc().queryForObject(
-                    "select count(*) from flyway_schema_history where success = true", Integer.class)).isEqualTo(11);
+            assertThat(fixture.jdbc().queryForList(
+                    "select version from flyway_schema_history where success = true order by installed_rank", String.class))
+                    .containsExactlyElementsOf(expectedVersions);
             assertThat(fixture.jdbc().queryForObject(
                     "select count(*) from pg_extension where extname = 'vector'", Integer.class)).isEqualTo(1);
         }
