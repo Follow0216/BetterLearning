@@ -109,6 +109,7 @@ public final class TutoringPipeline {
         data.put("solve", solve);
         data.put("diagnosis", diagnosis);
         data.put("allowedEvidence", evidence);
+        data.put("independentRolesReceiveHistory", false);
         return data;
     }
 
