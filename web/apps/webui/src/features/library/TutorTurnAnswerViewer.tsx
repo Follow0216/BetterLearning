@@ -136,12 +136,12 @@ export function TutorTurnAnswerViewer({
     <div className="mt-4">
       {outcome.status === "loading" ? (
         <p role="status" className="text-sm text-[var(--auth-muted)]">
-          正在读取该轮冻结作答…
+          正在读取本轮作答快照…
         </p>
       ) : null}
 
       {outcome.status === "failed" ? (
-        <div className="rounded-xl border border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 py-4">
+        <div className="border-l-2 border-[var(--auth-danger)] bg-[var(--auth-bg)] px-4 py-4">
           <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
             {outcome.message}
           </p>
@@ -188,20 +188,20 @@ function NoFrozenAnswer({ status }: { status: TutorTurnStatus }) {
     status === "WAITING_ANSWER"
       ? {
           title: "等待平板提交作答",
-          hint: "该轮尚未绑定作答文件；平板提交后可在本轮查看完整冻结作答。",
+          hint: "平板提交后，可查看本轮使用的作答快照。",
         }
       : status === "GENERATING"
         ? {
             title: "正在生成回答",
-            hint: "该轮尚无已绑定的作答文件；可稍后手动刷新查看。",
+            hint: "本轮还没有可查看的作答快照，请稍后刷新。",
           }
         : {
-            title: "该轮没有可查看的作答",
-            hint: "该轮未绑定作答文件，因此不显示图片，也不会回退到当前作答。",
+            title: "本轮没有作答快照",
+            hint: "未保存本轮作答图片；当前作答可在另一个页签查看。",
           };
 
   return (
-    <div className="mt-4 rounded-xl border border-dashed border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 py-5 text-center">
+    <div className="mt-4 rounded-lg bg-[var(--auth-bg)] px-4 py-5 text-center">
       <p className="text-sm font-medium text-[var(--auth-text)]">{copy.title}</p>
       <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">{copy.hint}</p>
     </div>
@@ -241,13 +241,9 @@ function FrozenAnswerBody({
 
   return (
     <>
-      <p className="text-xs text-[var(--auth-muted)]">
-        图块 {manifest.blocks.length} 块；按该轮冻结文件只读显示。
-      </p>
-
       {tileError === null ? null : (
         <p role="alert" className="mt-3 text-xs leading-5 text-[var(--auth-danger)]">
-          第 {tileError + 1} 块作答图片加载失败。重新加载会重新读取该轮冻结文件，不会混用其他轮次。
+          本轮作答图片加载失败，请重新加载。
         </p>
       )}
 

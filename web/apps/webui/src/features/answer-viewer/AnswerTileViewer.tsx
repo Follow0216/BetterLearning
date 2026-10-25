@@ -251,14 +251,14 @@ function AnswerTileViewerFrame({ geometry, className, onTileError, onRetry }: Fr
       className={[styles.viewer, className].filter(Boolean).join(" ")}
       data-viewer-state={state}
     >
-      <div className={styles.toolbar} role="group" aria-label="解答查看工具">
-        <span className={styles.title}>完整解答</span>
+      <div className={styles.toolbar} role="group" aria-label="作答查看工具">
+        <span className={styles.title}>作答图像</span>
         <span className={styles.spacer} />
         <button
           type="button"
           disabled={!usable || !measured}
           onClick={() => zoom(0.8)}
-          aria-label="缩小解答"
+          aria-label="缩小作答"
         >
           −
         </button>
@@ -269,7 +269,7 @@ function AnswerTileViewerFrame({ geometry, className, onTileError, onRetry }: Fr
           type="button"
           disabled={!usable || !measured}
           onClick={() => zoom(1.25)}
-          aria-label="放大解答"
+          aria-label="放大作答"
         >
           +
         </button>
@@ -282,7 +282,7 @@ function AnswerTileViewerFrame({ geometry, className, onTileError, onRetry }: Fr
         className={styles.viewport}
         tabIndex={usable ? 0 : -1}
         role="region"
-        aria-label="完整解答图像"
+        aria-label="作答图像"
         aria-describedby={hintId}
         onPointerDown={startPointer}
         onPointerMove={movePointer}
@@ -305,7 +305,7 @@ function AnswerTileViewerFrame({ geometry, className, onTileError, onRetry }: Fr
               <img
                 key={tile.index}
                 src={tile.source}
-                alt={`解答图块 ${tile.index + 1}`}
+                alt={`作答图块 ${tile.index + 1}`}
                 draggable={false}
                 className={styles.tile}
                 data-tile-index={tile.index}
@@ -317,18 +317,18 @@ function AnswerTileViewerFrame({ geometry, className, onTileError, onRetry }: Fr
           </div>
         ) : (
           <p className={styles.centerState} role={geometry.error ? "alert" : "status"}>
-            {geometry.error || "暂无已保存的解答"}
+            {geometry.error || "暂无已保存的作答"}
           </p>
         )}
         {usable && loaded.length + failed.length < geometry.tiles.length ? (
           <span className={styles.loading} role="status">
-            正在加载解答图像… {loaded.length}/{geometry.tiles.length}
+            正在加载作答图像… {loaded.length}/{geometry.tiles.length}
           </span>
         ) : null}
       </div>
       {geometry.error || failed.length > 0 ? (
         <div className={styles.error} role="alert">
-          <span>{geometry.error || "部分解答图像加载失败，请重新加载。"}</span>
+          <span>{geometry.error || "部分作答图像加载失败，请重新加载。"}</span>
           {onRetry ? (
             <button type="button" onClick={onRetry}>
               重新加载

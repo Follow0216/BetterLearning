@@ -1,5 +1,7 @@
+import { UpdateProfileInput } from './AuthModels';
+
 /**
- * 登录与注册表单的本地校验规则。
+ * 登录、注册和账号资料表单的本地校验规则。
  *
  * <p>规则与服务端保持一致：用户名 trim 后按 Unicode 码点计 3~32 个字符且仅含
  * 汉字、ASCII 字母、数字与下划线；密码不 trim，按码点计 8~64 个字符且 UTF-8
@@ -199,6 +201,65 @@ export function validate_login_form(username: string, password: string): AuthFor
   }
   if (password.length === 0) {
     errors.password = '密码不能为空';
+  }
+  return errors;
+}
+
+/** 与服务端 String.strip 一致的首尾空白集合，不把 NBSP/BOM 当作合法空白吞掉。 */
+function strip_contact(value: string): string {
+  return value.replace(/^[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+|[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]+$/g, '');
+}
+
+/** 联系方式只做本地预检；缺省保持、null 解绑，绝不把空串转为 null。 */
+export function validate_profile_update(input: UpdateProfileInput): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (input.phone !== undefined && input.phone !== null) {
+    let phone: string = strip_contact(input.phone);
+    if (/^1[3-9][0-9]{9}$/.test(phone)) {
+      phone = '+86' + phone;
+    }
+    if (!/^\+[1-9][0-9]{1,14}$/.test(phone)) {
+      errors['phone'] = '请输入有效手机号，国际号码需以 + 开头';
+    }
+  }
+  if (input.email !== undefined && input.email !== null) {
+    const email: string = strip_contact(input.email).toLowerCase();
+    const emailPattern: RegExp = /^[A-Za-z0-9]+(?:[._%+-][A-Za-z0-9]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+    let valid: boolean = email.length <= 254 && emailPattern.test(email);
+    if (valid) {
+      const atIndex: number = email.lastIndexOf('@');
+      valid = count_utf8_bytes(email.substring(0, atIndex)) <= 64;
+      const labels: string[] = email.substring(atIndex + 1).split('.');
+      for (let index: number = 0; index < labels.length; index++) {
+        if (labels[index].length > 63) {
+          valid = false;
+        }
+      }
+    }
+    if (!valid) {
+      errors['email'] = '请输入有效邮箱地址';
+    }
+  }
+  return errors;
+}
+
+/** 改密保留口令原始空白，旧密码沿用服务端 1 码点下限。 */
+export function validate_change_password(oldPassword: string, newPassword: string,
+  confirmPassword: string): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const oldLength: number = count_code_points(oldPassword);
+  if (oldLength < 1 || oldLength > PASSWORD_MAX_LENGTH) {
+    errors['oldPassword'] = '旧密码不能为空且不能超过 64 个字符';
+  } else if (count_utf8_bytes(oldPassword) > PASSWORD_MAX_BYTES) {
+    errors['oldPassword'] = '旧密码 UTF-8 编码不能超过 72 字节';
+  }
+  const passwordError: string = validate_registration_password(newPassword);
+  if (passwordError.length > 0) {
+    errors['newPassword'] = passwordError;
+  }
+  const confirmError: string = validate_confirm_password(newPassword, confirmPassword);
+  if (confirmError.length > 0) {
+    errors['confirmPassword'] = confirmError;
   }
   return errors;
 }
