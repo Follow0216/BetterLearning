@@ -43,6 +43,260 @@ afterEach(() => {
 });
 
 describe("NotesWorkspace", () => {
+  it("retries an uncertain creation with its original key and body, then saves later edits with ETag", async () => {
+    const createCalls: Array<{ key: string; body: string }> = [];
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST") {
+        const key = (options.headers as Record<string, string>)["Idempotency-Key"];
+        createCalls.push({ key, body: options.body as string });
+        return createCalls.length === 1
+          ? Promise.reject(new Error("response lost"))
+          : Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+      }
+      if (path === `notes/${id}` && options?.method === "PUT")
+        return Promise.resolve({
+          data: { ...note("改稿", 2), bodyMarkdown: "改正文" },
+          etag: '"v2"',
+        });
+      if (path === `notes/${id}`)
+        return Promise.resolve({
+          data: { ...note("原稿"), bodyMarkdown: "原正文" },
+          etag: '"v1"',
+        });
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
+    fireEvent.change(title, { target: { value: "改稿" } });
+    fireEvent.change(body, { target: { value: "改正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+
+    await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls[0].key).toBe(createCalls[1].key);
+    expect(createCalls[0].body).toBe(JSON.stringify({ title: "原稿", bodyMarkdown: "原正文" }));
+    expect(createCalls[1].body).toBe(createCalls[0].body);
+    expect(learningRequestMock).toHaveBeenCalledWith(`notes/${id}`, {
+      method: "PUT",
+      headers: { "If-Match": '"v1"' },
+      body: JSON.stringify({ title: "改稿", bodyMarkdown: "改正文" }),
+      signal: expect.any(AbortSignal),
+    });
+    expect(title.value).toBe("改稿");
+    expect(body.value).toBe("改正文");
+  });
+
+  it.each([1, 2])(
+    "requires explicit merge when replay returns version %i and its ETag GET is at version 2",
+    async (replayVersion) => {
+      let creates = 0;
+      const puts: Array<{ body: string; etag: string }> = [];
+      learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "sources?limit=20" || path === "notes?limit=20")
+          return Promise.resolve(page([]));
+        if (path === "notes" && options?.method === "POST") {
+          creates += 1;
+          return creates === 1
+            ? Promise.reject(new Error("response lost"))
+            : Promise.resolve({
+                data: { ...note("原稿", replayVersion), bodyMarkdown: "原正文" },
+                etag: null,
+              });
+        }
+        if (path === `notes/${id}` && options?.method === "PUT") {
+          puts.push({
+            body: options.body as string,
+            etag: (options.headers as Record<string, string>)["If-Match"],
+          });
+          return Promise.resolve({
+            data: { ...note("改稿", 3), bodyMarkdown: "改正文" },
+            etag: '"v3"',
+          });
+        }
+        if (path === `notes/${id}`)
+          return Promise.resolve({
+            data: { ...note("他人更新", 2), bodyMarkdown: "他人正文" },
+            etag: '"v2"',
+          });
+        throw new Error(`unexpected request: ${path}`);
+      });
+
+      render(<NotesWorkspace />);
+      fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      const title = screen.getByLabelText("标题") as HTMLInputElement;
+      const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+      fireEvent.change(title, { target: { value: "原稿" } });
+      fireEvent.change(body, { target: { value: "原正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
+      fireEvent.change(title, { target: { value: "改稿" } });
+      fireEvent.change(body, { target: { value: "改正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+
+      await screen.findByText(/服务器版本 2：他人更新/);
+      expect(puts).toHaveLength(0);
+      expect(title.value).toBe("改稿");
+      expect(body.value).toBe("改正文");
+      expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "使用此版本标签，保留本地编辑" }));
+      expect(title.value).toBe("改稿");
+      expect(body.value).toBe("改正文");
+      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      await waitFor(() => expect(puts).toHaveLength(1));
+      expect(puts[0]).toEqual({
+        body: JSON.stringify({ title: "改稿", bodyMarkdown: "改正文" }),
+        etag: '"v2"',
+      });
+      expect(creates).toBe(2);
+    },
+  );
+
+  it("recovers a known created note after its ETag GET fails without another POST", async () => {
+    let reads = 0;
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST")
+        return Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+      if (path === `notes/${id}` && options?.method === "PUT")
+        return Promise.resolve({
+          data: { ...note("改稿", 2), bodyMarkdown: "改正文" },
+          etag: '"v2"',
+        });
+      if (path === `notes/${id}`) {
+        reads += 1;
+        return reads === 1
+          ? Promise.reject(new Error("GET failed"))
+          : Promise.resolve({
+              data: { ...note("原稿"), bodyMarkdown: "原正文" },
+              etag: '"v1"',
+            });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByRole("button", { name: "重新读取版本标签" });
+    fireEvent.change(title, { target: { value: "改稿" } });
+    fireEvent.change(body, { target: { value: "改正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "重新读取版本标签" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(false),
+    );
+    expect(title.value).toBe("改稿");
+    expect(body.value).toBe("改正文");
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
+    expect(
+      learningRequestMock.mock.calls.filter(
+        ([path, options]) => path === "notes" && options?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("requires explicit merge if an ETag GET retry finds a newer version", async () => {
+    let reads = 0;
+    const puts: RequestInit[] = [];
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST")
+        return Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+      if (path === `notes/${id}` && options?.method === "PUT") {
+        puts.push(options);
+        return Promise.resolve({ data: note("改稿", 3), etag: '"v3"' });
+      }
+      if (path === `notes/${id}`) {
+        reads += 1;
+        return reads === 1
+          ? Promise.reject(new Error("GET failed"))
+          : Promise.resolve({
+              data: { ...note("他人更新", 2), bodyMarkdown: "他人正文" },
+              etag: '"v2"',
+            });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByRole("button", { name: "重新读取版本标签" });
+    fireEvent.change(title, { target: { value: "改稿" } });
+    fireEvent.change(body, { target: { value: "改正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "重新读取版本标签" }));
+
+    await screen.findByText(/服务器版本 2：他人更新/);
+    expect(title.value).toBe("改稿");
+    expect(body.value).toBe("改正文");
+    expect(puts).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "使用此版本标签，保留本地编辑" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect((puts[0].headers as Record<string, string>)["If-Match"]).toBe('"v2"');
+    expect(
+      learningRequestMock.mock.calls.filter(
+        ([path, options]) => path === "notes" && options?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retains later edits when the PUT after creation returns 412", async () => {
+    let creates = 0;
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST") {
+        creates += 1;
+        return creates === 1
+          ? Promise.reject(new Error("response lost"))
+          : Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+      }
+      if (path === `notes/${id}` && options?.method === "PUT")
+        return Promise.reject(new LearningApiError(412, "A0412", "版本冲突", "trace-2"));
+      if (path === `notes/${id}`)
+        return Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: '"v1"' });
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
+    fireEvent.change(title, { target: { value: "改稿" } });
+    fireEvent.change(body, { target: { value: "改正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+    await screen.findByText(/保存冲突：本地编辑已保留/);
+    expect(title.value).toBe("改稿");
+    expect(body.value).toBe("改正文");
+    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(creates).toBe(2);
+  });
+
   it("ignores a stale pagination response after refresh, preserving the new list and cursor", async () => {
     const oldMore = deferred<ReturnType<typeof page>>();
     let firstPage = 0;

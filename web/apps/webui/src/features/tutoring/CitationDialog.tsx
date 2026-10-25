@@ -84,6 +84,7 @@ async function loadCitation(citation: Citation, signal: AbortSignal): Promise<Lo
 
 export function CitationDialog({ citation, onClose }: { citation: Citation; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const target = useRef<HTMLElement | null>(null);
   const [loaded, setLoaded] = useState<LoadedCitation | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -140,6 +141,14 @@ export function CitationDialog({ citation, onClose }: { citation: Citation; onCl
       current?.images.forEach(URL.revokeObjectURL);
     };
   }, [citation, revision]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const frame = requestAnimationFrame(() => {
+      target.current?.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loaded, zoom]);
 
   const resolution = loaded?.resolution;
   const markdown = resolution?.markdown;
@@ -225,15 +234,23 @@ export function CitationDialog({ citation, onClose }: { citation: Citation; onCl
           )}
           {markdown !== undefined && locator && (
             <div className={styles.highlight}>
+              <p className={styles.muted}>精确引用原文</p>
+              <pre className={styles.raw} aria-label="精确引用范围">
+                {locator.startOffset > 64 ? "…" : ""}
+                {markdown.slice(Math.max(0, locator.startOffset - 64), locator.startOffset)}
+                <mark
+                  ref={(element) => {
+                    target.current = element;
+                  }}
+                  data-citation-target="markdown"
+                >
+                  {markdown.slice(locator.startOffset, locator.endOffset)}
+                </mark>
+                {markdown.slice(locator.endOffset, locator.endOffset + 64)}
+                {markdown.length > locator.endOffset + 64 ? "…" : ""}
+              </pre>
+              <h4 className="mt-3 text-sm font-medium">段落与公式上下文</h4>
               <QuestionMarkdown bodyMarkdown={markdown} ariaLabel="被引用的原文段落或公式" />
-              <details className="mt-3">
-                <summary className="cursor-pointer text-sm">查看精确原文范围</summary>
-                <pre className={styles.raw}>
-                  {markdown.slice(0, locator.startOffset)}
-                  <mark>{markdown.slice(locator.startOffset, locator.endOffset)}</mark>
-                  {markdown.slice(locator.endOffset)}
-                </pre>
-              </details>
             </div>
           )}
           {resolution.handwritingLocator && (
@@ -284,6 +301,14 @@ export function CitationDialog({ citation, onClose }: { citation: Citation; onCl
                         alt={`引用手写步骤，图块 ${segment.blockIndex + 1}`}
                       />
                       <div
+                        ref={
+                          index === 0
+                            ? (element) => {
+                                target.current = element;
+                              }
+                            : undefined
+                        }
+                        data-citation-target="handwriting"
                         className={styles.region}
                         style={highlightPercent(
                           segment.blockWorldBounds,

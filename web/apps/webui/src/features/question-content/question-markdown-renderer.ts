@@ -143,12 +143,15 @@ function createParser(): MarkdownItInstance {
     if (!citations?.size) return md.utils.escapeHtml(content);
     let offset = 0;
     let html = "";
-    for (const match of content.matchAll(/\[([^\]\n]{1,64})\]/g)) {
-      const id = citations.get(match[1]);
-      if (!id) continue;
+    for (const match of content.matchAll(
+      /\[\[citation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/g,
+    )) {
+      const id = match[1];
+      const label = citations.get(id);
+      if (label === undefined) continue;
       const start = match.index!;
       html += md.utils.escapeHtml(content.slice(offset, start));
-      html += `<button type="button" class="citation-marker" data-citation-id="${md.utils.escapeHtml(id)}" aria-label="查看引用 ${md.utils.escapeHtml(match[1])}">${md.utils.escapeHtml(match[0])}</button>`;
+      html += `<button type="button" class="citation-marker" data-citation-id="${md.utils.escapeHtml(id)}" aria-label="查看引用 ${md.utils.escapeHtml(label)}">[${md.utils.escapeHtml(label)}]</button>`;
       offset = start + match[0].length;
     }
     return html + md.utils.escapeHtml(content.slice(offset));
@@ -172,7 +175,7 @@ export function renderQuestionMarkdown(
     const instance = parser ?? (parser = createParser());
     const env: Env = {
       formulaErrors: 0,
-      citations: new Map(citations?.map((item) => [item.label, item.citationId])),
+      citations: new Map(citations?.map((item) => [item.citationId, item.label])),
     };
     const html = instance.render(bodyMarkdown, env);
     const formulaErrors = env.formulaErrors;

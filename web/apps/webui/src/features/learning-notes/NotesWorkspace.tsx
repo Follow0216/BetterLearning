@@ -38,6 +38,7 @@ function NoteEditor({
   const [latest, setLatest] = useState<{ data: Note; etag: string | null } | null>(null);
   const [reload, setReload] = useState(0);
   const requestKey = useRef<{ payload: string; key: string } | null>(null);
+  const [createUncertain, setCreateUncertain] = useState(false);
   const lifetime = useRef<AbortController | null>(null);
   const bytes = noteByteLength(body);
   const dirty = title !== (note?.title ?? "") || body !== (note?.bodyMarkdown ?? "");
@@ -67,13 +68,20 @@ function NoteEditor({
   }, [noteId, reload]);
 
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty && !createUncertain) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     const navigate = (event: MouseEvent) => {
       const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (link && !window.confirm("有尚未保存的笔记编辑，确定离开？")) {
+      if (
+        link &&
+        !window.confirm(
+          createUncertain
+            ? "上次新建结果尚未确认，服务器可能已有这篇笔记。离开将放弃确认，确定离开？"
+            : "有尚未保存的笔记编辑，确定离开？",
+        )
+      ) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -84,7 +92,7 @@ function NoteEditor({
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", navigate, true);
     };
-  }, [dirty]);
+  }, [dirty, createUncertain]);
 
   async function save() {
     if (pending || bytes > MAX_NOTE_BYTES || !title.trim() || !body.trim() || conflict) return;
@@ -106,32 +114,57 @@ function NoteEditor({
         setTitle(result.data.title);
         setBody(result.data.bodyMarkdown);
       } else {
-        if (requestKey.current?.payload !== payload)
-          requestKey.current = { payload, key: crypto.randomUUID() };
+        // 未确认的创建请求只能用原键和原请求体重试；改稿在确认 noteId 后另行 PUT。
+        requestKey.current ??= { payload, key: crypto.randomUUID() };
         const result = await learningRequest<Note>("notes", {
           method: "POST",
           headers: { "Idempotency-Key": requestKey.current.key },
-          body: payload,
+          body: requestKey.current.payload,
           signal: lifetime.current?.signal,
         });
         if (lifetime.current?.signal.aborted) return;
-        // 创建响应不保证带 ETag；先记住 noteId，防止 GET 失败时再次创建。
+        // 已确认 noteId，之后即使 GET 失败也只允许继续读取或更新这篇笔记。
         setNote(result.data);
-        setTitle(result.data.title);
-        setBody(result.data.bodyMarkdown);
+        requestKey.current = null;
+        setCreateUncertain(false);
         const loaded = await learningRequest<Note>(`notes/${result.data.noteId}`, {
           signal: lifetime.current?.signal,
         });
         if (lifetime.current?.signal.aborted) return;
+        if (result.data.version > 1 || loaded.data.version !== result.data.version) {
+          setConflict(true);
+          setLatest(loaded);
+          setMessage("原笔记已被更新，请核对服务器版本后明确合并本地改稿。");
+          return;
+        }
         setNote(loaded.data);
         setEtag(loaded.etag);
-        setTitle(loaded.data.title);
-        setBody(loaded.data.bodyMarkdown);
+        if (!loaded.etag) throw new Error("尚未获得版本标签，请重新读取后保存");
+        if (
+          payload !==
+          JSON.stringify({
+            title: loaded.data.title,
+            bodyMarkdown: loaded.data.bodyMarkdown.replace(/\r\n/g, "\n"),
+          })
+        ) {
+          const updated = await learningRequest<Note>(`notes/${loaded.data.noteId}`, {
+            method: "PUT",
+            headers: { "If-Match": loaded.etag },
+            body: payload,
+            signal: lifetime.current?.signal,
+          });
+          if (lifetime.current?.signal.aborted) return;
+          setNote(updated.data);
+          setEtag(updated.etag);
+          setTitle(updated.data.title);
+          setBody(updated.data.bodyMarkdown);
+        }
       }
       setMessage("笔记已保存。索引状态可在列表中刷新查看。");
       onSaved();
     } catch (error) {
       if (lifetime.current?.signal.aborted) return;
+      if (!note && requestKey.current) setCreateUncertain(true);
       if (error instanceof LearningApiError && error.status === 412) setConflict(true);
       setMessage(errorMessage(error));
     } finally {
@@ -143,9 +176,27 @@ function NoteEditor({
     if (!note) return;
     setPending(true);
     try {
-      setLatest(
-        await learningRequest<Note>(`notes/${note.noteId}`, { signal: lifetime.current?.signal }),
-      );
+      const loaded = await learningRequest<Note>(`notes/${note.noteId}`, {
+        signal: lifetime.current?.signal,
+      });
+      if (lifetime.current?.signal.aborted) return;
+      if (!etag && !conflict) {
+        if (loaded.data.version !== note.version) {
+          setConflict(true);
+          setLatest(loaded);
+          setMessage("原笔记已被更新，请核对服务器版本后明确合并本地改稿。");
+        } else {
+          setNote(loaded.data);
+          setEtag(loaded.etag);
+          setMessage(
+            loaded.etag
+              ? "已取得版本标签，本地编辑仍保留；请再次保存。"
+              : "尚未获得版本标签，请重新读取后保存",
+          );
+        }
+      } else {
+        setLatest(loaded);
+      }
     } catch (error) {
       if (!lifetime.current?.signal.aborted) setMessage(errorMessage(error));
     } finally {
@@ -197,7 +248,15 @@ function NoteEditor({
           className={styles.button}
           disabled={pending}
           onClick={() => {
-            if (!dirty || window.confirm("放弃尚未保存的编辑？")) onBack();
+            if (
+              (!dirty && !createUncertain) ||
+              window.confirm(
+                createUncertain
+                  ? "上次新建结果尚未确认，服务器可能已有这篇笔记。放弃确认并返回列表？"
+                  : "放弃尚未保存的编辑？",
+              )
+            )
+              onBack();
           }}
         >
           返回列表
@@ -223,7 +282,7 @@ function NoteEditor({
           }
           onClick={() => void save()}
         >
-          {pending ? "处理中…" : "保存笔记"}
+          {pending ? "处理中…" : createUncertain ? "确认上次创建并保存改稿" : "保存笔记"}
         </button>
       </div>
       {note && (
@@ -268,6 +327,11 @@ function NoteEditor({
       {message && (
         <p role="status" className={styles.error}>
           {message}
+        </p>
+      )}
+      {createUncertain && (
+        <p className={styles.warning} role="alert">
+          上次新建请求的结果未知，服务器可能已有这篇笔记。请用原请求确认后保存改稿；放弃确认可能留下原笔记。
         </p>
       )}
       {note && !etag && !conflict && (

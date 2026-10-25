@@ -1,4 +1,10 @@
 import {
+  announceSessionChange,
+  readSessionEpoch,
+  ensureSessionEpoch,
+  returnToAccount,
+} from "@/features/auth/session-events";
+import {
   LearningContractError,
   parseCitationResolution,
   parseCursorPage,
@@ -60,6 +66,7 @@ export async function learningRequest<T>(
   headers.set("Accept", "application/json");
   if (options.body !== undefined && options.body !== null && !headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
+  const sessionEpoch = ensureSessionEpoch();
   let response: Response;
   try {
     response = await fetch(local, {
@@ -72,12 +79,12 @@ export async function learningRequest<T>(
   } catch {
     throw new LearningApiError(0, "W0001", "网络连接失败，请稍后重试", "");
   }
+  if (readSessionEpoch() !== sessionEpoch) {
+    throw new LearningApiError(401, "A0200", "账号已变更，请重新加载资料", "");
+  }
   if (response.status === 401 && typeof window !== "undefined") {
-    window.dispatchEvent(new Event("bl:session-ended"));
-    const channel = new BroadcastChannel("bl-session");
-    channel.postMessage("ended");
-    channel.close();
-    window.location.replace("/");
+    announceSessionChange("ended");
+    returnToAccount();
   }
   if (!response.ok) {
     let payload: unknown;
@@ -103,6 +110,9 @@ export async function learningRequest<T>(
     value = await response.json();
   } catch {
     throw new LearningApiError(502, "W0001", "学习服务响应格式错误", "");
+  }
+  if (readSessionEpoch() !== sessionEpoch) {
+    throw new LearningApiError(401, "A0200", "账号已变更，请重新加载资料", "");
   }
   try {
     return { data: parseByPath(local, method, value) as T, etag: response.headers.get("etag") };

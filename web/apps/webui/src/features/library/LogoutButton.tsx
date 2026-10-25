@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
+import { announceSessionChange, returnToAccount } from "@/features/auth/session-events";
 
 export function LogoutButton() {
   const [pending, setPending] = useState(false);
@@ -20,11 +21,8 @@ export function LogoutButton() {
         headers: { Accept: "application/json" },
       });
       if (response.status === 204 || response.status === 401) {
-        window.dispatchEvent(new Event("bl:session-ended"));
-        const channel = new BroadcastChannel("bl-session");
-        channel.postMessage("ended");
-        channel.close();
-        window.location.replace("/");
+        announceSessionChange("ended");
+        returnToAccount();
         return;
       }
       setError("退出失败，请重试");

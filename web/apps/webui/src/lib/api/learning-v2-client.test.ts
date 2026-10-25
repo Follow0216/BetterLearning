@@ -13,7 +13,10 @@ const note = {
   updatedAt: "2026-10-25T12:00:00+08:00",
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.localStorage.clear();
+});
 
 describe("learningRequest", () => {
   it("preserves the caller's idempotency key and sends a same-origin, uncached create", async () => {
@@ -65,6 +68,33 @@ describe("learningRequest", () => {
     expect(new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers).get("If-Match")).toBe(
       '"v1"',
     );
+  });
+
+  it("rejects an in-flight response after a different account epoch replaces the original", async () => {
+    localStorage.setItem("bl.session.epoch", id);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => {
+        localStorage.setItem("bl.session.epoch", "33333333-3333-4333-8333-333333333333");
+        return new Response(JSON.stringify(note), { status: 200 });
+      }),
+    );
+    await expect(learningRequest(`notes/${id}`)).rejects.toMatchObject({
+      status: 401,
+      message: "账号已变更，请重新加载资料",
+    });
+  });
+
+  it("initializes the epoch before fetching in a new browser context", async () => {
+    localStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () => {
+        expect(localStorage.getItem("bl.session.epoch")).toMatch(/^[0-9a-f-]{36}$/);
+        return new Response(JSON.stringify(note), { status: 200 });
+      }),
+    );
+    await expect(learningRequest(`notes/${id}`)).resolves.toMatchObject({ data: note });
   });
 
   it("rejects encoded path traversal before sending a request", async () => {

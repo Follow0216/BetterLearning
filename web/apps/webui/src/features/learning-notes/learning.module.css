@@ -117,6 +117,12 @@
   background: white;
   overflow: auto;
 }
+.dialog > .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: white;
+}
 .dialog::backdrop {
   background: rgb(20 30 48 / 55%);
 }

@@ -1,28 +1,32 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 
-/** 所有私有内容只驻留当前页面；离开、退出和跨标签退出均销毁子树。 */
+import { returnToAccount, subscribeSessionChanges } from "@/features/auth/session-events";
+
+/** 会话世代变化立即销毁私有子树，触发其请求取消和 blob URL 清理。 */
 export function SessionBoundary({ children }: { children: ReactNode }) {
   const [active, setActive] = useState(true);
   useEffect(() => {
-    const end = () => setActive(false);
-    const show = (event: PageTransitionEvent) => {
-      if (event.persisted) window.location.reload();
+    let ended = false;
+    const hide = () => flushSync(() => setActive(false));
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      hide();
+      returnToAccount();
     };
-    const channel = new BroadcastChannel("bl-session");
-    channel.onmessage = () => {
-      end();
-      window.location.replace("/");
+    const unsubscribe = subscribeSessionChanges(end);
+    const shown = (event: PageTransitionEvent) => {
+      if (!ended && event.persisted) window.location.reload();
     };
-    window.addEventListener("bl:session-ended", end);
-    window.addEventListener("pagehide", end);
-    window.addEventListener("pageshow", show);
+    window.addEventListener("pagehide", hide);
+    window.addEventListener("pageshow", shown);
     return () => {
-      channel.close();
-      window.removeEventListener("bl:session-ended", end);
-      window.removeEventListener("pagehide", end);
-      window.removeEventListener("pageshow", show);
+      unsubscribe();
+      window.removeEventListener("pagehide", hide);
+      window.removeEventListener("pageshow", shown);
     };
   }, []);
   return active ? children : <p role="status">登录状态已结束，正在返回账号页…</p>;

@@ -1,3 +1,4 @@
+import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -25,19 +26,21 @@ import { WorkspaceHeader } from "./WorkspaceHeader";
 
 function DetailFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-dvh bg-[var(--auth-bg)] text-[var(--auth-text)]">
-      <WorkspaceHeader />
-      <div className="mx-auto w-full max-w-[900px] px-4 py-6 md:px-6">
-        <Link
-          href="/workspace"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-text)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none"
-        >
-          <BlIcon name="back" size={16} />
-          返回题库
-        </Link>
-        <div className="mt-3">{children}</div>
+    <SessionBoundary>
+      <div className="min-h-dvh bg-[var(--auth-bg)] text-[var(--auth-text)]">
+        <WorkspaceHeader />
+        <div className="mx-auto w-full max-w-[900px] px-4 py-6 md:px-6">
+          <Link
+            href="/workspace"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-text)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none"
+          >
+            <BlIcon name="back" size={16} />
+            返回题库
+          </Link>
+          <div className="mt-3">{children}</div>
+        </div>
       </div>
-    </div>
+    </SessionBoundary>
   );
 }
 
