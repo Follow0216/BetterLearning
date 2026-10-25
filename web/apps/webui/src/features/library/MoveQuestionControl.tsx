@@ -26,7 +26,6 @@ export function MoveQuestionControl({
 }: MoveQuestionControlProps) {
   const router = useRouter();
   const { toast, begin } = useFeedbackRequest();
-  const [errorAnnounced, setErrorAnnounced] = useState(false);
   const [target, setTarget] = useState(currentCollectionId);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +40,6 @@ export function MoveQuestionControl({
     if (!request) return;
     setPending(true);
     setError(null);
-    setErrorAnnounced(false);
     try {
       const response = await fetch(
         `/api/library/questions/${encodeURIComponent(questionId)}/collection`,
@@ -68,7 +66,6 @@ export function MoveQuestionControl({
           typeof message === "string" && message.length > 0 ? message : "移动失败，请稍后重试",
         );
         if (response.status >= 500) {
-          setErrorAnnounced(true);
           toast.show(
             {
               key: `question:move:${questionId}`,
@@ -90,7 +87,6 @@ export function MoveQuestionControl({
     } catch {
       if (!request.isCurrent()) return;
       setError("无法连接服务器，请稍后重试");
-      setErrorAnnounced(true);
       toast.show(
         {
           key: `question:move:${questionId}`,
@@ -114,7 +110,6 @@ export function MoveQuestionControl({
           onChange={(event) => {
             setTarget(event.target.value);
             toast.dismiss(`question:move:${questionId}`);
-            setErrorAnnounced(false);
             setError(null);
           }}
           disabled={pending}
@@ -137,10 +132,7 @@ export function MoveQuestionControl({
         {pending ? "移动中…" : "移动"}
       </button>
       {error === null ? null : (
-        <span
-          role={errorAnnounced ? undefined : "alert"}
-          className="text-xs text-[var(--auth-danger)]"
-        >
+        <span role="alert" className="text-xs text-[var(--auth-danger)]">
           {error}
         </span>
       )}

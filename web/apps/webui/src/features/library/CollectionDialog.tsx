@@ -49,7 +49,6 @@ export function CollectionDialog({
 }: CollectionDialogProps) {
   const router = useRouter();
   const { toast, begin } = useFeedbackRequest();
-  const [errorAnnounced, setErrorAnnounced] = useState(false);
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -69,7 +68,6 @@ export function CollectionDialog({
 
   function openDialog() {
     toast.dismiss(`collection:${mode}:${collection?.collectionId ?? "new"}`);
-    setErrorAnnounced(false);
     setName(mode === "rename" ? (collection?.name ?? "") : "");
     setParentId(defaultParentCollectionId ?? "");
     setError(null);
@@ -88,8 +86,6 @@ export function CollectionDialog({
     if (pending) {
       return;
     }
-
-    setErrorAnnounced(false);
     const trimmed = name.trim();
     if (trimmed.length === 0 || trimmed.length > 64) {
       setError("请输入 1–64 个字符的题集名称");
@@ -128,7 +124,6 @@ export function CollectionDialog({
       if (!response.ok) {
         setError(errorMessage(data?.code, data?.message));
         if (response.status >= 500) {
-          setErrorAnnounced(true);
           toast.show(
             {
               key: `collection:${mode}:${collection?.collectionId ?? "new"}`,
@@ -155,7 +150,6 @@ export function CollectionDialog({
     } catch {
       if (!request.isCurrent()) return;
       setError("无法连接服务器，请稍后重试");
-      setErrorAnnounced(true);
       toast.show(
         {
           key: `collection:${mode}:${collection?.collectionId ?? "new"}`,
@@ -248,10 +242,7 @@ export function CollectionDialog({
                 </label>
               ) : null}
               {error === null ? null : (
-                <p
-                  role={errorAnnounced ? undefined : "alert"}
-                  className="text-sm leading-6 text-[var(--auth-danger)]"
-                >
+                <p role="alert" className="text-sm leading-6 text-[var(--auth-danger)]">
                   {error}
                 </p>
               )}

@@ -6,22 +6,29 @@
 
 ```tsx
 "use client";
-import { ToastProvider, useToast } from "@betterlearning/ui-feedback";
+import { useToast } from "@betterlearning/ui-feedback";
+import { useEffect } from "react";
 
 // 根包装：<ToastProvider>{children}<RouteScope /></ToastProvider>
-// RouteScope 用 Next pathname / 明确的业务上下文调用 onScopeChange。
-const { show, dismiss, clearScope, onScopeChange, captureScope } = useToast();
-// 在路由/身份 effect 或动作回调中更新 scope，不能在 render 中调用。
-useEffect(() => {
-  onScopeChange("library:route:account:question");
-}, [onScopeChange]);
-// 以下放在用户事件的 async 回调里：
-const scope = captureScope(); // 异步请求之前
-// await 业务操作；保留页面原有错误、草稿、loading 与原位重试。
-show({ key: "collection-save", type: "success", message: "题集已保存" }, scope);
+// RouteScope 用 Next pathname / 明确的业务上下文更新 scope。
+function CollectionSaveButton({ scopeId, save }: { scopeId: string; save: () => Promise<void> }) {
+  const { show, onScopeChange, captureScope } = useToast();
+  useEffect(() => {
+    onScopeChange(scopeId);
+  }, [scopeId, onScopeChange]); // 不能在 render 中调用。
+
+  async function handleSave() {
+    const scope = captureScope(); // 异步请求之前，在事件回调中捕获。
+    await save(); // 真实业务操作；保留页面原有错误、草稿、loading 与原位重试。
+    show({ key: "collection-save", type: "success", message: "题集已保存" }, scope);
+  }
+  return <button onClick={() => void handleSave()}>保存</button>;
+}
 ```
 
 所有方法返回 void，captureScope 返回 number。route/account/question 变化时先 onScopeChange；同身份重复调用不会清理。注销和主动失效可 clearScope。账号身份用非敏感 ID，不包含口令/token。成功后马上跳转的操作以目标页真实身份状态表达成功，避免扩展跨路由通知队列。
+
+持久原位错误保留 `role="alert"`；Toast 可能仍在排队，不能把入队当作已经播报。
 
 同时最多两条，其他 FIFO 排队；卡片 DOM 提交后才计时。同 key 保留位置并更新内容、重新计时；悬停/键盘焦点各自暂停，均离开后继续剩余时间。普通/成功默认 3 秒，错误 6 秒，最大宽度 420px，有说明时主文案与说明各一行、总计最多两行，所有卡片提供 44px 关闭按钮。关闭只清显示。宿主空白区域 pointer-events:none；气泡本身可交互。
 
