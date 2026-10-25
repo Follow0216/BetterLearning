@@ -76,6 +76,8 @@ class TutorBudgetHttpIntegrationTests {
         IntegrationProperties.registerRateLimits(registry);
         IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
         registry.add("app.files.root", FILE_ROOT::toString);
+        registry.add("app.multi-agent.rollout.mode", () -> "V2");
+        registry.add("app.multi-agent.rollout.transition-from", () -> "LEGACY");
     }
 
     @LocalServerPort
