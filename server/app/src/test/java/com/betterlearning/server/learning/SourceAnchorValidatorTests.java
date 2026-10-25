@@ -104,7 +104,7 @@ class SourceAnchorValidatorTests {
                 new AnswerModels.QuestionSnapshot("91", "OTHER", AnswerTestData.BODY)));
         when(files.block(FILE, "chunk_0000")).thenReturn(AnswerTestData.png(32));
         HandwritingSegment segment = new HandwritingSegment(0, false,
-                new WorldBounds(0, 0, 32, 32), 32, 32, new WorldBounds(1, 2, 4, 5), List.of("s-1"));
+                new WorldBounds(-8, -8, 32, 32), 32, 32, new WorldBounds(-7, -6, 4, 5), List.of("s-1"));
         validator.validate(anchor("HANDWRITING_STEP", "0".repeat(64), null,
                 new AnchorLocator(1, null, new HandwritingLocator(List.of(segment)))), content(FILE));
         assertInvalid(anchor("HANDWRITING_STEP", "0".repeat(64), null,

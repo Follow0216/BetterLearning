@@ -792,9 +792,9 @@ class TutorLedgerIntegrationTests {
     private Anchor handwritingAnchor(SourceContent content) {
         String locator = "{\"schemaVersion\":1,\"markdownLocator\":null,"
                 + "\"handwritingLocator\":{\"segments\":[{\"blockIndex\":0,"
-                + "\"questionRaster\":false,\"blockWorldBounds\":{\"x\":0.0,\"y\":0.0,"
+                + "\"questionRaster\":false,\"blockWorldBounds\":{\"x\":-8.0,\"y\":-8.0,"
                 + "\"width\":32.0,\"height\":32.0},\"pixelWidth\":32,\"pixelHeight\":32,"
-                + "\"regionWorldBounds\":{\"x\":0.0,\"y\":0.0,\"width\":32.0,"
+                + "\"regionWorldBounds\":{\"x\":-8.0,\"y\":-8.0,\"width\":32.0,"
                 + "\"height\":32.0},\"strokeIds\":[\"s-1\"]}]}}";
         return new Anchor(id(), content.source().sourceId(), content.version().version(),
                 "HANDWRITING_STEP", 0, digest("手写推导"), locator, "手写推导");
