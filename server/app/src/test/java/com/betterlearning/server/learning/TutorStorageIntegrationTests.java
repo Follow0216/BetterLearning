@@ -147,10 +147,10 @@ class TutorStorageIntegrationTests {
         String ref = accepted.turn().getFileRef();
         assertThat(accepted.newlyBound()).isTrue();
         assertThat(turns.pending(alice.id(), question)).isEmpty();
-        assertConflict(() -> turns.cancel(alice.id(), question, turn));
         assertThat(frozen.accept(alice.id(), question, turn, first, parts(first)).newlyBound()).isFalse();
         assertConflict(() -> turns.finish(alice.id(), question, turn, ref, "提前结果", null, null));
         assertThat(turns.claim(alice.id(), question, turn, false).claimed()).isTrue();
+        assertConflict(() -> turns.cancel(alice.id(), question, turn));
         turns.finish(alice.id(), question, turn, ref, "第一轮回答", null, null);
         String second = turns.createOrGet(alice.id(), question, UUID.randomUUID().toString(), "第二轮").turn().getTurnId();
         AnswerModels.SaveManifest next = AnswerTestData.manifest(second, null);
