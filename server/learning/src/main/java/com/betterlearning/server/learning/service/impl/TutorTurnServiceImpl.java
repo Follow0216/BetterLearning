@@ -118,7 +118,7 @@ public class TutorTurnServiceImpl implements TutorTurnService {
         if (turn.getFileRef() == null) {
             throw new BusinessException(ErrorCode.ANSWER_NOT_SAVED);
         }
-        if ("TABLET_CANCELLED".equals(turn.getFailureCode())
+        if ("TABLET_CANCELLED".equals(turn.getFailureCode()) || "GENERATION_OUTCOME_UNKNOWN".equals(turn.getFailureCode())
                 || !(retry ? "FAILED" : "WAITING_ANSWER").equals(turn.getStatus())) {
             throw conflict();
         }

@@ -22,7 +22,7 @@ class PureP4WorkerContextIntegrationTests {
             assertThat(context.getBean(HandwritingSourceReader.class)).isNotNull();
             assertThat(context.getBeansOfType(NoteServiceImpl.class)).isEmpty();
             assertThat(fixture.jdbc().queryForObject(
-                    "select count(*) from flyway_schema_history where success = true", Integer.class)).isEqualTo(10);
+                    "select count(*) from flyway_schema_history where success = true", Integer.class)).isEqualTo(11);
             assertThat(fixture.jdbc().queryForObject(
                     "select count(*) from pg_extension where extname = 'vector'", Integer.class)).isEqualTo(1);
         }
