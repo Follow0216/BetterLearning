@@ -17,6 +17,8 @@ import {
   type CitationResolution,
 } from "@/lib/api/learning-v2-contract";
 
+import { trapDialogTab } from "./dialog-focus";
+
 interface LoadedCitation {
   resolution: CitationResolution;
   images: string[];
@@ -104,8 +106,13 @@ export function CitationDialog({ citation, onClose }: { citation: Citation; onCl
     );
     const pop = () => onClose();
     window.addEventListener("popstate", pop);
+    const trap = (event: KeyboardEvent) => {
+      if (element) trapDialogTab(event, element);
+    };
+    element?.addEventListener("keydown", trap, true);
     element?.showModal();
     return () => {
+      element?.removeEventListener("keydown", trap, true);
       window.removeEventListener("popstate", pop);
       element?.close();
       if (history.state?.blCitation === citation.citationId) {
@@ -168,6 +175,7 @@ export function CitationDialog({ citation, onClose }: { citation: Citation; onCl
     <dialog
       className={styles.dialog}
       ref={dialog}
+      tabIndex={-1}
       aria-labelledby="citation-title"
       aria-describedby="citation-description"
       onCancel={(event) => {
