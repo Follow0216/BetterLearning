@@ -9,6 +9,7 @@ import {
   LearningApi,
   QuestionDetail,
   learning_subject_label,
+  ToastStore,
   TutorApi,
   TutorTurn,
   TutorTurnStatus,
@@ -43,6 +44,8 @@ const POLL_INTERVAL_MS: number = 3000;
 
 @Component
 export struct PhoneTutorPage {
+  toast?: ToastStore;
+  private requestedToastScopes: Map<string, number> = new Map();
   @Prop @Watch('on_question_changed') questionId: string = '';
   @Prop embedded: boolean = false;
   editorNavigation: PhoneBackController = new PhoneBackController();
@@ -91,6 +94,7 @@ export struct PhoneTutorPage {
   private pollGeneration: number = 0;
   private alive: boolean = true;
   private activeTurnId: string = '';
+  private pendingRequestToastScope: number | undefined = undefined;
   private pendingRequestId: string = '';
   private pendingPrompt: string = '';
 
@@ -113,12 +117,15 @@ export struct PhoneTutorPage {
     this.save_session();
     this.clear_scroll_timer();
     this.alive = false;
+    this.requestedToastScopes.clear();
     this.questionSeq++;
     this.requestSeq = this.requestSeq + 1;
     this.stop_poll();
   }
 
   on_question_changed(): void {
+    this.requestedToastScopes.clear();
+    this.pendingRequestToastScope = undefined;
     this.stop_editing();
     this.save_scroll_position();
     this.save_session();
@@ -293,7 +300,7 @@ export struct PhoneTutorPage {
     Column({ space: 12 }) {
       Text(this.listError).fontSize(14).fontColor(PHONE_COLOR_DANGER).textAlign(TextAlign.Center)
       Button('重新加载').height(44).fontSize(14).fontColor(PHONE_COLOR_WHITE)
-        .backgroundColor(PHONE_COLOR_PRIMARY).enabled(!this.loading).onClick(() => { this.load_turns(); })
+        .backgroundColor(PHONE_COLOR_PRIMARY).enabled(!this.loading).onClick(() => { this.load_turns(true); })
     }
     .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).padding(28)
   }
@@ -555,7 +562,8 @@ export struct PhoneTutorPage {
     return PHONE_COLOR_SOFT;
   }
 
-  private async load_turns(): Promise<void> {
+  private async load_turns(manual: boolean = false): Promise<void> {
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const token: string | null = authSession.read_access_token();
     const user: UserProfile | null = authSession.read_user();
     if (token === null || user === null) {
@@ -589,9 +597,11 @@ export struct PhoneTutorPage {
         return;
       }
       this.set_turns(result.data);
+      result.data.forEach((turn: TutorTurn) => this.notify_pending_turn(turn));
       if (this.pendingRequestId.length > 0) {
         for (let index: number = 0; index < result.data.length; index++) {
           if (result.data[index].requestId === this.pendingRequestId) {
+            this.track_requested_turn(result.data[index], manual ? toast_scope : this.pendingRequestToastScope);
             if (this.prompt === this.pendingPrompt) { this.prompt = ''; }
             this.pendingRequestId = '';
             this.pendingPrompt = '';
@@ -615,6 +625,10 @@ export struct PhoneTutorPage {
     } finally {
       if (seq === this.requestSeq) {
         this.loading = false;
+        if (manual && !this.is_stale(seq, token, accountId) && this.listError.length > 0) {
+          this.toast?.show({ key: 'phone-tutor-refresh', type: 'error', message: '对话刷新未完成',
+            description: '请查看页面提示后重试' }, toast_scope);
+        }
       }
     }
   }
@@ -624,7 +638,7 @@ export struct PhoneTutorPage {
       return;
     }
     this.actionError = '';
-    this.load_turns();
+    this.load_turns(true);
     if (this.questionDetail === null) { this.load_question(); }
   }
 
@@ -735,6 +749,7 @@ export struct PhoneTutorPage {
       }
       this.pollNotice = '';
       this.merge_turn(result.data);
+      this.notify_pending_turn(result.data);
       this.sync_active_turn();
     } catch (error) {
       if (generation === this.pollGeneration && this.poll_allowed() &&
@@ -746,6 +761,24 @@ export struct PhoneTutorPage {
         this.pollBusyGeneration = -1;
       }
     }
+  }
+
+  private track_requested_turn(turn: TutorTurn, scope?: number): void {
+    if (turn.questionId !== this.questionId) { return; }
+    if (scope === undefined) { return; }
+    this.requestedToastScopes.set(turn.turnId, scope);
+    this.notify_pending_turn(turn);
+  }
+
+  private notify_pending_turn(turn: TutorTurn): void {
+    if (turn.questionId !== this.questionId) { return; }
+    const scope: number | undefined = this.requestedToastScopes.get(turn.turnId);
+    if (scope === undefined || (turn.status !== TutorTurnStatus.SUCCEEDED && turn.status !== TutorTurnStatus.FAILED)) { return; }
+    this.requestedToastScopes.delete(turn.turnId);
+    this.toast?.show({ key: 'phone-tutor-result:' + turn.turnId,
+      type: turn.status === TutorTurnStatus.SUCCEEDED ? 'success' : 'error',
+      message: turn.status === TutorTurnStatus.SUCCEEDED ? '本次解答已完成' : '暂时未能获取回复',
+      description: turn.status === TutorTurnStatus.SUCCEEDED ? '可在当前对话查看' : '提问记录已保留，请查看页面提示' }, scope);
   }
 
   private async submit_prompt(): Promise<void> {
@@ -778,6 +811,8 @@ export struct PhoneTutorPage {
       this.pendingRequestId = requestId;
       this.pendingPrompt = text;
     }
+    const toast_scope: number | undefined = this.toast?.captureScope();
+    this.pendingRequestToastScope = toast_scope;
     const seq: number = ++this.requestSeq;
     this.submitting = true;
     this.save_session();
@@ -799,6 +834,7 @@ export struct PhoneTutorPage {
         this.stop_editing();
         this.prompt = '';
         this.merge_turn(result.data);
+        this.track_requested_turn(result.data, toast_scope);
         this.expandedTurnId = result.data.turnId;
         this.schedule_scroll(true, 0);
         this.composeHint = result.data.status === TutorTurnStatus.WAITING_ANSWER ?
@@ -819,7 +855,7 @@ export struct PhoneTutorPage {
       }
       if (error !== null && (error.is_network() || error.httpStatus >= 500 ||
         error.kind === AuthFailureKind.PROTOCOL)) {
-        await this.confirm_unknown_create(requestId, text, token, accountId, seq);
+        await this.confirm_unknown_create(requestId, text, token, accountId, seq, toast_scope);
         return;
       }
       this.pendingRequestId = '';
@@ -827,18 +863,22 @@ export struct PhoneTutorPage {
       this.composeError = describe_tutor_error(error);
     } catch (error) {
       if (!this.is_stale(seq, token, accountId)) {
-        await this.confirm_unknown_create(requestId, text, token, accountId, seq);
+        await this.confirm_unknown_create(requestId, text, token, accountId, seq, toast_scope);
       }
     } finally {
       if (seq === this.requestSeq) {
         this.submitting = false;
         this.save_session();
+        if (!this.is_stale(seq, token, accountId) && this.composeError.length > 0) {
+          this.toast?.show({ key: 'phone-tutor-submit', type: 'error', message: '提问暂时未能发送',
+            description: '提问内容已保留，请查看页面提示' }, toast_scope);
+        }
       }
     }
   }
 
   private async confirm_unknown_create(requestId: string, text: string, token: string,
-    accountId: string, seq: number): Promise<void> {
+    accountId: string, seq: number, toast_scope?: number): Promise<void> {
     if (this.is_stale(seq, token, accountId)) { return; }
     this.composeHint = '正在确认刚才的提问是否发送成功…';
     try {
@@ -870,6 +910,7 @@ export struct PhoneTutorPage {
         this.stop_editing();
         this.prompt = '';
         this.composeHint = '已确认刚才的提问发送成功。';
+        this.track_requested_turn(found, toast_scope);
         this.schedule_scroll(true, 0);
         this.sync_active_turn();
         return;
@@ -879,6 +920,11 @@ export struct PhoneTutorPage {
     } catch (error) {
       if (!this.is_stale(seq, token, accountId)) {
         this.composeHint = '暂时无法确认是否发送成功，请稍后再次发送以确认原提问。';
+      }
+    } finally {
+      if (!this.is_stale(seq, token, accountId) && this.pendingRequestId.length > 0) {
+        this.toast?.show({ key: 'phone-tutor-submit', type: 'info', message: '暂时无法确认提问结果',
+          description: '内容已保留，请稍后确认' }, toast_scope);
       }
     }
   }
@@ -894,9 +940,11 @@ export struct PhoneTutorPage {
       return;
     }
     const accountId: string = user.accountId;
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.requestSeq;
     this.busyTurnId = turn.turnId;
     this.actionError = '';
+    let outcome_confirmed: boolean = false;
     try {
       const result: AuthResult<TutorTurn> = await this.api.cancelTurn(token, this.questionId, turn.turnId);
       if (this.is_stale(seq, token, accountId)) {
@@ -908,6 +956,8 @@ export struct PhoneTutorPage {
       }
       if (result.isSuccess && result.data !== null) {
         this.merge_turn(result.data);
+        this.requestedToastScopes.delete(turn.turnId);
+        this.toast?.show({ key: 'phone-tutor-cancel', type: 'info', message: '本次提问状态已更新' }, toast_scope);
         this.sync_active_turn();
         return;
       }
@@ -918,15 +968,19 @@ export struct PhoneTutorPage {
       }
       if (error !== null && (error.is_network() || error.httpStatus >= 500 ||
         error.kind === AuthFailureKind.PROTOCOL)) {
-        await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '取消结果未知');
+        outcome_confirmed = await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '取消结果未知', toast_scope, false);
         return;
       }
       this.actionError = describe_tutor_error(error);
     } catch (error) {
-      await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '取消结果未知');
+      outcome_confirmed = await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '取消结果未知', toast_scope, false);
     } finally {
       if (seq === this.requestSeq) {
         this.busyTurnId = '';
+        if (!this.is_stale(seq, token, accountId) && !outcome_confirmed && this.actionError.length > 0) {
+          this.toast?.show({ key: 'phone-tutor-action', type: 'error', message: '操作暂未确认完成',
+            description: '请查看页面中的最新状态' }, toast_scope);
+        }
       }
     }
   }
@@ -943,9 +997,11 @@ export struct PhoneTutorPage {
       return;
     }
     const accountId: string = user.accountId;
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.requestSeq;
     this.busyTurnId = turn.turnId;
     this.actionError = '';
+    let outcome_confirmed: boolean = false;
     try {
       const result: AuthResult<TutorTurn> = await this.api.retryTurn(token, this.questionId, turn.turnId);
       if (this.is_stale(seq, token, accountId)) {
@@ -957,6 +1013,7 @@ export struct PhoneTutorPage {
       }
       if (result.isSuccess && result.data !== null) {
         this.merge_turn(result.data);
+        this.track_requested_turn(result.data, toast_scope);
         this.sync_active_turn();
         return;
       }
@@ -967,36 +1024,42 @@ export struct PhoneTutorPage {
       }
       if (error !== null && (error.is_network() || error.httpStatus >= 500 ||
         error.kind === AuthFailureKind.PROTOCOL)) {
-        await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '重试结果未知');
+        outcome_confirmed = await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '重试结果未知', toast_scope, true);
         return;
       }
       this.actionError = describe_tutor_error(error);
     } catch (error) {
-      await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '重试结果未知');
+      outcome_confirmed = await this.refresh_after_unknown(turn.turnId, token, accountId, seq, '重试结果未知', toast_scope, true);
     } finally {
       if (seq === this.requestSeq) {
         this.busyTurnId = '';
+        if (!this.is_stale(seq, token, accountId) && !outcome_confirmed && this.actionError.length > 0) {
+          this.toast?.show({ key: 'phone-tutor-action', type: 'error', message: '操作暂未确认完成',
+            description: '请查看页面中的最新状态' }, toast_scope);
+        }
       }
     }
   }
 
   private async refresh_after_unknown(turnId: string, token: string, accountId: string,
-    seq: number, prefix: string): Promise<void> {
-    if (this.is_stale(seq, token, accountId)) { return; }
+    seq: number, prefix: string, toast_scope?: number, track: boolean = false): Promise<boolean> {
+    if (this.is_stale(seq, token, accountId)) { return false; }
     try {
       const current: AuthResult<TutorTurn> = await this.api.getTurn(token, this.questionId, turnId);
       if (this.is_stale(seq, token, accountId)) {
-        return;
+        return false;
       }
       if (!authSession.has_valid_session()) {
         this.handle_unauthorized(token);
-        return;
+        return false;
       }
       if (!current.isSuccess || current.data === null) {
         this.actionError = prefix + '，且暂时无法读取这次提问的状态，请手动刷新';
-        return;
+        return false;
       }
       this.merge_turn(current.data);
+      if (track) { this.track_requested_turn(current.data, toast_scope); }
+      else { this.toast?.show({ key: 'phone-tutor-action', type: 'info', message: '已读取本次提问的最新状态' }, toast_scope); }
       this.sync_active_turn();
       if (current.data.status === TutorTurnStatus.FAILED) {
         this.actionError = prefix + '；已确认解答仍未完成' +
@@ -1008,11 +1071,13 @@ export struct PhoneTutorPage {
       } else {
         this.actionError = prefix + '；已确认解答已完成';
       }
+      return true;
     } catch (error) {
       if (!this.is_stale(seq, token, accountId)) {
         this.actionError = prefix + '，且暂时无法读取这次提问的状态，请手动刷新';
       }
     }
+    return false;
   }
 
   private merge_turn(turn: TutorTurn): void {

@@ -10,6 +10,7 @@ import {
   SolutionDetail,
   TutorApi,
   TutorTurn,
+  ToastStore,
   UserProfile
 } from 'common';
 import {
@@ -46,6 +47,7 @@ import { AnswerTileViewer } from './AnswerTileViewer';
  */
 @Component
 export struct PhoneAnswerPage {
+  toast?: ToastStore;
   @Prop @Watch('on_question_changed') questionId: string = '';
   @Prop @Watch('on_question_changed') turnId: string = '';
   onBack: () => void = () => {
@@ -299,6 +301,7 @@ export struct PhoneAnswerPage {
       return;
     }
     const accountId: string = user.accountId;
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.requestSeq;
     this.loading = true;
     this.errorText = '';
@@ -319,6 +322,14 @@ export struct PhoneAnswerPage {
     } finally {
       if (seq === this.requestSeq) {
         this.loading = false;
+        if (!this.stale(seq, token, accountId) && authSession.has_valid_session()) {
+          if (this.errorText.length > 0) {
+            this.toast?.show({ key: 'phone-answer-load', type: 'error', message: '暂时无法读取完整作答',
+              description: '请查看页面提示后重试' }, toast_scope);
+          } else if (this.turnId.length === 0 && this.answerState === AnswerState.NOT_STARTED) {
+            this.toast?.show({ key: 'phone-answer-load', type: 'info', message: '暂无作答，请先在平板端书写并保存' }, toast_scope);
+          }
+        }
       }
     }
   }

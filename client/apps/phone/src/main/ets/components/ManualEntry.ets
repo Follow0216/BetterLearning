@@ -4,7 +4,7 @@ import { image } from '@kit.ImageKit';
 import {
   authSession, AuthResult, LearningApi, learning_subject_label, LearningSubject,
   ManualQuestionInput, MAX_QUESTION_MARKDOWN_LENGTH, OcrApi, OcrResult,
-  QuestionDetail, QuestionMarkdownView
+  QuestionDetail, QuestionMarkdownView, ToastStore
 } from 'common';
 import { describe_confirm_error, describe_learning_error } from '../model/QuestionFormat';
 import { PhoneBackController } from '../model/PhoneHomeState';
@@ -39,7 +39,9 @@ enum EntryReviewMode {
  */
 @Component
 export struct ManualEntry {
-  onSaved: (detail: QuestionDetail) => void = () => {};
+  toast?: ToastStore;
+  onContextChanged: (context: string) => void = () => {};
+  onSaved: (detail: QuestionDetail, scope?: number) => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
   onBack: () => void = () => {};
   onNavigationVisibilityChanged: (visible: boolean) => void = () => {};
@@ -120,6 +122,7 @@ export struct ManualEntry {
   /** 只有当前可见实例报告入口导航；隐藏期间的异步状态不控制父层底栏。 */
   report_navigation_visibility(): void {
     if (!this.alive || !this.active) { return; }
+    this.onContextChanged(this.screen);
     this.onNavigationVisibilityChanged(this.screen === EntryScreen.SOURCE && !this.editorFocused &&
       !this.sourcePicker && !this.discardPrompt && !this.imageLoading && !this.cropBusy && !this.submitting);
   }
@@ -643,6 +646,7 @@ export struct ManualEntry {
     if (this.save_blocked()) { return; }
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const generation: number = ++this.imageGeneration;
     this.imageLoading = true;
     this.imageError = '';
@@ -662,6 +666,7 @@ export struct ManualEntry {
       if (!Number.isInteger(info.size.width) || !Number.isInteger(info.size.height) ||
         info.size.width <= 0 || info.size.height <= 0) {
         this.imageError = '图片尺寸无效，原来的内容已保留';
+        this.toast?.show({ key: 'phone-entry-image', type: 'error', message: '图片尺寸无效', description: '原来的内容已保留' }, toast_scope);
         return;
       }
       this.clear_candidate();
@@ -675,6 +680,7 @@ export struct ManualEntry {
     } catch (error) {
       if (!this.image_stale(generation, token)) {
         this.imageError = from_camera ? '无法打开相机或读取照片，原来的内容已保留' : '无法读取所选图片，原来的内容已保留';
+        this.toast?.show({ key: 'phone-entry-image', type: 'error', message: '暂时无法读取图片', description: '原来的内容已保留，请重试' }, toast_scope);
       }
     } finally {
       await this.release_map(loaded);
@@ -687,6 +693,7 @@ export struct ManualEntry {
     if (map === null || this.save_blocked()) { return; }
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const generation: number = this.imageGeneration;
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     this.cropBusy = true;
@@ -717,7 +724,10 @@ export struct ManualEntry {
       if (error instanceof CroppedImageCleanupError) {
         try { discardCroppedImage(error.path); } catch (cleanupError) { /* 交给系统缓存回收。 */ }
       }
-      if (!this.image_stale(generation, token)) { this.imageError = '裁剪失败，请调整选区后重试；原来的内容已保留'; }
+      if (!this.image_stale(generation, token)) {
+        this.imageError = '裁剪失败，请调整选区后重试；原来的内容已保留';
+        this.toast?.show({ key: 'phone-entry-crop', type: 'error', message: '裁剪失败', description: '请调整选区后重试，原内容已保留' }, toast_scope);
+      }
     } finally {
       if (createdPath.length > 0) {
         try { discardCroppedImage(createdPath); } catch (cleanupError) { /* 交给系统缓存回收。 */ }
@@ -741,6 +751,7 @@ export struct ManualEntry {
     if (this.cropPath.length === 0) { this.imageError = '请先选择并裁剪题图'; return; }
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const generation: number = this.imageGeneration;
     const path: string = this.cropPath;
     this.recognizing = true;
@@ -754,11 +765,18 @@ export struct ManualEntry {
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.is_unauthorized()) { this.handle_unauthorized(token); return; }
         this.imageError = '识别失败：' + describe_learning_error(result.error) + '；题图已保留，可重试';
+        this.toast?.show({ key: 'phone-entry-ocr', type: 'error', message: '题目识别未完成', description: '题图已保留，可重试或手动输入' }, toast_scope);
         return;
       }
       this.accept_ocr_text(result.data.bodyMarkdown);
+      this.toast?.show({ key: 'phone-entry-ocr', type: result.data.bodyMarkdown.trim().length > 0 ? 'success' : 'error',
+        message: result.data.bodyMarkdown.trim().length > 0 ? '识别完成，请校对文字和公式' : '未识别到题目',
+        description: '题图已保留，确认校对后再保存' }, toast_scope);
     } catch (error) {
-      if (!this.image_stale(generation, token) && path === this.cropPath) { this.imageError = '识别请求异常，请重试；题图已保留'; }
+      if (!this.image_stale(generation, token) && path === this.cropPath) {
+        this.imageError = '识别请求异常，请重试；题图已保留';
+        this.toast?.show({ key: 'phone-entry-ocr', type: 'error', message: '题目识别未完成', description: '题图已保留，请稍后重试' }, toast_scope);
+      }
     } finally {
       if (generation === this.imageGeneration) { this.recognizing = false; }
     }
@@ -813,6 +831,7 @@ export struct ManualEntry {
     if (input === null) { return; }
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
+    const toast_scope: number | undefined = this.toast?.captureScope();
     const seq: number = ++this.requestSeq;
     this.submitting = true;
     this.errorText = '';
@@ -823,18 +842,20 @@ export struct ManualEntry {
       if (!result.isSuccess || result.data === null) {
         if (result.error !== null && result.error.is_unauthorized()) { this.handle_unauthorized(token); return; }
         this.errorText = describe_confirm_error(result.error);
+        this.toast?.show({ key: 'phone-entry-save', type: 'error', message: '题目尚未确认保存', description: '内容已保留，请查看页面提示后重试' }, toast_scope);
         return;
       }
       const detail: QuestionDetail = result.data;
       this.pendingInput = null;
       this.bodyMarkdown = '';
       this.abandon_capture();
+      this.onSaved(detail, toast_scope);
       this.screen = EntryScreen.SOURCE;
-      this.onSaved(detail);
     } catch (error) {
       if (!this.alive || seq !== this.requestSeq || !authSession.matches_access_token(token)) { return; }
       if (!authSession.has_valid_session()) { this.handle_unauthorized(token); return; }
       this.errorText = '保存请求异常，内容已保留，请重试';
+      this.toast?.show({ key: 'phone-entry-save', type: 'error', message: '暂时无法确认保存结果', description: '内容已保留，请重试确认' }, toast_scope);
     } finally {
       if (seq === this.requestSeq) { this.submitting = false; }
     }

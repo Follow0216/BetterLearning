@@ -1,4 +1,4 @@
-import { authSession, AuthScreen, QuestionDetail, UserProfile } from 'common';
+import { authSession, AuthScreen, QuestionDetail, ToastHost, ToastStore, UserProfile } from 'common';
 import { PhoneBackController } from '../model/PhoneHomeState';
 import {
   PHONE_COLOR_BACKGROUND, PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_MUTED,
@@ -20,15 +20,23 @@ enum PhoneTab {
 /** 首页、题库和我的在登录会话内常驻；录题是保留草稿的覆盖层。 */
 @Component
 export struct PhoneApp {
+  private toast: ToastStore = new ToastStore();
+  private accountId: string = '';
+  private sessionOwnerToken: string | null = null;
+  private accountSection: string = 'account';
+  private homeContext: string = 'COLLABORATION:';
+  private libraryContext: string = 'all';
+  private entryContext: string = 'SOURCE';
+  @StorageProp('phoneForeground') @Watch('on_foreground_changed') foreground: boolean = true;
   navigation: PhoneBackController = new PhoneBackController();
-  @State isAuthenticated: boolean = false;
-  @State activeTab: PhoneTab = PhoneTab.HOME;
-  @State detailQuestionId: string = '';
-  @State answerQuestionId: string = '';
-  @State answerTurnId: string = '';
+  @State @Watch('sync_toast_scope') isAuthenticated: boolean = false;
+  @State @Watch('sync_toast_scope') activeTab: PhoneTab = PhoneTab.HOME;
+  @State @Watch('sync_toast_scope') detailQuestionId: string = '';
+  @State @Watch('sync_toast_scope') answerQuestionId: string = '';
+  @State @Watch('sync_toast_scope') answerTurnId: string = '';
   @State homeQuestionId: string = '';
   @State homeRequestSerial: number = 0;
-  @State entryVisible: boolean = false;
+  @State @Watch('sync_toast_scope') entryVisible: boolean = false;
   @State entryNavigationVisible: boolean = false;
   @State homeFullscreen: boolean = false;
   @State homeComposing: boolean = false;
@@ -38,6 +46,7 @@ export struct PhoneApp {
 
   aboutToAppear(): void {
     this.navigation.handleBack = (): boolean => this.handle_back();
+    this.sync_toast_scope();
     const token: string | null = authSession.read_access_token();
     const user: UserProfile | null = authSession.read_user();
     if (token !== null && user !== null) {
@@ -47,14 +56,16 @@ export struct PhoneApp {
 
   aboutToDisappear(): void {
     this.navigation.handleBack = (): boolean => false;
+    this.toast.dispose();
   }
 
   build() {
-    Stack() {
+    Stack({ alignContent: Alignment.Top }) {
       if (this.isAuthenticated) {
         this.main_shell()
         if (this.answerQuestionId.length > 0) {
           PhoneAnswerPage({
+            toast: this.toast,
             questionId: this.answerQuestionId,
             turnId: this.answerTurnId,
             onBack: () => { this.close_answer(); },
@@ -63,10 +74,12 @@ export struct PhoneApp {
         }
       } else {
         AuthScreen({
+          toast: this.toast,
           onAuthenticated: (user: UserProfile) => { this.handle_authenticated(user); },
           onSignedOut: () => { this.reset_session(); }
         })
       }
+      ToastHost({ store: this.toast, topInset: 12 })
     }
     .width('100%').height('100%').backgroundColor(PHONE_COLOR_BACKGROUND)
   }
@@ -76,6 +89,8 @@ export struct PhoneApp {
     Column() {
       Stack() {
         PhoneHomePage({
+          toast: this.toast,
+          onContextChanged: (context: string) => { this.homeContext = context; this.sync_toast_scope(); },
           requestedQuestionId: this.homeQuestionId,
           requestSerial: this.homeRequestSerial,
           active: this.activeTab === PhoneTab.HOME && this.detailQuestionId.length === 0 &&
@@ -94,6 +109,8 @@ export struct PhoneApp {
             !this.entryVisible ? Visibility.Visible : Visibility.None)
 
         QuestionLibrary({
+          toast: this.toast,
+          onContextChanged: (context: string) => { this.libraryContext = context; this.sync_toast_scope(); },
           refreshToken: this.libraryRefreshToken,
           onBack: () => { this.return_home(); },
           onCreateQuestion: () => { this.open_entry(); },
@@ -107,6 +124,11 @@ export struct PhoneApp {
             this.activeTab === PhoneTab.LIBRARY ? Visibility.Visible : Visibility.None)
 
         AccountPage({
+          active: this.detailQuestionId.length === 0 && !this.entryVisible &&
+            this.answerQuestionId.length === 0 && this.activeTab === PhoneTab.ACCOUNT,
+          toast: this.toast,
+          onAccountSectionChange: (section: string) => { this.accountSection = section; this.sync_toast_scope(); },
+          onPasswordChanged: (token: string) => { this.handle_password_changed(token); },
           onBack: () => { this.return_home(); },
           onSignedOut: (token: string) => { this.handle_signed_out(token); }
         })
@@ -132,6 +154,8 @@ export struct PhoneApp {
         }
 
         ManualEntry({
+          toast: this.toast,
+          onContextChanged: (context: string) => { this.entryContext = context; this.sync_toast_scope(); },
           backController: this.entryNavigation,
           active: this.entryVisible && this.answerQuestionId.length === 0,
           onBack: () => { this.return_home(); },
@@ -141,13 +165,7 @@ export struct PhoneApp {
               this.entryNavigationVisible = visible;
             }
           },
-          onSaved: (detail: QuestionDetail) => {
-            this.libraryRefreshToken = this.libraryRefreshToken + 1;
-            this.close_entry();
-            this.activeTab = PhoneTab.LIBRARY;
-            this.close_answer();
-            this.detailQuestionId = detail.questionId;
-          },
+          onSaved: (detail: QuestionDetail, scope?: number) => { this.handle_question_saved(detail, scope); },
           onUnauthorized: (token: string) => { this.handle_signed_out(token); }
         })
           .visibility(this.entryVisible ? Visibility.Visible : Visibility.None)
@@ -254,6 +272,17 @@ export struct PhoneApp {
     this.answerTurnId = '';
   }
 
+  private handle_question_saved(detail: QuestionDetail, scope?: number): void {
+    if (!this.isAuthenticated || scope === undefined || scope !== this.toast.captureScope()) { return; }
+    this.libraryRefreshToken = this.libraryRefreshToken + 1;
+    this.close_entry();
+    this.activeTab = PhoneTab.LIBRARY;
+    this.close_answer();
+    this.detailQuestionId = detail.questionId;
+    this.sync_toast_scope();
+    this.toast.show({ key: 'phone-question-saved', type: 'success', message: '题目已保存到待整理' });
+  }
+
   private handle_authenticated(user: UserProfile): void {
     const token: string | null = authSession.read_access_token();
     const current: UserProfile | null = authSession.read_user();
@@ -261,12 +290,17 @@ export struct PhoneApp {
   }
 
   private enter_session(): void {
+    this.accountId = authSession.read_user()?.accountId ?? '';
+    this.sessionOwnerToken = authSession.read_access_token();
     this.isAuthenticated = true;
     this.clear_routes();
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
+    this.sync_toast_scope();
   }
 
   private handle_signed_out(token: string): void {
+    if (token.length === 0 && authSession.read_access_token() !== null) { return; }
+    if (token.length > 0 && this.sessionOwnerToken !== token) { return; }
     if (token.length > 0) {
       const current: string | null = authSession.read_access_token();
       if (current !== null && current !== token) { return; }
@@ -286,9 +320,39 @@ export struct PhoneApp {
     this.homeComposing = false;
   }
 
+  private on_foreground_changed(): void {
+    if (!this.foreground) { this.toast.clearScope(); }
+  }
+
+  private sync_toast_scope(): void {
+    let route: string = 'auth';
+    if (this.isAuthenticated) {
+      if (this.answerQuestionId.length > 0) { route = 'answer:' + this.answerQuestionId + ':' + this.answerTurnId; }
+      else if (this.entryVisible) { route = 'entry:' + this.entryContext; }
+      else if (this.detailQuestionId.length > 0) { route = 'detail:' + this.detailQuestionId; }
+      else if (this.activeTab === PhoneTab.HOME) { route = 'home:' + this.homeContext; }
+      else if (this.activeTab === PhoneTab.ACCOUNT) { route = 'account:' + this.accountSection; }
+      else { route = 'library:' + this.libraryContext; }
+    }
+    this.toast.onScopeChange('phone:' + this.accountId + ':' + route);
+  }
+
+  private handle_password_changed(token: string): void {
+    const current: string | null = authSession.read_access_token();
+    if (this.sessionOwnerToken !== token || (current !== null && current !== token)) { return; }
+    authSession.clear_session_if_token(token);
+    this.reset_session();
+    this.toast.show({ key: 'phone-password-changed', type: 'success', message: '密码已修改，请使用新密码登录' });
+  }
+
   private reset_session(): void {
+    this.toast.clearScope();
+    this.accountId = '';
+    this.sessionOwnerToken = null;
+    this.accountSection = 'account';
     this.isAuthenticated = false;
     this.clear_routes();
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
+    this.sync_toast_scope();
   }
 }
