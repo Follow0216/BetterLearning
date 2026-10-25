@@ -40,10 +40,12 @@ public final class SourceDeletionService {
             throw new IllegalStateException("Deletion journal validation failed; serving must remain closed", failure);
         }
         transactions.executeWithoutResult(status -> {
-            RetentionMapper.Watermark previous = mapper.watermark();
-            if (previous.sequence() > entries.size() || (previous.sequence() > 0
-                    && !entries.get(Math.toIntExact(previous.sequence() - 1)).hash().equals(previous.hash()))) {
-                throw new IllegalStateException("Deletion journal is behind database watermark");
+            verifyRecordedPrefix(entries, mapper.watermark());
+            // Live withdrawals commit tombstones without advancing the startup replay watermark.
+            // Use the greatest journal sequence, not transaction commit order; extra intents may be replayed.
+            RetentionMapper.Watermark committed = mapper.highestCommittedDeletion();
+            if (committed != null) {
+                verifyRecordedPrefix(entries, committed);
             }
             // Reapply all intents, including rolled-back deletion transactions and absent-source tombstones.
             for (DeletionJournal.Entry entry : entries) {
@@ -55,5 +57,12 @@ public final class SourceDeletionService {
                 mapper.watermarkSaved(head.sequence(), head.hash());
             }
         });
+    }
+
+    private static void verifyRecordedPrefix(List<DeletionJournal.Entry> entries, RetentionMapper.Watermark watermark) {
+        if (watermark.sequence() > entries.size() || (watermark.sequence() > 0
+                && !entries.get(Math.toIntExact(watermark.sequence() - 1)).hash().equals(watermark.hash()))) {
+            throw new IllegalStateException("Deletion journal is behind database watermark");
+        }
     }
 }
