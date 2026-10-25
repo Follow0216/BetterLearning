@@ -14,7 +14,7 @@ import {
   TutorTurnStatus,
   UserProfile
 } from 'common';
-import { PhoneTutorSession, PhoneTutorSessionStore } from '../model/PhoneHomeState';
+import { PhoneBackController, PhoneTutorSession, PhoneTutorSessionStore } from '../model/PhoneHomeState';
 import {
   describe_tutor_error,
   describe_tutor_failure,
@@ -45,6 +45,8 @@ const POLL_INTERVAL_MS: number = 3000;
 export struct PhoneTutorPage {
   @Prop @Watch('on_question_changed') questionId: string = '';
   @Prop embedded: boolean = false;
+  editorNavigation: PhoneBackController = new PhoneBackController();
+  onComposingChanged: (value: boolean) => void = () => {};
   sessionStore: PhoneTutorSessionStore = new PhoneTutorSessionStore();
   onChooseQuestion: () => void = () => {};
   onRead: (title: string, body: string, plainText: boolean) => void = () => {};
@@ -71,9 +73,13 @@ export struct PhoneTutorPage {
   @State pollNotice: string = '';
   @State questionDetail: QuestionDetail | null = null;
   @State questionError: string = '';
+  @State editorFocused: boolean = false;
+  private editorController: TextAreaController = new TextAreaController();
   private conversationScroller: Scroller = new Scroller();
   private scrollTimer: number = -1;
   private scrollRestorePending: boolean = true;
+  private latestTurnTop: number = 0;
+  private latestTurnMeasured: boolean = false;
 
   private loadedQuestionId: string = '';
   private questionSeq: number = 0;
@@ -90,12 +96,19 @@ export struct PhoneTutorPage {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.editorNavigation.handleBack = (): boolean => {
+      if (!this.editorFocused) { return false; }
+      this.stop_editing();
+      return true;
+    };
     this.restore_session();
     this.load_turns();
     this.load_question();
   }
 
   aboutToDisappear(): void {
+    this.stop_editing();
+    this.editorNavigation.handleBack = (): boolean => false;
     this.save_scroll_position();
     this.save_session();
     this.clear_scroll_timer();
@@ -106,12 +119,14 @@ export struct PhoneTutorPage {
   }
 
   on_question_changed(): void {
+    this.stop_editing();
     this.save_scroll_position();
     this.save_session();
     this.clear_scroll_timer();
     this.requestSeq++;
     this.questionSeq++;
     this.stop_poll();
+    this.latestTurnMeasured = false;
     this.questionDetail = null;
     this.questionError = '';
     this.listError = '';
@@ -129,6 +144,7 @@ export struct PhoneTutorPage {
 
   on_poll_gate_changed(): void {
     if (!this.poll_allowed()) {
+      this.stop_editing();
       this.save_scroll_position();
       this.save_session();
       this.stop_poll();
@@ -225,10 +241,13 @@ export struct PhoneTutorPage {
       Text(this.has_active_turn() ? '本次提问尚未结束，请稍候或取消等待' : '发送时获取平板上本题的作答')
         .fontSize(12).fontColor(PHONE_COLOR_MUTED).width('100%')
       Row({ space: 8 }) {
-        TextArea({ text: this.prompt, placeholder: '继续问这道题…' })
+        TextArea({ text: this.prompt, placeholder: '继续问这道题…', controller: this.editorController })
           .layoutWeight(1).height(72).fontSize(15).fontColor(PHONE_COLOR_TITLE)
           .placeholderColor(PHONE_COLOR_MUTED).backgroundColor(PHONE_COLOR_BACKGROUND)
-          .borderRadius(22).padding(12).maxLength(MAX_PROMPT_LENGTH).enabled(!this.submitting)
+          .borderRadius(22).padding(12).maxLength(MAX_PROMPT_LENGTH)
+          .onFocus(() => { this.set_composing(true); })
+          .onBlur(() => { this.set_composing(false); })
+          .onWillChange(() => !this.submitting)
           .onChange((value: string) => {
             this.prompt = value;
             this.composeError = '';
@@ -240,7 +259,7 @@ export struct PhoneTutorPage {
             this.save_session();
           })
         Button({ type: ButtonType.Circle }) {
-          Image($r('app.media.bl_home_send')).width(24).height(24).fillColor(PHONE_COLOR_WHITE)
+          Image($r('app.media.bl_home_send')).width(24).height(24)
         }
         .width(46).height(46).backgroundColor(this.can_submit() ? PHONE_COLOR_PRIMARY : '#C7D0DF')
         .enabled(this.can_submit()).accessibilityText(this.submit_label())
@@ -309,7 +328,7 @@ export struct PhoneTutorPage {
           if (this.expandedTurnId === turn.turnId) {
             if (turn.answerMarkdown !== null && turn.answerMarkdown.length <= MAX_QUESTION_MARKDOWN_LENGTH) {
               QuestionMarkdownView({ bodyMarkdown: turn.answerMarkdown, fontSize: 15 })
-                .width('100%').height(this.answer_preview_height(turn)).hitTestBehavior(HitTestMode.None)
+                .width('100%').height(132).hitTestBehavior(HitTestMode.None)
               Text('预览部分解答，完整内容可展开阅读').fontSize(11).fontColor(PHONE_COLOR_MUTED).width('100%')
             } else {
               Text('解答较长，点击完整阅读查看全部文字；公式排版暂不可用。')
@@ -319,10 +338,18 @@ export struct PhoneTutorPage {
             Button('展开解答预览').height(44).fontSize(14).fontColor(PHONE_COLOR_PRIMARY)
               .backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.toggle_expanded(turn.turnId); })
           }
-          Button('完整阅读 ›').height(44).fontSize(14).fontColor(PHONE_COLOR_PRIMARY)
-            .backgroundColor(Color.Transparent).onClick(() => {
-              this.onRead('完整解答', turn.answerMarkdown === null ? '' : turn.answerMarkdown, false);
-            })
+          Row() {
+            Button('完整阅读 ›').height(44).fontSize(14).fontColor(PHONE_COLOR_PRIMARY)
+              .backgroundColor(Color.Transparent).layoutWeight(1).onClick(() => {
+                this.onRead('完整解答', turn.answerMarkdown === null ? '' : turn.answerMarkdown, false);
+              })
+            if (turn.fileRef !== null) {
+              Button('本次作答 ›').height(44).fontSize(13).fontColor(PHONE_COLOR_PRIMARY)
+                .backgroundColor(Color.Transparent).layoutWeight(1)
+                .onClick(() => { this.onOpenFrozenAnswer(this.questionId, turn.turnId); })
+            }
+          }
+          .width('100%')
         } else if (turn.status === TutorTurnStatus.WAITING_ANSWER) {
           Text('等待平板打开这道题并获取本次作答。发送时的作答会单独保留，之后仍可继续书写。')
             .fontSize(14).fontColor(PHONE_COLOR_MUTED).lineHeight(22).width('100%')
@@ -352,12 +379,12 @@ export struct PhoneTutorPage {
             Text('没有收到本次作答，可以重新提问。').fontSize(12).fontColor(PHONE_COLOR_MUTED).width('100%')
           }
         }
-        if (turn.fileRef !== null) {
+        if (turn.fileRef !== null && turn.status !== TutorTurnStatus.SUCCEEDED) {
           Row() {
             Button('本次作答 ›').height(44).fontSize(13).fontColor(PHONE_COLOR_PRIMARY)
               .backgroundColor(Color.Transparent).layoutWeight(1)
               .onClick(() => { this.onOpenFrozenAnswer(this.questionId, turn.turnId); })
-            if (turn.status === TutorTurnStatus.SUCCEEDED || turn.status === TutorTurnStatus.FAILED) {
+            if (turn.status === TutorTurnStatus.FAILED) {
               Button('重新获取作答').height(44).fontSize(13).fontColor(PHONE_COLOR_PRIMARY)
                 .backgroundColor(PHONE_COLOR_SOFT).layoutWeight(1)
                 .enabled(!this.has_active_turn() && !this.submitting && this.busyTurnId.length === 0)
@@ -371,11 +398,26 @@ export struct PhoneTutorPage {
       .border({ width: 1, color: PHONE_COLOR_BORDER }).alignItems(HorizontalAlign.Start)
     }
     .width('100%')
+    .onAreaChange((_oldArea: Area, area: Area) => { this.track_latest_turn(turn, area); })
   }
 
-  private answer_preview_height(turn: TutorTurn): number {
-    const length: number = turn.answerMarkdown === null ? 0 : turn.answerMarkdown.length;
-    return length > 400 ? 250 : 180;
+  private track_latest_turn(turn: TutorTurn, area: Area): void {
+    if (this.turns.length === 0 || turn.turnId !== this.turns[this.turns.length - 1].turnId) { return; }
+    const value: number = typeof area.position.y === 'number' ? area.position.y : parseFloat(area.position.y.toString());
+    if (Number.isFinite(value) && value >= 0) {
+      this.latestTurnTop = value;
+      this.latestTurnMeasured = true;
+    }
+  }
+
+  private set_composing(value: boolean): void {
+    this.editorFocused = value;
+    this.onComposingChanged(value);
+  }
+
+  private stop_editing(): void {
+    this.editorController.stopEditing();
+    this.set_composing(false);
   }
 
   private read_question(): void {
@@ -751,6 +793,8 @@ export struct PhoneTutorPage {
       if (result.isSuccess && result.data !== null) {
         this.pendingRequestId = '';
         this.pendingPrompt = '';
+        this.submitting = false;
+        this.stop_editing();
         this.prompt = '';
         this.merge_turn(result.data);
         this.expandedTurnId = result.data.turnId;
@@ -820,6 +864,8 @@ export struct PhoneTutorPage {
         this.expandedTurnId = found.turnId;
         this.pendingRequestId = '';
         this.pendingPrompt = '';
+        this.submitting = false;
+        this.stop_editing();
         this.prompt = '';
         this.composeHint = '已确认刚才的提问发送成功。';
         this.schedule_scroll(true, 0);
@@ -999,17 +1045,19 @@ export struct PhoneTutorPage {
 
   private restore_scroll_position(): void {
     const session: PhoneTutorSession = this.sessionStore.get(this.questionId);
-    this.schedule_scroll(!session.hasScrollPosition, session.scrollOffset);
+    this.schedule_scroll(!session.hasScrollPosition, session.scrollOffset, !session.hasScrollPosition);
   }
 
-  private schedule_scroll(toEnd: boolean, offset: number): void {
+  private schedule_scroll(toEnd: boolean, offset: number, preferLatestTurn: boolean = false): void {
     this.clear_scroll_timer();
     const questionId: string = this.questionId;
     this.scrollTimer = setTimeout(() => {
       this.scrollTimer = -1;
       if (!this.poll_allowed() || this.questionId !== questionId) { return; }
       try {
-        if (toEnd) { this.conversationScroller.scrollEdge(Edge.Bottom); }
+        if (toEnd && preferLatestTurn && this.latestTurnMeasured) {
+          this.conversationScroller.scrollTo({ xOffset: 0, yOffset: this.latestTurnTop, animation: false });
+        } else if (toEnd) { this.conversationScroller.scrollEdge(Edge.Bottom); }
         else { this.conversationScroller.scrollTo({ xOffset: 0, yOffset: offset, animation: false }); }
         this.scrollRestorePending = false;
         this.save_scroll_position();

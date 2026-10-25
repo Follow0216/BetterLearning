@@ -30,6 +30,7 @@ export struct PhoneApp {
   @State homeRequestSerial: number = 0;
   @State entryVisible: boolean = false;
   @State homeFullscreen: boolean = false;
+  @State homeComposing: boolean = false;
   @State libraryRefreshToken: number = 0;
   private entryNavigation: PhoneBackController = new PhoneBackController();
   private homeNavigation: PhoneBackController = new PhoneBackController();
@@ -80,6 +81,7 @@ export struct PhoneApp {
             !this.entryVisible && this.answerQuestionId.length === 0,
           navigation: this.homeNavigation,
           onChooseQuestion: () => { this.activeTab = PhoneTab.LIBRARY; },
+          onComposingChanged: (value: boolean) => { this.homeComposing = value; },
           onFullscreenChanged: (value: boolean) => { this.homeFullscreen = value; },
           onOpenFrozenAnswer: (questionId: string, turnId: string) => {
             this.answerTurnId = turnId;
@@ -143,7 +145,7 @@ export struct PhoneApp {
           .visibility(this.entryVisible ? Visibility.Visible : Visibility.None)
       }
       .width('100%').layoutWeight(1)
-      if (!this.entryVisible && this.detailQuestionId.length === 0 && !this.homeFullscreen) {
+      if (!this.entryVisible && this.detailQuestionId.length === 0 && !this.homeFullscreen && !this.homeComposing) {
         this.bottom_nav()
       }
     }
@@ -153,9 +155,9 @@ export struct PhoneApp {
   @Builder
   bottom_nav() {
     Row() {
-      this.nav_item(PhoneTab.HOME, $r('app.media.bl_home'), '首页')
-      this.nav_item(PhoneTab.LIBRARY, $r('app.media.bl_list'), '题库')
-      this.nav_item(PhoneTab.ACCOUNT, $r('app.media.bl_user'), '我的')
+      this.nav_item(PhoneTab.HOME, $r('app.media.bl_nav_home_active'), $r('app.media.bl_nav_home_inactive'), '首页')
+      this.nav_item(PhoneTab.LIBRARY, $r('app.media.bl_nav_library_active'), $r('app.media.bl_nav_library_inactive'), '题库')
+      this.nav_item(PhoneTab.ACCOUNT, $r('app.media.bl_nav_account_active'), $r('app.media.bl_nav_account_inactive'), '我的')
     }
     .width('100%').height(PHONE_NAV_HEIGHT)
     .padding({ left: 8, right: 8, top: 6, bottom: 6 })
@@ -165,10 +167,9 @@ export struct PhoneApp {
   }
 
   @Builder
-  nav_item(tab: PhoneTab, icon: Resource, label: string) {
+  nav_item(tab: PhoneTab, activeIcon: Resource, inactiveIcon: Resource, label: string) {
     Column() {
-      Image(icon).width(24).height(24)
-        .fillColor(this.activeTab === tab ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED)
+      Image(this.activeTab === tab ? activeIcon : inactiveIcon).width(24).height(24)
       Text(label).fontSize(12)
         .fontWeight(this.activeTab === tab ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.activeTab === tab ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED).margin({ top: 3 })
@@ -221,6 +222,7 @@ export struct PhoneApp {
     this.homeRequestSerial = 0;
     this.entryVisible = false;
     this.homeFullscreen = false;
+    this.homeComposing = false;
   }
 
   private reset_session(): void {

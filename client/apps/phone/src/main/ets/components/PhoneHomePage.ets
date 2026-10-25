@@ -19,6 +19,7 @@ export struct PhoneHomePage {
   @Prop @Watch('on_active_changed') active: boolean = true;
   navigation: PhoneBackController = new PhoneBackController();
   onChooseQuestion: () => void = () => {};
+  onComposingChanged: (value: boolean) => void = () => {};
   onFullscreenChanged: (value: boolean) => void = () => {};
   onOpenFrozenAnswer: (questionId: string, turnId: string) => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
@@ -38,6 +39,10 @@ export struct PhoneHomePage {
   @State readingBody: string = '';
   @State readingPlainText: boolean = false;
 
+  @State singleFocused: boolean = false;
+  private singleEditor: TextAreaController = new TextAreaController();
+  private tutorEditorNavigation: PhoneBackController = new PhoneBackController();
+  private tutorComposing: boolean = false;
   private sessions: PhoneTutorSessionStore = new PhoneTutorSessionStore();
   private alive: boolean = true;
   private imageGeneration: number = 0;
@@ -49,6 +54,7 @@ export struct PhoneHomePage {
   }
 
   aboutToDisappear(): void {
+    this.stop_editing();
     this.alive = false;
     this.imageGeneration++;
     this.navigation.handleBack = (): boolean => false;
@@ -69,6 +75,7 @@ export struct PhoneHomePage {
 
   on_active_changed(): void {
     if (!this.active) {
+      this.stop_editing();
       this.imageGeneration++;
       this.imageBusy = false;
       this.modePickerVisible = false;
@@ -86,6 +93,11 @@ export struct PhoneHomePage {
               questionId: this.selectedQuestionId,
               embedded: true,
               sessionStore: this.sessions,
+              editorNavigation: this.tutorEditorNavigation,
+              onComposingChanged: (value: boolean) => {
+                this.tutorComposing = value;
+                this.report_composing();
+              },
               visible: this.active && this.mode === PhoneHomeMode.COLLABORATION &&
                 !this.readingVisible && !this.historyVisible && !this.modePickerVisible,
               onChooseQuestion: () => { this.onChooseQuestion(); },
@@ -132,7 +144,7 @@ export struct PhoneHomePage {
       }
       .alignItems(HorizontalAlign.Start).layoutWeight(1)
       Button({ type: ButtonType.Normal }) {
-        Image($r('app.media.bl_home_history')).width(24).height(24).fillColor(PHONE_COLOR_TITLE)
+        Image($r('app.media.bl_home_history')).width(24).height(24)
       }
       .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('对话记录')
       .onClick(() => { this.open_history(); })
@@ -143,7 +155,7 @@ export struct PhoneHomePage {
         }
         .width(46).height(46).backgroundColor(PHONE_COLOR_SOFT)
         .border({ width: 1, color: '#BED4FF' }).accessibilityText('切换对话模式')
-        .onClick(() => { this.modePickerVisible = !this.modePickerVisible; })
+        .onClick(() => { this.stop_editing(); this.modePickerVisible = !this.modePickerVisible; })
         Text('模式').fontSize(11).fontColor(PHONE_COLOR_MUTED).margin({ top: 3 })
       }
       .margin({ left: 8 })
@@ -225,17 +237,19 @@ export struct PhoneHomePage {
       }
       .layoutWeight(1).width('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
       Column({ space: 8 }) {
-        TextArea({ text: this.singleDraft, placeholder: '输入问题，或添加题目图片…' })
+        TextArea({ text: this.singleDraft, placeholder: '输入问题，或添加题目图片…', controller: this.singleEditor })
           .height(76).width('100%').fontSize(15).fontColor(PHONE_COLOR_TITLE)
           .placeholderColor(PHONE_COLOR_MUTED).backgroundColor(PHONE_COLOR_BACKGROUND).borderRadius(20)
           .maxLength(4000).padding(14)
+          .onFocus(() => { this.singleFocused = true; this.report_composing(); })
+          .onBlur(() => { this.singleFocused = false; this.report_composing(); })
           .onChange((value: string) => { this.singleDraft = value; this.singleNotice = ''; })
         Row() {
           this.image_action($r('app.media.bl_home_camera'), '拍照', true)
           this.image_action($r('app.media.bl_home_album'), '相册', false)
           Blank()
           Button({ type: ButtonType.Circle }) {
-            Image($r('app.media.bl_home_send')).width(24).height(24).fillColor(PHONE_COLOR_WHITE)
+            Image($r('app.media.bl_home_send')).width(24).height(24)
           }
           .width(46).height(46)
           .backgroundColor(this.singleDraft.trim().length > 0 || this.singlePreview !== null ?
@@ -267,8 +281,11 @@ export struct PhoneHomePage {
 
   @Builder
   disabled_send() {
-    Image($r('app.media.bl_home_send')).width(24).height(24).fillColor(PHONE_COLOR_WHITE)
-      .padding(10).backgroundColor('#C7D0DF').borderRadius(24).accessibilityText('尚未关联题目，暂不可发送')
+    Row() {
+      Image($r('app.media.bl_home_send')).width(24).height(24)
+    }
+    .width(44).height(44).justifyContent(FlexAlign.Center)
+    .backgroundColor('#C7D0DF').borderRadius(24).accessibilityText('尚未关联题目，暂不可发送')
   }
 
   @Builder
@@ -307,7 +324,7 @@ export struct PhoneHomePage {
       .alignItems(HorizontalAlign.Start).layoutWeight(1)
       if (this.mode === value) {
         Image($r('app.media.bl_home_check')).width(22).height(22)
-          .padding(4).backgroundColor(PHONE_COLOR_PRIMARY).fillColor(PHONE_COLOR_WHITE).borderRadius(16)
+          .padding(4).backgroundColor(PHONE_COLOR_PRIMARY).borderRadius(16)
       } else {
         Column().width(24).height(24).border({ width: 1, color: PHONE_COLOR_MUTED }).borderRadius(14)
       }
@@ -367,12 +384,26 @@ export struct PhoneHomePage {
     .width('100%').height('100%').backgroundColor(PHONE_COLOR_BACKGROUND)
   }
 
+  private report_composing(): void {
+    this.onComposingChanged(this.active && (this.singleFocused || this.tutorComposing));
+  }
+
+  private stop_editing(): void {
+    this.singleEditor.stopEditing();
+    this.singleFocused = false;
+    this.tutorEditorNavigation.handleBack();
+    this.tutorComposing = false;
+    this.report_composing();
+  }
+
   private switch_mode(value: PhoneHomeMode): void {
+    this.stop_editing();
     if (this.mode !== value) { this.imageGeneration++; this.imageBusy = false; }
     this.mode = value;
   }
 
   private open_history(): void {
+    this.stop_editing();
     this.historyItems = this.sessions.history();
     this.historyVisible = true;
     this.onFullscreenChanged(true);
@@ -384,6 +415,7 @@ export struct PhoneHomePage {
   }
 
   private open_reading(title: string, body: string, plainText: boolean): void {
+    this.stop_editing();
     this.readingTitle = title;
     this.readingBody = body;
     this.readingPlainText = plainText;
@@ -401,11 +433,13 @@ export struct PhoneHomePage {
     if (this.readingVisible) { this.close_reading(); return true; }
     if (this.modePickerVisible) { this.modePickerVisible = false; return true; }
     if (this.historyVisible) { this.close_history(); return true; }
-    return false;
+    if (this.singleFocused) { this.stop_editing(); return true; }
+    return this.tutorEditorNavigation.handleBack();
   }
 
   private async choose_image(fromCamera: boolean): Promise<void> {
     if (!this.active || this.mode !== PhoneHomeMode.SINGLE_DEVICE || this.imageBusy) { return; }
+    this.stop_editing();
     const token: string | null = authSession.read_access_token();
     if (token === null) { this.onUnauthorized(''); return; }
     const generation: number = ++this.imageGeneration;

@@ -108,18 +108,24 @@ export struct AnswerTileViewer {
         if (!this.imagesReady()) {
           this.document_status()
         } else {
-          Button('定位开头')
-            .height(44)
-            .fontSize(13)
-            .fontColor(PHONE_COLOR_PRIMARY)
-            .backgroundColor(PHONE_COLOR_CARD)
-            .border({ width: 1, color: PHONE_COLOR_BORDER })
-            .borderRadius(22)
-            .margin(12)
-            .align(Alignment.BottomStart)
-            .accessibilityText('定位到作答画布开头')
-            .onClick(() => this.locateStart())
-          this.zoom_controls()
+          Column() {
+            Row() {
+              Button('定位开头')
+                .height(44)
+                .fontSize(13)
+                .fontColor(PHONE_COLOR_PRIMARY)
+                .backgroundColor(PHONE_COLOR_CARD)
+                .border({ width: 1, color: PHONE_COLOR_BORDER })
+                .borderRadius(22)
+                .accessibilityText('定位到作答画布开头')
+                .onClick(() => this.locateStart())
+              Blank().layoutWeight(1)
+              this.zoom_controls()
+            }
+            .width('100%').padding(12)
+          }
+          .width('100%').height('100%').justifyContent(FlexAlign.End)
+          .hitTestBehavior(HitTestMode.Transparent)
         }
       }
       .width('100%')
@@ -299,8 +305,6 @@ export struct AnswerTileViewer {
     .backgroundColor(PHONE_COLOR_CARD)
     .border({ width: 1, color: PHONE_COLOR_BORDER })
     .borderRadius(24)
-    .margin(12)
-    .align(Alignment.BottomEnd)
   }
 
   private viewportLength(value: Length): number {

@@ -140,7 +140,7 @@ export struct ManualEntry {
   header() {
     Row({ space: 10 }) {
       Button({ type: ButtonType.Normal }) {
-        Image($r('app.media.bl_back')).width(22).height(22).fillColor(PHONE_COLOR_TITLE)
+        Image($r('app.media.bl_back')).width(22).height(22)
       }
       .width(44).height(44).padding(10)
       .backgroundColor(Color.Transparent)
@@ -170,7 +170,7 @@ export struct ManualEntry {
         Text('录入一道题，开始学习。')
           .fontSize(16).fontColor(PHONE_COLOR_MUTED).width('100%')
         Column({ space: 12 }) {
-          Image($r('app.media.entry_camera')).width(62).height(62).fillColor(PHONE_COLOR_PRIMARY)
+          Image($r('app.media.entry_camera')).width(62).height(62)
           Text('拍下一道题').fontSize(23).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
           Text('拍清题干、公式和全部条件').fontSize(14).fontColor(PHONE_COLOR_MUTED)
           Button(this.imageLoading ? '正在打开…' : '打开相机')
@@ -187,7 +187,7 @@ export struct ManualEntry {
         if (this.has_draft()) {
           Column({ space: 10 }) {
             Row({ space: 10 }) {
-              Image($r('app.media.bl_list')).width(28).height(28).fillColor(PHONE_COLOR_PRIMARY)
+              Image($r('app.media.bl_list')).width(28).height(28)
               Column({ space: 4 }) {
                 Text('还有一道题正在校对').fontSize(16).fontWeight(FontWeight.Medium).fontColor(PHONE_COLOR_TITLE)
                 Text('本次录题尚未保存').fontSize(12).fontColor(PHONE_COLOR_MUTED)
@@ -216,7 +216,7 @@ export struct ManualEntry {
   @Builder
   source_card(label: string, icon: Resource, manual: boolean) {
     Column({ space: 14 }) {
-      Image(icon).width(36).height(36).fillColor(PHONE_COLOR_PRIMARY_DEEP)
+      Image(icon).width(36).height(36)
       Text(label).fontSize(16).fontWeight(FontWeight.Medium).fontColor(PHONE_COLOR_TITLE)
     }
     .layoutWeight(1).height(132).justifyContent(FlexAlign.Center)
@@ -512,6 +512,8 @@ export struct ManualEntry {
   private claim_keyboard_mode(): void {
     if (!this.keyboardModeOwned) {
       this.previousKeyboardMode = this.getUIContext().getKeyboardAvoidMode();
+      // Index 已统一接管 RESIZE 时不重复领取，避免子组件卸载覆盖页面恢复。
+      if (this.previousKeyboardMode === KeyboardAvoidMode.RESIZE) { return; }
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
       this.keyboardModeOwned = true;
     }

@@ -238,6 +238,7 @@ export struct QuestionLibrary {
       .padding({ left: 18, right: 18, bottom: 6 })
     }
     .width('100%')
+    .align(Alignment.Start)
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)
