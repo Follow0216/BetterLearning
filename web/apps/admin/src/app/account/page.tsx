@@ -109,7 +109,7 @@ function IdentityCard({ user }: { user: AdminUser }) {
         ))}
       </dl>
       <div className="mt-6">
-        <AdminLogoutButton />
+        <AdminLogoutButton key={user.accountId} />
       </div>
     </div>
   );

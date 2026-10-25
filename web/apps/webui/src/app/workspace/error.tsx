@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 
+import styles from "@/features/library/workspace.module.css";
+
 export default function WorkspaceError({
   error,
   reset,
@@ -10,11 +12,11 @@ export default function WorkspaceError({
   reset: () => void;
 }) {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[var(--auth-bg)] px-4 py-10 text-[var(--auth-text)]">
-      <div className="w-full max-w-[520px] rounded-2xl border border-[var(--auth-border)] bg-white p-7 text-center">
+    <div className={`${styles.root} flex items-center justify-center px-4 py-10`}>
+      <div className="w-full max-w-[520px] rounded-lg border border-[var(--auth-border)] bg-white p-7 text-center">
         <h1 className="text-lg leading-7 font-semibold">题库页面加载失败</h1>
         <p role="alert" className="mt-2 text-sm leading-6 text-[var(--auth-muted)]">
-          页面遇到未预期的错误，当前不会显示空题库。
+          请重试加载页面，或重新登录后继续。
         </p>
         {error.digest === undefined ? null : (
           <p className="mt-2 font-mono text-[11px] break-all text-[var(--auth-muted)]">

@@ -16,6 +16,8 @@ export interface QuestionCropFit {
 export enum QuestionCropDrag {
   MOVE = 'MOVE',
   TOP_LEFT = 'TOP_LEFT',
+  TOP_RIGHT = 'TOP_RIGHT',
+  BOTTOM_LEFT = 'BOTTOM_LEFT',
   BOTTOM_RIGHT = 'BOTTOM_RIGHT'
 }
 
@@ -101,6 +103,18 @@ export function questionCropDrag(base: QuestionCropRect, kind: QuestionCropDrag,
     const x: number = clamp(base.x + deltaX, 0, right - 1);
     const y: number = clamp(base.y + deltaY, 0, bottom - 1);
     return { x: x, y: y, width: right - x, height: bottom - y };
+  }
+  if (kind === QuestionCropDrag.TOP_RIGHT) {
+    const right: number = clamp(base.x + base.width + deltaX, base.x + 1, imageWidth);
+    const bottom: number = base.y + base.height;
+    const y: number = clamp(base.y + deltaY, 0, bottom - 1);
+    return { x: base.x, y: y, width: right - base.x, height: bottom - y };
+  }
+  if (kind === QuestionCropDrag.BOTTOM_LEFT) {
+    const right: number = base.x + base.width;
+    const x: number = clamp(base.x + deltaX, 0, right - 1);
+    const bottom: number = clamp(base.y + base.height + deltaY, base.y + 1, imageHeight);
+    return { x: x, y: base.y, width: right - x, height: bottom - base.y };
   }
   if (kind === QuestionCropDrag.BOTTOM_RIGHT) {
     const right: number = clamp(base.x + base.width + deltaX, base.x + 1, imageWidth);

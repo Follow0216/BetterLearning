@@ -4,6 +4,7 @@ import type { CollectionSummary } from "@/lib/api/library-contract";
 import type { LibraryFailure } from "@/lib/api/library-server";
 
 import type { LibraryView } from "./library-params";
+import styles from "./workspace.module.css";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 import { WorkspaceSidebar } from "./WorkspaceSidebar";
 
@@ -25,9 +26,9 @@ export function WorkspaceFrame({
   children,
 }: WorkspaceFrameProps) {
   return (
-    <div className="min-h-dvh bg-[var(--auth-bg)] text-[var(--auth-text)]">
+    <div className={styles.root}>
       <WorkspaceHeader />
-      <div className="mx-auto grid w-full max-w-[1200px] items-start gap-5 px-4 py-6 md:px-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className={styles.shell}>
         <WorkspaceSidebar
           view={view}
           collections={collections}
@@ -35,7 +36,9 @@ export function WorkspaceFrame({
           inboxCount={inboxCount}
           allCount={allCount}
         />
-        <main className="min-w-0">{children}</main>
+        <main tabIndex={-1} id="workspace-content" className={styles.main}>
+          {children}
+        </main>
       </div>
     </div>
   );

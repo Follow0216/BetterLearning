@@ -10,6 +10,7 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@betterlearning/ui-feedback": "workspace:*",
     "katex": "catalog:",
     "markdown-it": "catalog:",
     "markdown-it-texmath": "catalog:",

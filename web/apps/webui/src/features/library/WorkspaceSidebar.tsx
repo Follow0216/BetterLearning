@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useId, useState } from "react";
 
 import { BlIcon, type BlIconName } from "@/components/icons/BlIcon";
 import type { CollectionSummary } from "@/lib/api/library-contract";
@@ -14,6 +17,7 @@ import {
   type LibraryView,
 } from "./library-params";
 import { RefreshButton } from "./RefreshButton";
+import styles from "./workspace.module.css";
 
 interface WorkspaceSidebarProps {
   view: LibraryView;
@@ -29,27 +33,21 @@ function NavItem({
   label,
   active,
   count,
-  depth = 0,
 }: {
   href: string;
   icon: BlIconName;
   label: string;
   active: boolean;
   count?: number;
-  depth?: number;
 }) {
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      style={{ paddingLeft: `${12 + depth * 12}px` }}
-      className={`flex h-10 items-center gap-2 rounded-lg pr-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none ${
-        active
-          ? "bg-[var(--auth-primary-soft)] text-[var(--auth-primary)]"
-          : "text-[var(--auth-text)] hover:bg-[var(--auth-hover)]"
-      }`}
+      className={styles.navItem}
+      title={label}
     >
-      <BlIcon name={icon} size={17} />
+      <BlIcon name={icon} size={16} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {count === undefined ? null : (
         <span className="text-xs text-[var(--auth-muted)] tabular-nums">{count}</span>
@@ -58,36 +56,50 @@ function NavItem({
   );
 }
 
-function TreeNodes({
-  nodes,
-  view,
-  depth,
-}: {
-  nodes: CollectionNode[];
-  view: LibraryView;
-  depth: number;
-}) {
+function containsView(node: CollectionNode, view: LibraryView): boolean {
   return (
-    <>
-      {nodes.map((node) => {
-        const nodeView: LibraryView = { kind: "collection", collectionId: node.collectionId };
-        return (
-          <div key={node.collectionId}>
-            <NavItem
-              href={buildWorkspaceHref(nodeView, 1)}
-              icon="list"
-              label={node.name}
-              active={isSameView(view, nodeView)}
-              count={node.questionCount}
-              depth={depth}
-            />
-            {node.children.length > 0 ? (
-              <TreeNodes nodes={node.children} view={view} depth={depth + 1} />
-            ) : null}
-          </div>
-        );
-      })}
-    </>
+    view.kind === "collection" &&
+    (node.collectionId === view.collectionId ||
+      node.children.some((child) => containsView(child, view)))
+  );
+}
+
+function TreeNode({ node, view }: { node: CollectionNode; view: LibraryView }) {
+  const [expanded, setExpanded] = useState(containsView(node, view));
+  const childrenId = useId();
+  const nodeView: LibraryView = { kind: "collection", collectionId: node.collectionId };
+  const hasChildren = node.children.length > 0;
+  return (
+    <li className={styles.treeBranch}>
+      <div className={styles.treeRow}>
+        <NavItem
+          href={buildWorkspaceHref(nodeView, 1)}
+          icon="list"
+          label={node.name}
+          active={isSameView(view, nodeView)}
+          count={node.questionCount}
+        />
+        {hasChildren ? (
+          <button
+            type="button"
+            className={styles.treeToggle}
+            aria-label={`${expanded ? "收起" : "展开"}${node.name}的子题集`}
+            aria-expanded={expanded}
+            aria-controls={childrenId}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <BlIcon name="chevron_right" size={14} className={expanded ? "rotate-90" : undefined} />
+          </button>
+        ) : null}
+      </div>
+      {hasChildren ? (
+        <ul id={childrenId} hidden={!expanded} className={styles.treeChildren}>
+          {node.children.map((child) => (
+            <TreeNode key={child.collectionId} node={child} view={view} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }
 
@@ -98,12 +110,45 @@ export function WorkspaceSidebar({
   inboxCount,
   allCount,
 }: WorkspaceSidebarProps) {
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigationId = useId();
   const nodes = buildCollectionTree(collections);
-  const hasFailure = collectionsFailure !== undefined;
+  const currentLabel =
+    view.kind === "all"
+      ? "全部题目"
+      : view.kind === "inbox"
+        ? "待整理"
+        : (collections.find((item) => item.collectionId === view.collectionId)?.name ?? "题集");
 
   return (
-    <aside className="min-w-0">
-      <div className="rounded-2xl border border-[var(--auth-border)] bg-white p-2">
+    <aside className={styles.sidebar} aria-label="题库导航">
+      <button
+        type="button"
+        className={styles.sidebarToggle}
+        aria-expanded={navigationOpen}
+        aria-controls={navigationId}
+        onClick={() => setNavigationOpen((value) => !value)}
+      >
+        <BlIcon name="list" size={18} />
+        <span>题库导航</span>
+        <span className="min-w-0 flex-1 truncate text-right font-medium text-[var(--auth-text)]">
+          {currentLabel}
+        </span>
+        <BlIcon
+          name="chevron_right"
+          size={14}
+          className={navigationOpen ? "rotate-90" : undefined}
+        />
+      </button>
+      <div
+        id={navigationId}
+        className={styles.sidebarContent}
+        data-open={navigationOpen}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("a") !== null) setNavigationOpen(false);
+        }}
+      >
+        <p className="mb-2 px-2 text-xs font-medium text-[var(--auth-muted)]">题库</p>
         <nav aria-label="题库视图" className="flex flex-col gap-1">
           <NavItem
             href={buildWorkspaceHref(ALL_VIEW, 1)}
@@ -120,41 +165,43 @@ export function WorkspaceSidebar({
             count={inboxCount}
           />
         </nav>
-
-        <div className="my-2 border-t border-[var(--auth-divider)]" />
-
-        <p className="px-2 pb-1 text-[11px] font-medium tracking-wide text-[var(--auth-muted)]">
-          我的题集
-        </p>
+        <div className="mt-7 mb-2 flex items-center justify-between px-2">
+          <p className="text-xs font-medium text-[var(--auth-muted)]">我的题集</p>
+        </div>
         {collectionsFailure === undefined ? (
           nodes.length === 0 ? (
-            <p className="px-2 py-2 text-xs leading-5 text-[var(--auth-muted)]">
-              还没有自定义题集。
-            </p>
+            <p className="px-2 py-3 text-xs leading-5 text-[var(--auth-muted)]">还没有自定义题集</p>
           ) : (
-            <nav aria-label="题集导航" className="flex flex-col gap-1">
-              <TreeNodes nodes={nodes} view={view} depth={0} />
+            <nav aria-label="题集导航">
+              <ul className="space-y-1">
+                {nodes.map((node) => (
+                  <TreeNode
+                    key={`${node.collectionId}|${view.kind === "collection" ? view.collectionId : view.kind}`}
+                    node={node}
+                    view={view}
+                  />
+                ))}
+              </ul>
             </nav>
           )
         ) : (
-          <div className="px-2 py-1.5">
-            <p role="alert" className="text-xs leading-5 font-medium text-[var(--auth-danger)]">
+          <div className="px-2 py-2">
+            <p role="alert" className="text-xs font-medium text-[var(--auth-danger)]">
               题集加载失败
             </p>
-            <p className="mt-1 text-[11px] leading-5 text-[var(--auth-muted)]">
+            <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
               {collectionsFailure.message}
             </p>
-            <p className="mt-1 text-[11px] leading-5 text-[var(--auth-muted)]">
-              题集数据恢复前暂不能创建、改名或移动题目。
+            <p className="mt-1 text-xs leading-5 text-[var(--auth-muted)]">
+              刷新恢复后可继续整理题集。
             </p>
             <div className="mt-2">
               <RefreshButton />
             </div>
           </div>
         )}
-
-        {hasFailure ? null : (
-          <div className="mt-2 px-1">
+        {collectionsFailure === undefined ? (
+          <div className="mt-4 px-1">
             <CollectionDialog
               mode="create"
               collections={collections}
@@ -162,11 +209,11 @@ export function WorkspaceSidebar({
               triggerVariant="sidebar"
             />
           </div>
-        )}
+        ) : null}
+        <p className="mt-6 border-t border-[var(--auth-border)] px-2 pt-4 text-xs leading-6 text-[var(--auth-muted)]">
+          手机录题与提问，平板手写作答。网页端集中阅读与整理。
+        </p>
       </div>
-      <p className="mt-3 px-2 text-[11px] leading-5 text-[var(--auth-muted)]">
-        题集支持多层创建、改名与单题移动；Web 端不提供删除、题目编辑或筛选。
-      </p>
     </aside>
   );
 }
