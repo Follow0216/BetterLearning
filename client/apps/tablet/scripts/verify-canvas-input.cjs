@@ -23,9 +23,9 @@ const surface = parse(surfacePath, surfaceText);
 const component = surface.statements.find(s => s.name?.text === 'CanvasSurface');
 const methods = new Set(['touch', 'cancel_gesture', 'discard_edit', 'control_touch', 'point', 'append_point',
   'erase_path', 'erase', 'commit', 'undo', 'update_undo', 'read_only_changed',
-  'capture_at_pen_up', 'fulfill_freeze', 'cancel_freeze', 'document_changed']);
+  'stop_stroke', 'capture_at_pen_up', 'fulfill_freeze', 'cancel_freeze', 'document_changed']);
 const fields = new Set(['tool', 'readOnly', 'document', 'undoEnabled', 'pointers', 'pointerSources', 'editPointerId',
-  'penKind', 'penColor', 'penSize', 'pressureSampler', 'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
+  'penKind', 'penColor', 'penSize', 'pressureSampler', 'strokeBudget', 'strokeStopped', 'navigationKey', 'last', 'pinchView', 'pinchMid', 'pinchDistance', 'suppress', 'liveStroke', 'eraseBefore',
   'erased', 'undoHistory', 'pointBudget', 'view', 'alive', 'committedDocument', 'waitingFreeze']);
 const extracted = [];
 for (const member of component.members) {
@@ -53,7 +53,8 @@ function moduleCode(relative) {
     .map(s => s.getText(parsed).replace(/^export\s+/, '')).join('\n');
 }
 const penCode = moduleCode('client/common/src/main/ets/features/canvas/CanvasPens.ets') + '\n' +
-  moduleCode('client/apps/tablet/src/main/ets/features/canvas/CanvasPenInput.ets');
+  moduleCode('client/apps/tablet/src/main/ets/features/canvas/CanvasPenInput.ets') + '\n' +
+  moduleCode('client/apps/tablet/src/main/ets/features/canvas/CanvasStrokeBudget.ets');
 const enumNames = new Set(['TouchType', 'SourceTool', 'SourceType']);
 const enumCode = [];
 for (const name of ['common.d.ts', 'enums.d.ts']) {
@@ -94,11 +95,12 @@ globalThis.SourceTool = SourceTool;
 globalThis.SourceType = SourceType;
 globalThis.CanvasTool = CanvasTool;
 globalThis.CanvasPenKind = CanvasPenKind;
+globalThis.CanvasStrokeBudget = CanvasStrokeBudget;
 `;
 const transpiled = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 }, reportDiagnostics: true });
 assert.equal(transpiled.diagnostics.length, 0);
 let nextId = 0;
-const sandbox = { util: { generateRandomUUID: () => 'synthetic-' + (++nextId) } };
+const sandbox = { canvas_utf8: text => new TextEncoder().encode(text), util: { generateRandomUUID: () => 'synthetic-' + (++nextId) } };
 vm.createContext(sandbox);
 vm.runInContext(transpiled.outputText, sandbox, { filename: 'actual-canvas-input-harness.js' });
 const { InputHarness, SourceTool: Source, SourceType: Device, TouchType: Phase, CanvasTool: Tool } = sandbox;
@@ -344,6 +346,36 @@ check('finger pressure never grants ink permission', () => {
     const points = [pt(1, x, x)]; event(h, phase, Source.Finger, points, points, Device.TouchScreen, 1);
   }
   assert.equal(json(h.document), before);
+});
+check('capacity rejects the next sample explicitly and preserves the accepted prefix on up', () => {
+  const h = new InputHarness(); const before = json(h.document);
+  event(h, Phase.Down, Source.Pen, [pt(1, 10, 10)]);
+  const starter = json(h.liveStroke);
+  const exact = Buffer.byteLength(json({ ...h.committedDocument, strokes: h.committedDocument.strokes.concat([h.liveStroke]) }));
+  h.strokeBudget = new sandbox.CanvasStrokeBudget(exact);
+  assert.equal(h.strokeBudget.begin(h.committedDocument, h.liveStroke), true);
+  event(h, Phase.Move, Source.Pen, [pt(1, 20, 20)]);
+  assert.equal(h.strokeStopped, true); assert.equal(json(h.liveStroke), starter);
+  assert.equal(json(h.document), before); assert.ok(h.failures[0].includes('新增采样已停止'));
+  event(h, Phase.Up, Source.Pen, [pt(1, 30, 30)]);
+  assert.equal(h.document.strokes.length, 2); assert.equal(json(h.document.strokes[1]), starter);
+  assert.ok(h.failures[h.failures.length - 1].includes('已保留'));
+  h.undo(); assert.equal(json(h.document), before);
+});
+check('capacity refuses new pen without modifying the old document and recovers after erasure', () => {
+  const h = new InputHarness(); const before = json(h.document);
+  h.strokeBudget = new sandbox.CanvasStrokeBudget(1);
+  drag(h, Source.Pen); assert.equal(json(h.document), before); assert.equal(h.changes.length, 0);
+  assert.ok(h.failures.length > 0);
+  h.strokeBudget = new sandbox.CanvasStrokeBudget(); h.tool = Tool.ERASER;
+  drag(h, Source.Pen); assert.equal(h.document.strokes.length, 0);
+  h.tool = Tool.PEN; drag(h, Source.Pen, 2); assert.equal(h.document.strokes.length, 1);
+});
+check('point budget stops explicitly without silently discarding samples', () => {
+  const h = new InputHarness(); event(h, Phase.Down, Source.Pen, [pt(1, 10, 10)]); h.pointBudget = 1;
+  event(h, Phase.Move, Source.Pen, [pt(1, 20, 20)]); assert.equal(h.strokeStopped, true);
+  event(h, Phase.Up, Source.Pen, [pt(1, 30, 30)]);
+  assert.equal(h.document.strokes[1].points.length, 1); assert.ok(h.failures.length > 0);
 });
 async function freezeChecks() {
   async function checkAsync(name, run) {
