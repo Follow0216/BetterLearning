@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,6 +21,7 @@ import javax.sql.DataSource;
 import com.betterlearning.server.agent.retrieval.handwriting.HandwritingMethodMetadata;
 import com.betterlearning.server.agent.retrieval.ranking.HandwritingMethodTaxonomy;
 import com.betterlearning.server.agent.service.HandwritingIndexOcr;
+import com.betterlearning.server.learning.retention.DeletionJournal;
 import com.betterlearning.server.support.IntegrationContainers;
 
 import org.flywaydb.core.Flyway;
@@ -35,7 +38,7 @@ import org.testcontainers.utility.MountableFile;
 
 import tools.jackson.databind.json.JsonMapper;
 
-/** Draft: V07 database dump and restore into a second, new PostgreSQL container. */
+/** V07 database dump and restore into a second, new PostgreSQL container. */
 @Testcontainers
 @Tag("integration")
 class V07DumpRestoreUpgradeIntegrationTests {
@@ -61,16 +64,43 @@ class V07DumpRestoreUpgradeIntegrationTests {
                 + "VALUES (?,'test-hash') RETURNING account_id", Long.class, username());
         StageSeed erased = stageSeed(old, account);
         ProjectionSeed live = projectionSeed(old, account);
+        StageSeed priorDeletion = stageSeed(old, account);
+        Path base = evidenceRoot();
+        JsonMapper json = JsonMapper.builder().build();
+        DeletionJournal journal = DeletionJournal.initialize(base.resolve("synthetic-journal"));
+        var beforeDumpIntent = journal.append(account, priorDeletion.source(),
+                Instant.parse("2026-10-25T00:00:00Z"));
+        assertThat(old.queryForObject("SELECT ma_apply_source_deletion(?,?,?,?,?)", Boolean.class,
+                priorDeletion.source(), account, Timestamp.from(beforeDumpIntent.deletedAt()),
+                beforeDumpIntent.sequence(), beforeDumpIntent.hash())).isTrue();
+        assertThat(old.queryForObject("SELECT status FROM ma_source WHERE source_id=?",
+                String.class, priorDeletion.source())).isEqualTo("DELETED");
+        assertThat(old.queryForObject("SELECT status FROM ma_source_version WHERE source_id=?",
+                String.class, priorDeletion.source())).isEqualTo("WITHDRAWN");
+        assertThat(old.queryForObject("SELECT count(*) FROM ma_source_deletion WHERE source_id=? "
+                + "AND journal_sequence=? AND journal_hash=?", Integer.class, priorDeletion.source(),
+                beforeDumpIntent.sequence(), beforeDumpIntent.hash())).isEqualTo(1);
+        Map<String, Object> beforeDumpRows = preservationSnapshot(old);
+        Map<String, Object> beforeDumpSequence = accountSequence(old);
+        List<Long> originalAccountIds = old.queryForList("SELECT account_id FROM app_user "
+                + "ORDER BY account_id", Long.class);
+        long oldMaximumAccountId = old.queryForObject("SELECT MAX(account_id) FROM app_user", Long.class);
+        assertThat(old.queryForList("SELECT source_id FROM ma_source ORDER BY source_id", String.class))
+                .containsExactlyInAnyOrder(erased.source(), live.source(), priorDeletion.source());
+        assertThat(old.queryForList("SELECT anchor_id FROM ma_anchor", String.class))
+                .containsExactly(live.anchor());
+        assertThat(old.queryForList("SELECT chunk_id FROM ma_retrieval_chunk", String.class))
+                .containsExactly(live.chunk());
+        Files.writeString(base.resolve("before-dump-preservation.json"),
+                json.writeValueAsString(beforeDumpRows) + "\n", StandardCharsets.UTF_8);
         assertThat(old.queryForObject("SELECT to_regclass('ma_index_stage') IS NULL",
                 Boolean.class)).isTrue();
         Map<String, Object> oldHistory = history(old, "2026102507");
         assertThat(oldHistory.get("success")).isEqualTo(true);
-        assertThat(old.queryForObject("SELECT count(*) FROM ma_source", Integer.class)).isEqualTo(2);
+        assertThat(old.queryForObject("SELECT count(*) FROM ma_source", Integer.class)).isEqualTo(3);
         assertThat(old.queryForObject("SELECT count(*) FROM ma_retrieval_chunk",
                 Integer.class)).isEqualTo(1);
 
-        Path base = evidenceRoot();
-        JsonMapper json = JsonMapper.builder().build();
         Map<String, Object> containers = Map.of(
                 "sourceId", SOURCE.getContainerId(), "targetId", TARGET.getContainerId(),
                 "sourceMappedPort", SOURCE.getMappedPort(5432),
@@ -106,7 +136,24 @@ class V07DumpRestoreUpgradeIntegrationTests {
         assertThat(restored.getExitCode()).as(restored.getStderr()).isZero();
         JdbcTemplate fresh = jdbc(TARGET);
         assertThat(history(fresh, "2026102507")).isEqualTo(oldHistory);
-        assertThat(fresh.queryForObject("SELECT count(*) FROM ma_source", Integer.class)).isEqualTo(2);
+        assertThat(fresh.queryForObject("SELECT count(*) FROM ma_source", Integer.class)).isEqualTo(3);
+        int restoredV07SourceRows = fresh.queryForObject("SELECT count(*) FROM ma_source", Integer.class);
+        Map<String, Object> restoredRows = preservationSnapshot(fresh);
+        assertThat(restoredRows).as("all selected V07 identities and fields survive restore")
+                .isEqualTo(beforeDumpRows);
+        Map<String, Object> restoredSequence = accountSequence(fresh);
+        assertThat(restoredSequence).isEqualTo(beforeDumpSequence);
+        long nextAccount = fresh.queryForObject("INSERT INTO app_user(username,password_hash) "
+                + "VALUES (?,'test-hash') RETURNING account_id", Long.class, username());
+        assertThat(nextAccount).isGreaterThan(oldMaximumAccountId);
+        assertThat(originalAccountIds).doesNotContain(nextAccount);
+        assertThat(fresh.queryForObject("SELECT last_value FROM public.app_user_account_id_seq",
+                Long.class)).isEqualTo(nextAccount);
+        assertThat(fresh.queryForObject("SELECT count(*) FROM ma_source_deletion WHERE source_id=? "
+                + "AND journal_sequence=? AND journal_hash=?", Integer.class, priorDeletion.source(),
+                beforeDumpIntent.sequence(), beforeDumpIntent.hash())).isEqualTo(1);
+        Files.writeString(base.resolve("after-restore-preservation.json"),
+                json.writeValueAsString(restoredRows) + "\n", StandardCharsets.UTF_8);
         assertThat(fresh.queryForObject("SELECT count(*) FROM ma_retrieval_chunk",
                 Integer.class)).isEqualTo(1);
         assertThat(fresh.queryForObject("SELECT to_regclass('ma_index_stage') IS NULL",
@@ -121,8 +168,12 @@ class V07DumpRestoreUpgradeIntegrationTests {
                 Boolean.class)).isTrue();
         addV08ConfirmedStage(fresh, account, erased);
         String rawMetadata = bindV08Metadata(fresh, account, live);
-        fresh.queryForObject("SELECT ma_apply_source_deletion(?,?,CURRENT_TIMESTAMP,1,?)",
-                Boolean.class, erased.source(), account, "f".repeat(64));
+        var afterRestoreIntent = journal.append(account, erased.source(),
+                Instant.parse("2026-10-25T00:01:00Z"));
+        assertThat(afterRestoreIntent.sequence()).isGreaterThan(beforeDumpIntent.sequence());
+        assertThat(fresh.queryForObject("SELECT ma_apply_source_deletion(?,?,?,?,?)", Boolean.class,
+                erased.source(), account, Timestamp.from(afterRestoreIntent.deletedAt()),
+                afterRestoreIntent.sequence(), afterRestoreIntent.hash())).isTrue();
         fresh.queryForObject("SELECT ma_scrub_source_version(?,1)",
                 Boolean.class, erased.source());
         fresh.update("UPDATE ma_source_deletion SET database_purged_at=CURRENT_TIMESTAMP "
@@ -163,9 +214,21 @@ class V07DumpRestoreUpgradeIntegrationTests {
         evidence.put("targetV08History", history(fresh, "2026102508"));
         evidence.put("targetV09History", history(fresh, "2026102509"));
         evidence.put("targetV10History", history(fresh, "2026102510"));
-        evidence.put("sourceV07SourceRows", 2);
-        evidence.put("restoredV07SourceRows", fresh.queryForObject(
-                "SELECT count(*) FROM ma_source", Integer.class));
+        evidence.put("sourceV07SourceRows", 3);
+        evidence.put("beforeDumpRows", beforeDumpRows);
+        evidence.put("afterRestoreRowsBeforeUpgrade", restoredRows);
+        evidence.put("preservedIdentityFieldsEqual", restoredRows.equals(beforeDumpRows));
+        evidence.put("identitySequenceName", "public.app_user_account_id_seq");
+        evidence.put("identitySequenceBeforeDump", beforeDumpSequence);
+        evidence.put("identitySequenceAfterRestoreBeforeInsert", restoredSequence);
+        evidence.put("maximumAccountIdBeforeDump", oldMaximumAccountId);
+        evidence.put("generatedAccountIdAfterRestore", nextAccount);
+        evidence.put("preDumpDeletionSourceId", priorDeletion.source());
+        evidence.put("preDumpDeletionJournalSequence", beforeDumpIntent.sequence());
+        evidence.put("preDumpDeletionJournalHash", beforeDumpIntent.hash());
+        evidence.put("newDeletionSequenceAfterRestore", afterRestoreIntent.sequence());
+        evidence.put("standaloneDeletionJournalFileRestoreVerified", false);
+        evidence.put("restoredV07SourceRowsBeforeUpgrade", restoredV07SourceRows);
         evidence.put("retiredStagePayloadRowsRemaining", fresh.queryForObject(
                 "SELECT count(*) FROM ma_index_stage WHERE event_id=? AND (input_sha256 IS NOT NULL "
                 + "OR output_json IS NOT NULL OR output_sha256 IS NOT NULL)",
@@ -190,7 +253,7 @@ class V07DumpRestoreUpgradeIntegrationTests {
                 + "index_revision,file_ref) VALUES (?,1,?,'READY',1,?)", source, SOURCE_SHA, fileRef);
         jdbc.update("INSERT INTO ma_outbox(event_id,account_id,aggregate_type,aggregate_id,"
                 + "aggregate_version,kind,payload_digest,index_revision,status) "
-                + "VALUES (?,?,'SOURCE',?,1,'SOURCE_VERSION_CREATED',?,1,'PENDING')",
+                + "VALUES (?,?,'SOURCE',?,1,'SOURCE_VERSION_CREATED',?,1,'DELIVERED')",
                 event, account, source, SOURCE_SHA);
         jdbc.update("INSERT INTO ma_index_job(event_id,status,call_state,fence,ocr_calls) "
                 + "VALUES (?,'DONE','NOT_SENT',7,1)", event);
@@ -249,6 +312,36 @@ class V07DumpRestoreUpgradeIntegrationTests {
                 metadata, seed.chunk());
         return jdbc.queryForObject("SELECT method_metadata::text FROM ma_retrieval_chunk "
                 + "WHERE chunk_id=?", String.class, seed.chunk());
+    }
+
+    private static Map<String, Object> preservationSnapshot(JdbcTemplate jdbc) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("sources", jdbc.queryForList("SELECT source_id,account_id,type,origin_id,title,"
+                + "status,current_version,created_at::text,deleted_at::text FROM ma_source ORDER BY source_id"));
+        snapshot.put("versions", jdbc.queryForList("SELECT source_id,version,content_sha256,status,"
+                + "index_revision,answer_state,file_ref,body_markdown,created_at::text,purged_at::text,"
+                + "purge_reason FROM ma_source_version ORDER BY source_id,version"));
+        snapshot.put("anchors", jdbc.queryForList("SELECT anchor_id,source_id,version,kind,ordinal,"
+                + "content_sha256,locator_json,text FROM ma_anchor ORDER BY anchor_id"));
+        snapshot.put("chunks", jdbc.queryForList("SELECT chunk_id,account_id,source_id,version,anchor_id,"
+                + "question_id,text,method_tags::text,terms::text,embedding::text,embedding_model,dimensions,"
+                + "index_revision FROM ma_retrieval_chunk ORDER BY chunk_id"));
+        snapshot.put("deletions", jdbc.queryForList("SELECT source_id,account_id,deleted_at::text,"
+                + "journal_sequence,journal_hash,database_purged_at::text,hold_reason,checked_at::text "
+                + "FROM ma_source_deletion ORDER BY source_id"));
+        snapshot.put("deletionReplay", jdbc.queryForList("SELECT singleton,sequence,hash,replayed_at::text "
+                + "FROM ma_deletion_replay ORDER BY singleton"));
+        snapshot.put("indexJobs", jdbc.queryForList("SELECT event_id,status,call_state,fence,attempts,"
+                + "ocr_calls,embedding_requests,embedding_tokens,usage_uncertain FROM ma_index_job ORDER BY event_id"));
+        snapshot.put("outbox", jdbc.queryForList("SELECT event_id,account_id,aggregate_type,aggregate_id,"
+                + "aggregate_version,kind,payload_digest,status,index_revision FROM ma_outbox ORDER BY event_id"));
+        return snapshot;
+    }
+
+    private static Map<String, Object> accountSequence(JdbcTemplate jdbc) {
+        assertThat(jdbc.queryForObject("SELECT pg_get_serial_sequence('public.app_user','account_id')",
+                String.class)).isEqualTo("public.app_user_account_id_seq");
+        return jdbc.queryForMap("SELECT last_value,is_called FROM public.app_user_account_id_seq");
     }
 
     private static Map<String, Object> history(JdbcTemplate jdbc, String version) {
