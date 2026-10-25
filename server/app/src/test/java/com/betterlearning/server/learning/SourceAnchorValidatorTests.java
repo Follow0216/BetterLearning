@@ -98,6 +98,19 @@ class SourceAnchorValidatorTests {
     }
 
     @Test
+    void bracketFormulaAnchorMatchesTheWholeImmutableVersionBlock() {
+        String formula = "\\[\na😀\n\nb\n\\]";
+        String body = "前\n\n" + formula + "\n\n后";
+        String digest = AnswerManifestValidator.sha256(formula.getBytes(StandardCharsets.UTF_8));
+        validator.validate(anchor("MARKDOWN_BLOCK", digest, formula,
+                new AnchorLocator(1, new MarkdownLocator(1, 0, formula.length()), null)), note(body));
+        String fragment = "\\[\na😀";
+        assertInvalid(anchor("MARKDOWN_BLOCK",
+                AnswerManifestValidator.sha256(fragment.getBytes(StandardCharsets.UTF_8)), fragment,
+                new AnchorLocator(1, new MarkdownLocator(1, 0, fragment.length()), null)), note(body));
+    }
+
+    @Test
     void handwritingMustMatchAuthorizedManifestGeometryAndRejectDuplicateSegments() throws Exception {
         AnswerModels.SaveManifest manifest = AnswerTestData.manifest(FILE, null);
         when(files.manifest(FILE)).thenReturn(new AnswerModels.StoredManifest(manifest,
@@ -121,6 +134,29 @@ class SourceAnchorValidatorTests {
     }
 
     @Test
+    void handwritingOcrTextMustUseCanonicalLfTextAndItsUtf8Digest() throws Exception {
+        AnswerModels.SaveManifest manifest = AnswerTestData.manifest(FILE, null);
+        when(files.manifest(FILE)).thenReturn(new AnswerModels.StoredManifest(manifest,
+                new AnswerModels.QuestionSnapshot("91", "OTHER", AnswerTestData.BODY)));
+        when(files.block(FILE, "chunk_0000")).thenReturn(AnswerTestData.png(32));
+        HandwritingSegment segment = new HandwritingSegment(0, false,
+                new WorldBounds(-8, -8, 32, 32), 32, 32,
+                new WorldBounds(-7, -6, 4, 5), List.of("s-1"));
+        AnchorLocator locator = new AnchorLocator(1, null, new HandwritingLocator(List.of(segment)));
+        String ocr = "解法😀\r\n$x^2$";
+        String rawDigest = AnswerManifestValidator.sha256(ocr.getBytes(StandardCharsets.UTF_8));
+        String normalizedDigest = AnswerManifestValidator.sha256(
+                ocr.replace("\r\n", "\n").getBytes(StandardCharsets.UTF_8));
+        String normalized = ocr.replace("\r\n", "\n");
+        validator.validate(anchor("HANDWRITING_STEP", normalizedDigest, normalized, locator), content(FILE));
+        assertInvalid(anchor("HANDWRITING_STEP", "f".repeat(64), normalized, locator), content(FILE));
+        assertInvalid(anchor("HANDWRITING_STEP", rawDigest, normalized, locator), content(FILE));
+        assertInvalid(anchor("HANDWRITING_STEP", rawDigest, ocr, locator), content(FILE));
+        assertInvalid(anchor("HANDWRITING_STEP", normalizedDigest, ocr, locator), content(FILE));
+        validator.validate(anchor("HANDWRITING_STEP", "0".repeat(64), null, locator), content(FILE));
+    }
+
+    @Test
     void questionRasterUsesItsOwnPixelDensityAndNegativeWorldBounds() throws Exception {
         AnswerModels.SaveManifest base = AnswerTestData.manifest(FILE, null);
         AnswerModels.QuestionLayout old = base.document().questionLayout();
@@ -137,7 +173,8 @@ class SourceAnchorValidatorTests {
         when(files.block(FILE, "question_0000")).thenReturn(AnswerTestData.png(32));
         HandwritingSegment segment = new HandwritingSegment(0, true,
                 new WorldBounds(-8, -8, 16, 16), 32, 32, new WorldBounds(-7, -7, 2, 2), null);
-        assertInvalid(anchor("QUESTION_BLOCK", "0".repeat(64), "OCR内容",
+        assertInvalid(anchor("QUESTION_BLOCK", AnswerManifestValidator.sha256(
+                "OCR内容".getBytes(StandardCharsets.UTF_8)), "OCR内容",
                 new AnchorLocator(1, null, new HandwritingLocator(List.of(segment)))), content(FILE));
         validator.validate(anchor("QUESTION_BLOCK", "0".repeat(64), null,
                 new AnchorLocator(1, null, new HandwritingLocator(List.of(segment)))), content(FILE));
