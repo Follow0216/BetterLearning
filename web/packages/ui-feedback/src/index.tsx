@@ -50,7 +50,7 @@ function ToastCard({ item, store }: { item: ToastItem; store: ToastStore }) {
       <button
         type="button"
         className="bl-toast__close"
-        aria-label={`关闭通知：${item.message}`}
+        aria-label="关闭通知"
         onClick={() => store.dismiss(item.key)}
       >
         <span aria-hidden="true">×</span>

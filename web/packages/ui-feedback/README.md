@@ -19,6 +19,6 @@ show({ key: "collection-save", type: "success", message: "题集已保存" }, sc
 
 所有方法返回 void，captureScope 返回 number。route/account/question 变化时先 onScopeChange；同身份重复调用不会清理。注销和主动失效可 clearScope。账号身份用非敏感 ID，不包含口令/token。成功后马上跳转的操作以目标页真实身份状态表达成功，避免扩展跨路由通知队列。
 
-同时最多两条，其他 FIFO 排队；卡片 DOM 提交后才计时。同 key 保留位置并更新内容、重新计时；悬停/键盘焦点各自暂停，均离开后继续剩余时间。普通/成功默认 3 秒，错误 6 秒，所有卡片提供 44px 关闭按钮。关闭只清显示。宿主空白区域 pointer-events:none；气泡本身可交互。
+同时最多两条，其他 FIFO 排队；卡片 DOM 提交后才计时。同 key 保留位置并更新内容、重新计时；悬停/键盘焦点各自暂停，均离开后继续剩余时间。普通/成功默认 3 秒，错误 6 秒，最大宽度 420px，有说明时主文案与说明各一行、总计最多两行，所有卡片提供 44px 关闭按钮。关闭只清显示。宿主空白区域 pointer-events:none；气泡本身可交互。
 
 `pnpm --filter @betterlearning/ui-feedback test:run` 使用 Node 24 内置测试与类型擦除，覆盖计时、队列、同 key、暂停、scope、卸载及失效回调，不引入新的测试依赖。组件/浏览器验收仍须由 C4 完成。
