@@ -15,9 +15,11 @@ import java.util.Optional;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.dao.LearningDao;
+import com.betterlearning.server.learning.mapper.SourceMapper;
 import com.betterlearning.server.learning.model.dataobject.QuestionDO;
 import com.betterlearning.server.learning.model.dto.ConfirmQuestionDTO;
 import com.betterlearning.server.learning.service.impl.LearningServiceImpl;
+import com.betterlearning.server.multiagent.SourceStore;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -27,7 +29,13 @@ class LearningServiceTests {
     private static final String REQUEST_ID = "74615d72-665b-4f56-a9a1-3215809de3ea";
 
     private final LearningDao dao = mock(LearningDao.class);
-    private final LearningServiceImpl service = new LearningServiceImpl(dao);
+    private final SourceMapper sourceMapper = mock(SourceMapper.class);
+    private final SourceStore sourceStore = mock(SourceStore.class);
+    private final LearningServiceImpl service = new LearningServiceImpl(dao, sourceMapper, sourceStore);
+
+    {
+        when(sourceMapper.lockAccount(7L)).thenReturn(7L);
+    }
 
     @Test
     void retryReturnsOriginalRecordAndUsesAuthenticatedOwner() {

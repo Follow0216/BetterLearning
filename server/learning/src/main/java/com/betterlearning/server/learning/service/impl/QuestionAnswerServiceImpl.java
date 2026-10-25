@@ -14,6 +14,7 @@ import com.betterlearning.server.learning.model.dataobject.QuestionAnswerDO;
 import com.betterlearning.server.learning.model.dataobject.QuestionDO;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 import com.betterlearning.server.learning.service.QuestionAnswerService;
+import com.betterlearning.server.multiagent.SourceStore;
 
 import jakarta.servlet.http.Part;
 
@@ -26,13 +27,15 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
     private final QuestionAnswerDao answerDao;
     private final AnswerPublisher publisher;
     private final AnswerFileStore store;
+    private final SourceStore sourceStore;
 
     public QuestionAnswerServiceImpl(LearningDao learningDao, QuestionAnswerDao answerDao,
-            AnswerPublisher publisher, AnswerFileStore store) {
+            AnswerPublisher publisher, AnswerFileStore store, SourceStore sourceStore) {
         this.learningDao = learningDao;
         this.answerDao = answerDao;
         this.publisher = publisher;
         this.store = store;
+        this.sourceStore = sourceStore;
     }
 
     public AnswerModels.SaveResult save(long accountId, String questionId,
@@ -50,16 +53,14 @@ public class QuestionAnswerServiceImpl implements QuestionAnswerService {
             if (!candidate.fileRef().equals(result.getFileRef())) {
                 store.discard(candidate);
             }
-            if (published.retiredFileRef() != null) {
-                store.discard(new AnswerFileStore.Candidate(published.retiredFileRef(), null));
-            }
+            // 已发布的旧 fileRef 可能被不可变资料版本引用，不能由 M2 覆盖流程清理。
             return result(result);
         } catch (RuntimeException exception) {
             // 提交结果未知时不可删掉可能已经提交的文件；仅在读回确认未引用后清本候选。
             try {
                 boolean referenced = answerDao.find(accountId, id)
                         .map(answer -> candidate.fileRef().equals(answer.getFileRef())).orElse(false);
-                if (!referenced) {
+                if (!referenced && !sourceStore.fileReferenced(candidate.fileRef())) {
                     store.discard(candidate);
                 }
             } catch (RuntimeException lookupFailure) {

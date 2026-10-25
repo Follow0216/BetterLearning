@@ -24,11 +24,17 @@ public final class TestData {
      * @param redisTemplate Redis 操作模板
      */
     public static void clean(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate) {
-        jdbcTemplate.update("TRUNCATE TABLE tutor_turn, question_answer, question, question_collection, app_user RESTART IDENTITY");
+        cleanDatabase(jdbcTemplate);
         redisTemplate.execute((RedisCallback<Void>) connection -> {
             connection.serverCommands().flushDb();
             return null;
         });
+    }
+
+    public static void cleanDatabase(JdbcTemplate jdbcTemplate) {
+        jdbcTemplate.update("TRUNCATE TABLE ma_source_operation, ma_source_cursor, ma_cursor, ma_citation, ma_result, ma_evidence, ma_attempt, ma_step, ma_retry, ma_run, ma_request, "
+                + "ma_anchor, ma_source_version, ma_source, ma_outbox, tutor_turn, question_answer, "
+                + "question, question_collection, app_user RESTART IDENTITY");
     }
 
     /**

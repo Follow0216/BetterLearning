@@ -109,7 +109,7 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheThirtyThreeM3M4Operations() throws Exception {
+    void documentsExactlyTheFortyM3M4AndV2Operations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
@@ -138,7 +138,13 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", List.of("post")),
                 Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", List.of("get")),
                 Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")),
-                Map.entry("/api/v1/learning/ocr", List.of("post")));
+                Map.entry("/api/v1/learning/ocr", List.of("post")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests", List.of("get", "post")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/pending", List.of("get")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}", List.of("get")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/snapshot", List.of("post")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/cancel", List.of("post")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/retry", List.of("post")));
         assertThat(paths.keySet()).containsExactlyInAnyOrderElementsOf(expectedOperations.keySet());
         assertThat(paths.keySet()).noneMatch(path -> path.startsWith("/api/v1/test")
                 || (path.startsWith("/api/v1/admin") && !path.equals("/api/v1/admin/session")));

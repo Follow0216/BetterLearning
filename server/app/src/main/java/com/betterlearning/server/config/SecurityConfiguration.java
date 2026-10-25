@@ -46,7 +46,7 @@ public class SecurityConfiguration {
             List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS");
 
     private static final List<String> ALLOWED_HEADERS =
-            List.of("Authorization", "Content-Type");
+            List.of("Authorization", "Content-Type", "Idempotency-Key", "If-Match");
 
     /**
      * 创建 BCrypt 口令编码器，使用其默认强度。
@@ -142,7 +142,7 @@ public class SecurityConfiguration {
      * 根据配置构建全局 CORS 规则。
      *
      * <p>允许来源来自 {@link AppCorsProperties}；固定允许 GET、POST、PATCH、DELETE、OPTIONS 与
-     * Authorization、Content-Type 请求头，不携带凭据，预检缓存 3600 秒。</p>
+     * Authorization、Content-Type、Idempotency-Key、If-Match 请求头，不携带凭据，预检缓存 3600 秒。</p>
      *
      * @param properties CORS 来源配置
      * @return 应用于 {@code /**} 的 CORS 配置来源
