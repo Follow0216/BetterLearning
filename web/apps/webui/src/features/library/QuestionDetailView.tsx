@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import type { ReactNode } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
+import { TutorRequestHistory } from "@/features/tutoring/TutorRequestHistory";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
 import {
   INBOX_COLLECTION_ID,
@@ -157,6 +158,7 @@ export async function QuestionDetailView({ params }: { params: Promise<{ questio
         </div>
       </article>
       <SavedAnswerPanel questionId={questionId} />
+      <TutorRequestHistory questionId={questionId} />
       <Suspense
         fallback={
           <section className="mt-4 rounded-2xl border border-[var(--auth-border)] bg-white p-5 md:p-7">

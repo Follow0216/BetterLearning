@@ -1,12 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
 
 export function LogoutButton() {
-  const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,8 +20,11 @@ export function LogoutButton() {
         headers: { Accept: "application/json" },
       });
       if (response.status === 204 || response.status === 401) {
-        router.replace("/");
-        router.refresh();
+        window.dispatchEvent(new Event("bl:session-ended"));
+        const channel = new BroadcastChannel("bl-session");
+        channel.postMessage("ended");
+        channel.close();
+        window.location.replace("/");
         return;
       }
       setError("退出失败，请重试");

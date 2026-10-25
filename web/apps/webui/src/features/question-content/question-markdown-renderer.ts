@@ -1,5 +1,3 @@
-import "server-only";
-
 import katex from "katex";
 import MarkdownIt from "markdown-it";
 import texmath from "markdown-it-texmath";
@@ -139,6 +137,23 @@ function createParser(): MarkdownItInstance {
   md.renderer.rules.math_block_eqno = (tokens, index, _options, env) =>
     renderMath(tokens, index, true, false, true, env ?? {});
 
+  md.renderer.rules.text = (tokens, index, _options, env) => {
+    const content = tokens[index].content;
+    const citations = env?.citations as ReadonlyMap<string, string> | undefined;
+    if (!citations?.size) return md.utils.escapeHtml(content);
+    let offset = 0;
+    let html = "";
+    for (const match of content.matchAll(/\[([^\]\n]{1,64})\]/g)) {
+      const id = citations.get(match[1]);
+      if (!id) continue;
+      const start = match.index!;
+      html += md.utils.escapeHtml(content.slice(offset, start));
+      html += `<button type="button" class="citation-marker" data-citation-id="${md.utils.escapeHtml(id)}" aria-label="查看引用 ${md.utils.escapeHtml(match[1])}">${md.utils.escapeHtml(match[0])}</button>`;
+      offset = start + match[0].length;
+    }
+    return html + md.utils.escapeHtml(content.slice(offset));
+  };
+
   md.renderer.rules.link_open = () => '<span class="markdown-link">';
   md.renderer.rules.link_close = () => "</span>";
   md.renderer.rules.image = (tokens, index) => {
@@ -149,10 +164,16 @@ function createParser(): MarkdownItInstance {
   return md;
 }
 
-export function renderQuestionMarkdown(bodyMarkdown: string): QuestionRenderResult {
+export function renderQuestionMarkdown(
+  bodyMarkdown: string,
+  citations?: readonly { citationId: string; label: string }[],
+): QuestionRenderResult {
   try {
     const instance = parser ?? (parser = createParser());
-    const env: Env = { formulaErrors: 0 };
+    const env: Env = {
+      formulaErrors: 0,
+      citations: new Map(citations?.map((item) => [item.label, item.citationId])),
+    };
     const html = instance.render(bodyMarkdown, env);
     const formulaErrors = env.formulaErrors;
     return {

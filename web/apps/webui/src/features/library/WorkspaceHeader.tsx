@@ -24,6 +24,13 @@ export function WorkspaceHeader() {
           className="ml-auto flex items-center gap-2 text-sm text-[var(--auth-muted)]"
         >
           <Link
+            href="/workspace/notes"
+            prefetch={false}
+            className="inline-flex h-9 items-center rounded-lg px-2 font-medium hover:text-[var(--auth-primary)] focus-visible:outline-2"
+          >
+            我的笔记
+          </Link>
+          <Link
             href="/"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 font-medium transition-colors hover:text-[var(--auth-text)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none"
           >
