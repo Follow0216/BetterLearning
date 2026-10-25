@@ -53,15 +53,21 @@ this.toast.show({ key: 'answer-save', type: 'success', message: '作答已保存
 this.toast.dispose();
 ```
 
-`ToastHost` 公开参数：`store: ToastStore`（必填）、`topInset: number = 12`、`maxWidth: number = 440`、`sideInset: number = 16`。一个 Store 同时只挂一个 Host。Host 移除时解除订阅并 `clearScope()`，取消旧计时；之后可在同一窗口重新挂载。
+`ToastHost` 公开参数：`store: ToastStore`（必填）、`topInset: number = 12`、`maxWidth: number = 420`、`sideInset: number = 16`。一个 Store 同时只挂一个 Host。Host 移除时解除订阅并 `clearScope()`，取消旧计时；之后可在同一窗口重新挂载。
 
-覆盖层无遮罩，不改变原布局，顶部水平居中，不随画布缩放。宿主空白区域穿透；气泡本身及关闭点击不穿透。单个气泡使用白色、细边框、14vp 圆角、轻阴影、左状态标识和右关闭按钮；有 description 时主文案一行、说明最多两行；无说明时主文案最多两行。关闭触控区域至少 44vp，不自动请求焦点，不弹键盘。
+覆盖层无遮罩，不改变原布局，顶部水平居中，不随画布缩放。宿主空白区域穿透；气泡本身及关闭点击不穿透。单个气泡使用白色、细边框、14vp 圆角、轻阴影、左状态标识和右关闭按钮；有 description 时主文案一行、说明一行（总计最多两行）；无说明时主文案最多两行。关闭触控区域至少 44vp，可访问名称为“关闭通知”，不自动请求焦点，不弹键盘。普通/成功采用非打断播报（Web status/polite），错误采用 alert 语义（Native announceForAccessibility）；均不使用模态语义或请求无障碍焦点。
 
 ## 调用边界
 
 用户主动操作的结果由对应业务回调触发。字段校验、持续错误、未保存、加载状态和原位重试保持原有事实呈现。禁止 API 层对所有异常强制弹通知；禁止在 build/render、自动保存、每次轮询或笔 MOVE 中触发。没有通知中心、持久化、推送、新第三方依赖或后端接口。
 
-T1 唯一维护 common/Index.ets 的新增出口；T2 负责 phone/tablet 根与业务回调接线。AuthScreen 适配须与 T2 确认唯一写入者。其他账号模型/API 负责人通过 T1 提供新增出口需求，禁止多人写同一 Index.ets。
+T1 唯一维护 common/Index.ets 的新增出口；T2 负责 phone/tablet 根与业务回调接线。AuthScreen 由 T1 适配，公开注入 `toast?: ToastStore`，根传同一实例而不另挂 Host。其他账号模型/API 负责人通过 T1 提供新增出口需求，禁止多人写同一 Index.ets。
+
+## AuthScreen 与根的 scope 分工
+
+根负责跨页面、账号和题目变化，只在实际状态变化的导航/会话回调中同步 `onScopeChange`，禁止在 build/render 中调用。AuthScreen 首次挂载不清 scope，避免清掉改密后返回登录的成功提示；挂载期间内部登录↔注册切换、注册成功返登录调用 `clearScope()` 递增代数。相同初始挂载不算内部模式变化。
+
+AuthScreen 会话失效/退出时先清旧 scope，再回调根 `onSignedOut` 同步进入新登录 scope，最后在新 scope 发一次操作结果。账号页改密成功同样先按令牌条件清会话、回调根切入新登录 scope，再显示当前 scope 的成功提示；不要在随后 AuthScreen.onAppear 再次清理。请求失败沿用发起时捕获的 token，不能把已失效的旧请求重新绑定到当前 scope。字段错误与持续事实仍原位保留。
 
 ## 验证边界
 
