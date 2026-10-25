@@ -23,7 +23,6 @@ import {
   PHONE_COLOR_MUTED,
   PHONE_COLOR_PRIMARY,
   PHONE_COLOR_PRIMARY_DEEP,
-  PHONE_COLOR_SOFT,
   PHONE_COLOR_SOFT_STRONG,
   PHONE_COLOR_TITLE,
   PHONE_COLOR_WHITE,
@@ -101,153 +100,137 @@ export struct QuestionDetailPage {
 
   @Builder
   top_bar() {
-    Row() {
-      Image($r('app.media.bl_back'))
-        .width(22)
-        .height(22)
-        .padding(7)
-        .accessibilityText('返回题库')
-        .onClick(() => {
-          this.onBack();
-        })
+    Row({ space: 6 }) {
+      Button({ type: ButtonType.Normal }) {
+        Image($r('app.media.bl_back'))
+          .width(24)
+          .height(24)
+      }
+      .width(44)
+      .height(44)
+      .padding(10)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText('返回题库，保留阅读位置')
+      .onClick(() => this.onBack())
       Text('题目详情')
-        .fontSize(20)
+        .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor(PHONE_COLOR_TITLE)
-        .margin({ left: 4 })
-      Blank()
-      Text('正式题库')
-        .fontSize(11)
-        .fontColor(PHONE_COLOR_PRIMARY)
-        .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-        .backgroundColor(PHONE_COLOR_SOFT)
-        .borderRadius(10)
+        .layoutWeight(1)
+      if (this.detail !== null && !this.loading && this.errorText.length === 0) {
+        Text(describe_answer_state(this.detail.answerState))
+          .fontSize(13)
+          .fontColor(this.answer_state_foreground(this.detail.answerState))
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .backgroundColor(this.answer_state_background(this.detail.answerState))
+          .borderRadius(20)
+      }
     }
     .width('100%')
-    .padding({ left: 10, right: 18, top: 12, bottom: 8 })
+    .padding({ left: 8, right: 18, top: 12, bottom: 10 })
     .alignItems(VerticalAlign.Center)
   }
 
   @Builder
   detail_view(detail: QuestionDetail) {
     Column() {
-      Row() {
-        Text(learning_subject_label(detail.subject))
-          .fontSize(11)
-          .fontColor(PHONE_COLOR_PRIMARY_DEEP)
-          .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-          .backgroundColor(PHONE_COLOR_SOFT)
-          .borderRadius(8)
-        if (this.collection_name(detail.collectionId).length > 0) {
-          Text(this.collection_name(detail.collectionId))
-            .fontSize(11)
+      Column({ space: 6 }) {
+        Row({ space: 8 }) {
+          Text(learning_subject_label(detail.subject))
+            .fontSize(14)
             .fontColor(PHONE_COLOR_MUTED)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 6 })
-        } else if (this.collectionsFailed) {
-          Text('归属加载失败 · 重试')
-            .fontSize(11)
-            .fontColor(PHONE_COLOR_DANGER)
-            .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-            .backgroundColor(PHONE_COLOR_DANGER_SOFT)
-            .borderRadius(6)
-            .margin({ left: 6 })
-            .accessibilityText('重新加载题集归属')
-            .onClick(() => {
-              this.retry_collections();
-            })
-        } else if (this.collectionsLoading) {
-          Text('归属加载中…')
-            .fontSize(11)
+          Text('·')
+            .fontSize(14)
             .fontColor(PHONE_COLOR_MUTED)
-            .margin({ left: 6 })
-        } else {
-          Text(detail.collectionId)
-            .fontSize(11)
-            .fontColor(PHONE_COLOR_MUTED)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-            .margin({ left: 6 })
-        }
-        Text(describe_answer_state(detail.answerState))
-          .fontSize(11)
-          .fontColor(this.answer_state_foreground(detail.answerState))
-          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
-          .backgroundColor(this.answer_state_background(detail.answerState))
-          .borderRadius(6)
-        Text(format_question_time(detail.createdAt))
-          .fontSize(11)
-          .fontColor(PHONE_COLOR_MUTED)
-          .margin({ left: 8 })
-      }
-      .width('100%')
-      .padding({ left: 18, right: 18 })
-      .alignItems(VerticalAlign.Center)
-
-      Text(detail.summary)
-        .fontSize(18)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(PHONE_COLOR_TITLE)
-        .lineHeight(26)
-        .width('100%')
-        .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-
-      Column() {
-        Text(this.answer_hint(detail.answerState))
-          .fontSize(12)
-          .fontColor(PHONE_COLOR_MUTED)
-          .width('100%')
-        Row() {
-          Button('AI 辅导')
-            .height(34)
-            .fontSize(12)
-            .fontColor(PHONE_COLOR_WHITE)
-            .backgroundColor(PHONE_COLOR_PRIMARY)
-            .borderRadius(PHONE_RADIUS_CONTROL)
-            .accessibilityText('打开 AI 辅导')
-            .onClick(() => {
-              this.onOpenTutor(detail.questionId);
-            })
-          Button('查看当前作答')
-            .height(34)
-            .fontSize(12)
-            .fontColor(PHONE_COLOR_PRIMARY_DEEP)
-            .backgroundColor(PHONE_COLOR_SOFT)
-            .borderRadius(PHONE_RADIUS_CONTROL)
-            .margin({ left: 8 })
-            .accessibilityText('查看当前作答')
-            .onClick(() => {
-              this.onOpenAnswer(detail.questionId);
-            })
+          if (this.collection_name(detail.collectionId).length > 0) {
+            Text(this.collection_name(detail.collectionId))
+              .fontSize(14)
+              .fontColor(PHONE_COLOR_MUTED)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          } else if (this.collectionsFailed) {
+            Button('题集加载失败 · 重试')
+              .height(44)
+              .fontSize(13)
+              .fontColor(PHONE_COLOR_DANGER)
+              .backgroundColor(PHONE_COLOR_DANGER_SOFT)
+              .borderRadius(PHONE_RADIUS_CONTROL)
+              .accessibilityText('重新加载题集归属')
+              .onClick(() => this.retry_collections())
+          } else {
+            Text(this.collectionsLoading ? '题集加载中…' : '题集名称暂不可用')
+              .fontSize(14)
+              .fontColor(PHONE_COLOR_MUTED)
+          }
         }
         .width('100%')
-        .justifyContent(FlexAlign.End)
-        .margin({ top: 8 })
+        .alignItems(VerticalAlign.Center)
+        Text(format_question_time(detail.createdAt) + ' 录入')
+          .fontSize(13)
+          .fontColor(PHONE_COLOR_MUTED)
       }
       .width('100%')
-      .padding({ left: 18, right: 18, top: 2, bottom: 10 })
       .alignItems(HorizontalAlign.Start)
+      .padding({ left: 20, right: 20, top: 4, bottom: 16 })
 
       Column() {
-        Column() {
-          QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
+        QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown, fontSize: 17 })
+          .width('100%')
+          .layoutWeight(1)
+        Row({ space: 8 }) {
+          Text(detail.answerState === AnswerState.NOT_STARTED ? '○' : '✓')
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(detail.answerState === AnswerState.NOT_STARTED ?
+              PHONE_COLOR_MUTED : PHONE_COLOR_PRIMARY)
+          Text(this.answer_hint(detail.answerState))
+            .fontSize(13)
+            .lineHeight(20)
+            .fontColor(detail.answerState === AnswerState.NOT_STARTED ?
+              PHONE_COLOR_MUTED : PHONE_COLOR_PRIMARY)
+            .layoutWeight(1)
         }
         .width('100%')
-        .layoutWeight(1)
-        .backgroundColor(PHONE_COLOR_CARD)
-        .borderRadius(PHONE_RADIUS_CARD)
-        .border({ width: 1, color: PHONE_COLOR_BORDER })
-        .clip(true)
+        .padding({ left: 16, right: 16, top: 12, bottom: 14 })
+        .alignItems(VerticalAlign.Top)
       }
       .width('100%')
       .layoutWeight(1)
-      .padding({ left: 14, right: 14, bottom: 14 })
+      .backgroundColor(PHONE_COLOR_CARD)
+      .borderRadius(PHONE_RADIUS_CARD)
+      .border({ width: 1, color: PHONE_COLOR_BORDER })
+      .clip(true)
+
+      Row({ space: 12 }) {
+        Button('查看作答')
+          .height(52)
+          .layoutWeight(1)
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(PHONE_COLOR_PRIMARY)
+          .backgroundColor(PHONE_COLOR_CARD)
+          .border({ width: 1, color: PHONE_COLOR_BORDER })
+          .borderRadius(26)
+          .accessibilityText('只读查看已保存的作答')
+          .onClick(() => this.onOpenAnswer(detail.questionId))
+        Button('AI 辅导')
+          .height(52)
+          .layoutWeight(1)
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(PHONE_COLOR_WHITE)
+          .backgroundColor(PHONE_COLOR_PRIMARY)
+          .borderRadius(26)
+          .accessibilityText('打开这道题的 AI 辅导')
+          .onClick(() => this.onOpenTutor(detail.questionId))
+      }
+      .width('100%')
+      .padding({ top: 16, bottom: 16 })
     }
     .width('100%')
     .layoutWeight(1)
+    .padding({ left: 14, right: 14 })
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -264,7 +247,7 @@ export struct QuestionDetailPage {
         .margin({ top: 12 })
       Row() {
         Button('重试')
-          .height(38)
+          .height(44)
           .fontSize(13)
           .fontColor(PHONE_COLOR_WHITE)
           .backgroundColor(PHONE_COLOR_PRIMARY)
@@ -274,7 +257,7 @@ export struct QuestionDetailPage {
             this.load_detail();
           })
         Button('返回题库')
-          .height(38)
+          .height(44)
           .fontSize(13)
           .fontColor(PHONE_COLOR_PRIMARY_DEEP)
           .backgroundColor(PHONE_COLOR_CARD)
@@ -427,24 +410,27 @@ export struct QuestionDetailPage {
   }
 
   private answer_state_foreground(state: AnswerState): string {
-    return state === AnswerState.COMPLETED ? PHONE_COLOR_WHITE : PHONE_COLOR_PRIMARY_DEEP;
+    if (state === AnswerState.COMPLETED) {
+      return '#147D4B';
+    }
+    return state === AnswerState.IN_PROGRESS ? PHONE_COLOR_PRIMARY : PHONE_COLOR_MUTED;
   }
 
   private answer_state_background(state: AnswerState): string {
     if (state === AnswerState.COMPLETED) {
-      return PHONE_COLOR_PRIMARY;
+      return '#E5F5EC';
     }
     if (state === AnswerState.IN_PROGRESS) {
       return PHONE_COLOR_SOFT_STRONG;
     }
-    return PHONE_COLOR_SOFT;
+    return '#EEF2F8';
   }
 
   private answer_hint(state: AnswerState): string {
     if (state === AnswerState.NOT_STARTED) {
-      return '尚未保存完整作答';
+      return '尚未保存作答，可在平板上书写后查看。';
     }
-    return '已保存完整作答，可只读查看';
+    return '已保存作答，可在手机查看。';
   }
 
   private handle_unauthorized(token: string): void {
