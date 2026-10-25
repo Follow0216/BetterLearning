@@ -38,6 +38,7 @@ const POLL_INTERVAL_MS: number = 3000;
 
 @Component
 export struct PhoneTutorPage {
+  @Prop readOnly: boolean = false;
   @Prop @Watch('on_question_changed') questionId: string = '';
   @Prop @Watch('on_poll_gate_changed') visible: boolean = true;
   @StorageProp('phoneForeground') @Watch('on_poll_gate_changed') foreground: boolean = true;
@@ -111,7 +112,9 @@ export struct PhoneTutorPage {
   build() {
     Column() {
       this.top_bar()
-      this.compose_section()
+      if (!this.readOnly) {
+        this.compose_section()
+      }
       if (this.listError.length > 0 && this.turns.length === 0) {
         this.list_error_view()
       } else if (this.loading && this.turns.length === 0) {
@@ -163,7 +166,7 @@ export struct PhoneTutorPage {
           this.onBack();
         })
       Column() {
-        Text('AI 辅导')
+        Text(this.readOnly ? '旧版辅导记录' : 'AI 辅导')
           .fontSize(20)
           .fontWeight(FontWeight.Bold)
           .fontColor(PHONE_COLOR_TITLE)
@@ -364,7 +367,8 @@ export struct PhoneTutorPage {
         .fontWeight(FontWeight.Medium)
         .fontColor(PHONE_COLOR_TITLE)
         .margin({ top: 12 })
-      Text('在上方写下问题后发送。平板需在前台打开本题，冻结完整作答后才会生成解答。')
+      Text(this.readOnly ? '这道题没有旧版辅导记录。' :
+        '在上方写下问题后发送。平板需在前台打开本题，冻结完整作答后才会生成解答。')
         .fontSize(12)
         .fontColor(PHONE_COLOR_MUTED)
         .textAlign(TextAlign.Center)
@@ -432,7 +436,7 @@ export struct PhoneTutorPage {
           .alignItems(VerticalAlign.Top)
           .margin({ top: 10 })
 
-          if (turn.fileRef === null) {
+          if (turn.fileRef === null && !this.readOnly) {
             Button(this.busyTurnId === turn.turnId ? '正在取消…' : '取消等待')
               .height(36)
               .fontSize(12)
@@ -444,7 +448,7 @@ export struct PhoneTutorPage {
               .onClick(() => {
                 this.cancel_turn(turn);
               })
-          } else {
+          } else if (turn.fileRef !== null) {
             Text('本轮完整作答已冻结，正在等待领取生成；冻结文件已固定，不会重新导出。')
               .fontSize(11)
               .fontColor(PHONE_COLOR_MUTED)
@@ -501,17 +505,19 @@ export struct PhoneTutorPage {
               .lineHeight(17)
               .width('100%')
               .margin({ top: 8 })
-            Button(this.busyTurnId === turn.turnId ? '正在重试…' : '重试本轮')
-              .height(36)
-              .fontSize(12)
-              .fontColor(PHONE_COLOR_WHITE)
-              .backgroundColor(PHONE_COLOR_PRIMARY)
-              .borderRadius(PHONE_RADIUS_CONTROL)
-              .enabled(this.busyTurnId.length === 0 && !this.submitting)
-              .margin({ top: 10 })
-              .onClick(() => {
-                this.retry_turn(turn);
-              })
+            if (!this.readOnly) {
+              Button(this.busyTurnId === turn.turnId ? '正在重试…' : '重试本轮')
+                .height(36)
+                .fontSize(12)
+                .fontColor(PHONE_COLOR_WHITE)
+                .backgroundColor(PHONE_COLOR_PRIMARY)
+                .borderRadius(PHONE_RADIUS_CONTROL)
+                .enabled(this.busyTurnId.length === 0 && !this.submitting)
+                .margin({ top: 10 })
+                .onClick(() => {
+                  this.retry_turn(turn);
+                })
+            }
           } else {
             Text('本轮没有可复用的冻结文件，请重新提问。')
               .fontSize(11)

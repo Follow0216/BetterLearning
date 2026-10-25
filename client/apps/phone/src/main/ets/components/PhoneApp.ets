@@ -1,4 +1,5 @@
-import { authSession, AuthScreen, QuestionDetail, UserProfile } from 'common';
+import { authSession, AuthScreen, CitationModal, citationFocusController,
+  LearningNotesView, QuestionDetail, UserProfile } from 'common';
 import {
   PHONE_COLOR_BACKGROUND,
   PHONE_COLOR_BORDER,
@@ -11,6 +12,9 @@ import { AccountPage } from './AccountPage';
 import { ManualEntry } from './ManualEntry';
 import { PhoneAnswerPage } from './PhoneAnswerPage';
 import { PhoneTutorPage } from './PhoneTutorPage';
+import { PhoneTutorV2Page } from './PhoneTutorV2Page';
+import { phone_v2_clear_all_intents } from '../model/PhoneTutorV2Logic';
+import { phoneBackController } from '../model/PhoneBackController';
 import { QuestionDetailPage } from './QuestionDetailPage';
 import { QuestionLibrary } from './QuestionLibrary';
 
@@ -36,9 +40,17 @@ export struct PhoneApp {
   @State answerQuestionId: string = '';
   @State answerTurnId: string = '';
   @State tutorQuestionId: string = '';
+  @State legacyTutorOpen: boolean = false;
+  @State notesOpen: boolean = false;
+  @State notesBackToken: number = 0;
   @State libraryRefreshToken: number = 0;
+  private citationController: CustomDialogController | null = null;
+  private citationFocusId: string = '';
+  private sessionAccountId: string = '';
+  private backHandler: () => boolean = () => this.handle_back();
 
   aboutToAppear(): void {
+    phoneBackController.register(this.backHandler);
     const token: string | null = authSession.read_access_token();
     const user: UserProfile | null = authSession.read_user();
     if (token !== null && user !== null) {
@@ -46,24 +58,53 @@ export struct PhoneApp {
     }
   }
 
+  aboutToDisappear(): void {
+    phoneBackController.unregister(this.backHandler);
+    this.close_citation(false);
+  }
+
   build() {
     Stack() {
       if (this.isAuthenticated) {
         this.main_shell()
         if (this.tutorQuestionId.length > 0) {
-          PhoneTutorPage({
+          PhoneTutorV2Page({
             questionId: this.tutorQuestionId,
-            visible: this.answerQuestionId.length === 0,
+            visible: !this.legacyTutorOpen && !this.notesOpen && this.answerQuestionId.length === 0,
             onBack: () => {
               this.tutorQuestionId = '';
             },
-            onOpenFrozenAnswer: (questionId: string, turnId: string) => {
-              this.answerTurnId = turnId;
-              this.answerQuestionId = questionId;
+            onOpenLegacy: () => {
+              this.legacyTutorOpen = true;
+            },
+            onOpenNotes: () => {
+              this.notesOpen = true;
+            },
+            onOpenCitation: (citationId: string) => {
+              this.open_citation(citationId);
             },
             onUnauthorized: (token: string) => {
               this.handle_signed_out(token);
             }
+          })
+        }
+        if (this.legacyTutorOpen && this.tutorQuestionId.length > 0) {
+          PhoneTutorPage({
+            questionId: this.tutorQuestionId,
+            readOnly: true,
+            onBack: () => { this.legacyTutorOpen = false; },
+            onOpenFrozenAnswer: (questionId: string, turnId: string) => {
+              this.answerTurnId = turnId;
+              this.answerQuestionId = questionId;
+            },
+            onUnauthorized: (token: string) => { this.handle_signed_out(token); }
+          })
+        }
+        if (this.notesOpen) {
+          LearningNotesView({
+            backToken: this.notesBackToken,
+            onBack: () => { this.notesOpen = false; },
+            onUnauthorized: () => { this.handle_signed_out(authSession.read_access_token() ?? ''); }
           })
         }
         if (this.answerQuestionId.length > 0) {
@@ -226,11 +267,18 @@ export struct PhoneApp {
   }
 
   private enter_session(): void {
+    const accountId: string = authSession.read_user()?.accountId ?? '';
+    if (this.sessionAccountId.length > 0 && this.sessionAccountId !== accountId) {
+      phone_v2_clear_all_intents();
+    }
+    this.sessionAccountId = accountId;
     this.isAuthenticated = true;
     this.activeTab = PhoneTab.LIBRARY;
     this.answerQuestionId = '';
     this.answerTurnId = '';
     this.tutorQuestionId = '';
+    this.legacyTutorOpen = false;
+    this.notesOpen = false;
     this.detailQuestionId = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
   }
@@ -252,12 +300,95 @@ export struct PhoneApp {
   }
 
   private reset_session(): void {
+    this.close_citation(false);
+    phone_v2_clear_all_intents();
+    this.sessionAccountId = '';
     this.isAuthenticated = false;
     this.activeTab = PhoneTab.LIBRARY;
     this.answerQuestionId = '';
     this.answerTurnId = '';
     this.tutorQuestionId = '';
+    this.legacyTutorOpen = false;
+    this.notesOpen = false;
     this.detailQuestionId = '';
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
+  }
+
+  private open_citation(citationId: string): void {
+    if (this.citationController !== null) { this.close_citation(false); }
+    this.citationFocusId = 'citation-' + citationId;
+    this.citationController = new CustomDialogController({
+      builder: CitationModal({
+        citationId: citationId,
+        onUnauthorized: () => { this.handle_signed_out(authSession.read_access_token() ?? ''); },
+        onClose: () => {
+          this.close_citation(true);
+        }
+      }),
+      autoCancel: true,
+      customStyle: true,
+      cancel: () => {
+        const focusId: string = this.citationFocusId;
+        this.citationController = null;
+        this.citationFocusId = '';
+        this.restore_citation_focus(focusId);
+      }
+    });
+    this.citationController.open();
+  }
+
+  private close_citation(restoreFocus: boolean): void {
+    const focusId: string = this.citationFocusId;
+    if (this.citationController !== null) {
+      this.citationController.close();
+      this.citationController = null;
+    }
+    this.citationFocusId = '';
+    if (restoreFocus && focusId.length > 0) {
+      this.restore_citation_focus(focusId);
+    } else if (!restoreFocus) {
+      citationFocusController.clear();
+    }
+  }
+
+  private restore_citation_focus(focusId: string): void {
+    if (focusId.length === 0) { return; }
+    const citationId: string = focusId.substring('citation-'.length);
+    if (!citationFocusController.restore(citationId)) {
+      focusControl.requestFocus(focusId);
+    }
+  }
+
+  private handle_back(): boolean {
+    if (this.citationController !== null) {
+      this.close_citation(true);
+      return true;
+    }
+    if (this.answerQuestionId.length > 0) {
+      this.answerQuestionId = '';
+      this.answerTurnId = '';
+      return true;
+    }
+    if (this.notesOpen) {
+      this.notesBackToken++;
+      return true;
+    }
+    if (this.legacyTutorOpen) {
+      this.legacyTutorOpen = false;
+      return true;
+    }
+    if (this.tutorQuestionId.length > 0) {
+      this.tutorQuestionId = '';
+      return true;
+    }
+    if (this.detailQuestionId.length > 0) {
+      this.detailQuestionId = '';
+      return true;
+    }
+    if (this.activeTab !== PhoneTab.LIBRARY) {
+      this.activeTab = PhoneTab.LIBRARY;
+      return true;
+    }
+    return false;
   }
 }
