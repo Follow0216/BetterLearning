@@ -188,8 +188,9 @@ class IndexStageRetentionIntegrationTests {
         assertThat(index.confirmIndexStage(stale, key,
                 new StageResult(OCR_OUTPUT, sha(OCR_OUTPUT), 1, null))).isFalse();
         assertThatThrownBy(() -> index.beginIndexStage(stale, key))
-                .isInstanceOfSatisfying(StepExecutionException.class,
-                failure -> assertThat(failure.reason()).isEqualTo("OUTCOME_UNKNOWN"));
+                .isInstanceOfSatisfying(StepExecutionException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo("OUTCOME_UNKNOWN");
+                });
         index.unknownIndexStage(stale, key);
         assertScrubbed(jdbc, fixture, 4);
     }

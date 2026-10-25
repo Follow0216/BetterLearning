@@ -239,8 +239,9 @@ class StructuredHandwritingIndexerTests {
                 .when(indexes).unknownIndexStage(eq(job), any(StageKey.class));
 
         assertThatThrownBy(() -> indexer.process(job, content(List.of())))
-                .isInstanceOfSatisfying(StepExecutionException.class,
-                exception -> assertThat(exception.reason()).isEqualTo("OUTCOME_UNKNOWN"));
+                .isInstanceOfSatisfying(StepExecutionException.class, exception -> {
+                    assertThat(exception.reason()).isEqualTo("OUTCOME_UNKNOWN");
+                });
 
         verify(ocr, times(1)).recognize(any(ModelImage.class), eq(0), eq(80), eq(40));
         verify(ocr, never()).recognize(any(ModelImage.class), eq(1), eq(80), eq(40));
