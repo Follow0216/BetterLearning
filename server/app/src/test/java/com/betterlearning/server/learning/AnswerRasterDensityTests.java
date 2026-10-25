@@ -1,5 +1,6 @@
 package com.betterlearning.server.learning;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -77,8 +78,9 @@ class AnswerRasterDensityTests {
         assertThatCode(() -> AnswerManifestValidator.validate(exact, AnswerTestData.BODY)).doesNotThrowAnyException();
         AnswerModels.SaveManifest excess = manifest(3201, 4000, 2);
         assertThatThrownBy(() -> AnswerManifestValidator.validate(excess, AnswerTestData.BODY))
-                .isInstanceOfSatisfying(BusinessException.class,
-                failure -> org.assertj.core.api.Assertions.assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.UPLOAD_TOO_LARGE));
+                .isInstanceOfSatisfying(BusinessException.class, failure -> {
+                    assertThat(failure.getErrorCode()).isEqualTo(ErrorCode.UPLOAD_TOO_LARGE);
+                });
     }
 
     private AnswerModels.SaveManifest manifest(int width, int height, double density) {
