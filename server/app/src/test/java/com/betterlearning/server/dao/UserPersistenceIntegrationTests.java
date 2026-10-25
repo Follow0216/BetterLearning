@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("integration")
 class UserPersistenceIntegrationTests {
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
             .asCompatibleSubstituteFor("postgres");
 
     @Container
@@ -83,9 +83,9 @@ class UserPersistenceIntegrationTests {
     @Test
     void migratesEmptyDatabaseWithExpectedSchema() {
         assertThat(migrateResult.success).isTrue();
-        assertThat(migrateResult.migrationsExecuted).isEqualTo(9);
+        assertThat(migrateResult.migrationsExecuted).isEqualTo(10);
         assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",
-                String.class)).containsExactly("1", "2", "3", "4", "5", "2026102501", "2026102503", "2026102504", "2026102505");
+                String.class)).containsExactly("1", "2", "3", "4", "5", "2026102501", "2026102502", "2026102503", "2026102504", "2026102505");
 
         List<String> columns = jdbcTemplate.queryForList(
                 "SELECT column_name FROM information_schema.columns "

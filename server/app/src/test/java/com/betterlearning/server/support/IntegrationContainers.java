@@ -18,7 +18,7 @@ public final class IntegrationContainers {
     /** Redis 容器暴露的端口。 */
     public static final int REDIS_PORT = 6379;
 
-    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("postgres:18.3")
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse("pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
             .asCompatibleSubstituteFor("postgres");
 
     private static final DockerImageName REDIS_IMAGE = DockerImageName.parse("redis:7.4.2");

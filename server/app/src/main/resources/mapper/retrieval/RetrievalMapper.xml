@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.retrieval.mapper.RetrievalMapper">
+    <insert id="prepareJobs">
+        INSERT INTO ma_index_job(event_id)
+        SELECT event_id FROM ma_outbox WHERE aggregate_type = 'SOURCE'
+            AND kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN') AND status != 'DELIVERED'
+            AND NOT EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = ma_outbox.event_id)
+        ORDER BY created_at,event_id LIMIT 100 ON CONFLICT DO NOTHING
+    </insert>
+    <select id="claim" resultType="map" affectData="true" flushCache="true">
+        WITH chosen AS (
+            SELECT j.event_id FROM ma_index_job j JOIN ma_outbox e USING(event_id)
+            WHERE e.aggregate_type = 'SOURCE' AND e.status != 'DELIVERED'
+                AND (j.status = 'PROCESSING' OR (j.status = 'PENDING' AND j.attempts &lt; 3)) AND j.next_attempt_at &lt;= CURRENT_TIMESTAMP
+                AND (j.status != 'PROCESSING' OR j.lease_until &lt; CURRENT_TIMESTAMP)
+            ORDER BY e.created_at,e.event_id FOR UPDATE OF j SKIP LOCKED LIMIT 1
+        ), claimed AS (
+            UPDATE ma_index_job SET status = 'PROCESSING', fence = fence + 1, attempts = LEAST(attempts + 1, 4),
+                lease_until = CURRENT_TIMESTAMP + INTERVAL '15 minutes'
+            WHERE event_id IN (SELECT event_id FROM chosen) RETURNING event_id,fence,attempts
+        ) SELECT e.*,c.fence,c.attempts,j.call_state FROM claimed c JOIN ma_outbox e USING(event_id)
+            JOIN ma_index_job j USING(event_id)
+    </select>
+    <select id="lockAccount" resultType="long">
+        SELECT account_id FROM app_user WHERE account_id = #{accountId} FOR UPDATE
+    </select>
+    <select id="lockJob" resultType="string">
+        SELECT event_id FROM ma_index_job WHERE event_id = #{eventId} AND fence = #{fence}
+            AND status = 'PROCESSING' AND lease_until > CURRENT_TIMESTAMP FOR UPDATE
+    </select>
+    <delete id="deleteChunks">
+        DELETE FROM ma_retrieval_chunk WHERE account_id = #{accountId} AND source_id = #{sourceId}
+        <if test="version != null">AND version = #{version}</if>
+    </delete>
+    <insert id="insertChunk">
+        INSERT INTO ma_retrieval_chunk(chunk_id,account_id,source_id,version,anchor_id,question_id,
+            text,method_tags,terms,embedding,embedding_model,dimensions,index_revision)
+        VALUES(#{id},#{accountId},#{sourceId},#{version},#{anchorId},#{questionId},#{text},
+            CAST(#{methodTags} AS jsonb),CAST(#{terms} AS jsonb),CAST(#{vector} AS vector),
+            #{model},#{dimensions},#{indexRevision})
+    </insert>
+    <update id="finish">
+        UPDATE ma_index_job SET status = 'DONE',completed_at = CURRENT_TIMESTAMP,failure_reason = NULL
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+    </update>
+    <update id="failure">
+        UPDATE ma_index_job SET status = 'FAILED',failure_reason = #{reason},
+            attempts = attempts - CASE WHEN #{reason} = 'EMBEDDING_DISABLED' THEN 1 ELSE 0 END,
+            usage_uncertain = usage_uncertain OR (#{reason} = 'OUTCOME_UNKNOWN' AND call_state = 'CALL_INTENT'),
+            next_attempt_at = CURRENT_TIMESTAMP + INTERVAL '60 seconds'
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+    </update>
+    <update id="renew">
+        UPDATE ma_index_job SET lease_until = CURRENT_TIMESTAMP + INTERVAL '15 minutes'
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+            AND lease_until > CURRENT_TIMESTAMP
+    </update>
+    <update id="beginExternalCall">
+        UPDATE ma_index_job j SET call_state = 'CALL_INTENT'
+        WHERE j.event_id = #{eventId} AND j.fence = #{fence} AND j.status = 'PROCESSING'
+            AND j.lease_until > CURRENT_TIMESTAMP AND j.call_state IN ('NOT_SENT','CONFIRMED')
+            AND EXISTS (SELECT 1 FROM ma_outbox e JOIN ma_source s
+                ON s.source_id = e.aggregate_id AND s.account_id = e.account_id
+                JOIN ma_source_version v ON v.source_id = s.source_id
+                    AND v.version = e.aggregate_version
+                WHERE e.event_id = j.event_id AND e.aggregate_type = 'SOURCE'
+                    AND e.kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX')
+                    AND s.status = 'ACTIVE' AND s.current_version = e.aggregate_version
+                    AND v.status = 'INDEX_PENDING' AND v.index_revision = e.index_revision)
+    </update>
+    <update id="confirmExternalCall">
+        UPDATE ma_index_job SET call_state = 'CONFIRMED'
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+            AND lease_until > CURRENT_TIMESTAMP AND call_state = 'CALL_INTENT'
+    </update>
+    <update id="usage">
+        UPDATE ma_index_job SET ocr_calls = ocr_calls + #{ocrCalls},
+            embedding_requests = embedding_requests + #{embeddingRequests},
+            embedding_tokens = CASE WHEN #{tokens,jdbcType=BIGINT} IS NULL THEN embedding_tokens
+                ELSE COALESCE(embedding_tokens,0) + #{tokens,jdbcType=BIGINT} END,
+            usage_uncertain = usage_uncertain OR #{uncertain}
+        WHERE event_id = #{eventId} AND fence = #{fence} AND status = 'PROCESSING'
+    </update>
+    <insert id="insertQueryIntent">
+        INSERT INTO ma_query_embedding(step_id,account_id,run_id,query_sha256,
+            embedding_model,dimensions,call_state)
+        SELECT step.step_id,r.account_id,r.run_id,#{querySha256},#{model},#{dimensions},'CALL_INTENT'
+        FROM ma_step step JOIN ma_run r ON r.run_id = step.run_id
+        JOIN ma_request req ON req.request_id = r.request_id AND req.account_id = r.account_id
+        WHERE step.step_id = #{stepId} AND step.role = 'RETRIEVE'
+            AND r.account_id = #{accountId} AND r.run_id = #{runId} AND r.status = 'RUNNING'
+            AND r.cancel_requested_at IS NULL AND req.current_run_id = r.run_id
+            AND step.sequence = (SELECT MAX(latest.sequence) FROM ma_step latest
+                WHERE latest.run_id = r.run_id AND latest.role = 'RETRIEVE')
+        ON CONFLICT (step_id) DO NOTHING
+    </insert>
+    <select id="queryEmbedding" resultType="map">
+        SELECT step_id,account_id,run_id,query_sha256,embedding_model,dimensions,call_state,
+            embedding::text AS embedding,embedding_requests,embedding_tokens
+        FROM ma_query_embedding WHERE step_id = #{stepId}
+    </select>
+    <update id="confirmQueryEmbedding">
+        UPDATE ma_query_embedding SET call_state = 'CONFIRMED',
+            embedding = CAST(#{vector} AS vector),embedding_requests = #{requestCount},
+            embedding_tokens = #{totalTokens,jdbcType=BIGINT},confirmed_at = CURRENT_TIMESTAMP
+        WHERE step_id = #{stepId} AND account_id = #{accountId} AND run_id = #{runId}
+            AND query_sha256 = #{querySha256} AND embedding_model = #{model}
+            AND dimensions = #{dimensions} AND call_state = 'CALL_INTENT'
+    </update>
+    <update id="eventStatus">
+        UPDATE ma_outbox SET status = #{status}
+        WHERE event_id = #{eventId} AND account_id = #{accountId} AND aggregate_type = 'SOURCE'
+    </update>
+    <sql id="authorized">
+        FROM ma_retrieval_chunk c JOIN ma_source s ON s.source_id = c.source_id AND s.account_id = c.account_id
+        JOIN ma_source_version v ON v.source_id = s.source_id AND v.version = c.version
+        JOIN ma_anchor a ON a.anchor_id = c.anchor_id AND a.source_id = c.source_id AND a.version = c.version
+        WHERE c.account_id = #{accountId} AND s.status = 'ACTIVE' AND s.current_version = c.version
+            AND v.status = 'READY' AND v.index_revision = c.index_revision AND s.type IN ('QUESTION','SAVED_ANSWER','NOTE','TUTOR_REPLY')
+            AND c.embedding_model = #{model} AND c.dimensions = #{dimensions}
+    </sql>
+    <select id="candidates" resultType="map">
+        WITH authorized AS MATERIALIZED (
+            SELECT c.*,s.type,v.answer_state,
+                CASE WHEN s.type = 'TUTOR_REPLY' THEN (
+                    SELECT reply_request.question_id::text FROM ma_result reply_result
+                    JOIN ma_run reply_run ON reply_run.run_id = reply_result.run_id
+                    JOIN ma_request reply_request ON reply_request.request_id = reply_run.request_id
+                        AND reply_request.account_id = reply_run.account_id
+                    WHERE reply_result.result_id = s.origin_id AND reply_run.account_id = s.account_id
+                    LIMIT 1
+                ) ELSE c.question_id END AS actual_question_id
+            <include refid="authorized"/>
+        ), scores AS (
+            SELECT *,1 - (embedding &lt;=&gt; CAST(#{vector} AS vector)) AS vector_score,
+                (SELECT COUNT(*) FROM jsonb_array_elements_text(terms) term
+                    WHERE jsonb_exists(CAST(#{terms} AS jsonb), term)) +
+                3 * (SELECT COUNT(*) FROM jsonb_array_elements_text(method_tags) tag
+                    WHERE jsonb_exists(CAST(#{methodTags} AS jsonb), tag)) AS lexical_score
+            FROM authorized
+        ), picked AS (
+            (SELECT chunk_id FROM scores ORDER BY vector_score DESC,chunk_id LIMIT 40)
+            UNION
+            (SELECT chunk_id FROM scores WHERE lexical_score > 0 ORDER BY lexical_score DESC,chunk_id LIMIT 40)
+        ) SELECT source_id,version,anchor_id,type,actual_question_id AS question_id,
+            answer_state,text,method_tags::text AS method_tags,vector_score,lexical_score
+            FROM scores WHERE chunk_id IN (SELECT chunk_id FROM picked)
+            ORDER BY lexical_score DESC,vector_score DESC,chunk_id
+    </select>
+    <select id="retrievalStepId" resultType="string">
+        SELECT step.step_id FROM ma_step step JOIN ma_run r ON r.run_id = step.run_id
+        JOIN ma_request req ON req.request_id = r.request_id AND req.account_id = r.account_id
+        WHERE r.account_id = #{accountId} AND r.run_id = #{runId} AND r.status = 'RUNNING'
+            AND r.cancel_requested_at IS NULL AND req.current_run_id = r.run_id
+            AND step.role = 'RETRIEVE' ORDER BY step.sequence DESC LIMIT 1
+    </select>
+    <select id="authorized" resultType="int">
+        SELECT COUNT(*) FROM ma_anchor a JOIN ma_source s ON s.source_id = a.source_id
+        JOIN ma_source_version v ON v.source_id = a.source_id AND v.version = a.version
+        WHERE s.account_id = #{accountId} AND s.status = 'ACTIVE' AND s.current_version = #{version}
+            AND s.type IN ('QUESTION','SAVED_ANSWER','NOTE','TUTOR_REPLY') AND v.status = 'READY'
+            AND a.source_id = #{sourceId} AND a.version = #{version} AND a.anchor_id = #{anchorId}
+    </select>
+</mapper>
