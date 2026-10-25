@@ -2,7 +2,9 @@ package com.betterlearning.server.agent;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import com.betterlearning.server.enums.ErrorCode;
@@ -16,6 +18,7 @@ import com.betterlearning.server.multiagent.MultiAgentModels;
 import com.betterlearning.server.multiagent.SnapshotPort;
 import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.multiagent.TutorLedger;
+import com.betterlearning.server.multiagent.TutorInputBudget;
 
 import jakarta.servlet.http.Part;
 
@@ -24,6 +27,7 @@ import org.springframework.stereotype.Service;
 /** V2 HTTP 业务适配；文件完整原子落盘之后才调用账本绑定事务。 */
 @Service
 public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPort {
+    private static final String IMAGE_BUDGET_MESSAGE = "完整作答超过当前辅导图片32MiB预算，原作答已保留";
     private final TutorLedger ledger;
     private final SourceStore sources;
     private final LearningDao questions;
@@ -104,6 +108,9 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         QuestionDO question = questions.findById(accountId, Long.parseLong(questionId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         AnswerManifestValidator.validate(manifest, question.getBodyMarkdown());
+        if (request.snapshotFileRef() == null) {
+            preflightImageBudget(manifest, parts);
+        }
         AnswerFileStore.Candidate candidate = files.save(manifest, new AnswerModels.QuestionSnapshot(
                 questionId, question.getSubject(), question.getBodyMarkdown()), parts);
         try {
@@ -149,7 +156,8 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         if (previous.snapshotFileRef() == null) {
             throw conflict();
         }
-        verifyFile(previous.snapshotFileRef());
+        // 已成功重试的同键重放仍由账本核对指纹；只有新建 run 才施加新输入预算。
+        verifyFile(previous.snapshotFileRef(), Objects.equals(previous.currentRunId(), input.targetRunId()));
         ledger.retry(accountId, questionId, requestId, idempotencyKey, input.targetRunId());
         return detail(accountId, questionId, requestId);
     }
@@ -197,17 +205,62 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         throw invalid();
     }
 
-    private void verifyFile(String fileRef) {
-        AnswerModels.StoredManifest stored = files.manifest(fileRef);
-        AnswerManifestValidator.validate(stored.source(), stored.questionSnapshot().bodyMarkdown());
-        List<AnswerModels.Block> blocks = new ArrayList<>(stored.source().blocks());
-        blocks.addAll(stored.source().document().questionLayout().rasterBlocks());
-        for (AnswerModels.Block block : blocks) {
-            byte[] bytes = files.block(fileRef, block.partName());
-            if (!block.sha256().equals(AnswerManifestValidator.sha256(bytes))) {
-                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+    private static void preflightImageBudget(AnswerModels.SaveManifest manifest, Collection<Part> parts) {
+        if (parts == null) {
+            throw invalid();
+        }
+        Map<String, Part> byName = new HashMap<>();
+        for (Part part : parts) {
+            if (part == null || byName.putIfAbsent(part.getName(), part) != null) {
+                throw invalid();
             }
         }
+        long total = 0;
+        for (AnswerModels.Block block : manifest.blocks()) {
+            Part part = byName.get(block.partName());
+            if (part == null) {
+                throw invalid();
+            }
+            // Servlet Part 大小为上传 PNG 的实际字节；题面恢复栅格不传模型，不计入。
+            total = addImageBytes(total, part.getSize());
+        }
+    }
+
+    private void verifyFile(String fileRef) {
+        verifyFile(fileRef, true);
+    }
+
+    private void verifyFile(String fileRef, boolean enforceBudget) {
+        AnswerModels.StoredManifest stored = files.manifest(fileRef);
+        AnswerManifestValidator.validate(stored.source(), stored.questionSnapshot().bodyMarkdown());
+        long total = 0;
+        for (AnswerModels.Block block : stored.source().blocks()) {
+            int bytes = verifyBlock(fileRef, block);
+            if (enforceBudget) {
+                total = addImageBytes(total, bytes);
+            }
+        }
+        for (AnswerModels.Block block : stored.source().document().questionLayout().rasterBlocks()) {
+            verifyBlock(fileRef, block);
+        }
+    }
+
+    private int verifyBlock(String fileRef, AnswerModels.Block block) {
+        byte[] bytes = files.block(fileRef, block.partName());
+        if (!block.sha256().equals(AnswerManifestValidator.sha256(bytes))) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
+        return bytes.length;
+    }
+
+    private static long addImageBytes(long total, long bytes) {
+        if (bytes < 0) {
+            throw invalid();
+        }
+        if (bytes > TutorInputBudget.MAX_IMAGE_BYTES - total) {
+            throw new BusinessException(ErrorCode.UPLOAD_TOO_LARGE, IMAGE_BUDGET_MESSAGE);
+        }
+        return total + bytes;
     }
 
     private static MultiAgentModels.SnapshotInput snapshot(TutorRequestModels.SnapshotInput value) {
