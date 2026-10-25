@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.service.RolloutGate;
+import com.betterlearning.server.multiagent.MultiAgentModels;
 import com.betterlearning.server.multiagent.TutorLedger;
 import com.betterlearning.server.multiagent.SnapshotPort;
 import com.betterlearning.server.support.IntegrationContainers;
@@ -178,11 +179,14 @@ class TutorRequestHttpIntegrationTests {
                 .isEqualTo(accepted.get("request"));
         http.assertErrorEnvelope(upload(root, requestId, alice,
                 packet(AnswerTestData.manifest(requestId, null), true, true)), 409, "A0454");
-        assertThat(snapshots.load(accountId("v2_alice"), requestId).images().get(0).bytes())
-                .isEqualTo(AnswerTestData.png(32));
-        assertThat(snapshots.load(accountId("v2_alice"), requestId).strokeIds()).containsExactly("s-1");
-        assertThat(snapshots.load(accountId("v2_alice"), requestId).hasHandwriting()).isTrue();
-        assertThat(snapshots.load(accountId("v2_alice"), requestId).ocrText()).isNull();
+        MultiAgentModels.Snapshot snapshot = snapshots.load(accountId("v2_alice"), requestId);
+        assertThat(snapshot.images().get(0).bytes()).isEqualTo(AnswerTestData.png(32));
+        assertThat(snapshot.strokeIds()).containsExactly("s-1");
+        assertThat(snapshot.hasHandwriting()).isTrue();
+        assertThat(snapshot.ocrText()).isNull();
+        assertThat(snapshot.strokeLocationsStatus()).isEqualTo(MultiAgentModels.StrokeLocationsStatus.COMPLETE);
+        assertThat(snapshot.strokeLocations()).containsExactly(new MultiAgentModels.StrokeLocation(
+                "s-1", new MultiAgentModels.WorldBounds(-3, -3, 5, 5), List.of(0)));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_run", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_source_version WHERE file_ref = ?",
                 Integer.class, fileRef)).isEqualTo(1);

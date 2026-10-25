@@ -181,9 +181,10 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         sources.get(accountId, execution.snapshotSourceId(), execution.snapshotVersion());
         List<String> strokeIds = stored.source().document().strokes().stream()
                 .map(AnswerModels.Stroke::strokeId).toList();
+        StrokeLocationMapper.Mapping locations = StrokeLocationMapper.map(stored.source());
         return new MultiAgentModels.Snapshot(request.snapshotFileRef(),
                 stored.questionSnapshot().bodyMarkdown(), List.copyOf(images), strokeIds,
-                !strokeIds.isEmpty(), null, null);
+                !strokeIds.isEmpty(), null, null, locations.status(), locations.locations());
     }
 
     private static MultiAgentModels.Mode mode(String value) {
