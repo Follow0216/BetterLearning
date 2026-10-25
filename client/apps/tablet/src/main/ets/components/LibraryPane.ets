@@ -31,9 +31,11 @@ import {
   TABLET_RADIUS_SMALL
 } from '../theme/TabletTheme';
 import { AnswerWorkspace } from './AnswerWorkspace';
+import { TabletBackController } from './TabletBackController';
 import { CanvasWorkspaceState, TabletCanvasController } from '../features/canvas/TabletCanvasWorkspace';
 
-import { SharedTabletTutorApi, TabletTutorBridge, TabletTutorPhase, TabletTutorState } from '../features/tutor/TabletTutorBridge';
+import { TabletTutorPhase, TabletTutorState } from '../features/tutor/TabletTutorBridge';
+import { SharedTabletV2TutorApi, TabletV2TutorBridge } from '../features/tutor/TabletV2TutorBridge';
 
 const PAGE_SIZE: number = 20;
 const ROOT_COLLECTION_KEY: string = '';
@@ -61,6 +63,12 @@ class CollectionNode {
 @Component
 export struct LibraryPane {
   @Prop @Watch('sync_tutor') active: boolean = false;
+  backController: TabletBackController = new TabletBackController();
+  private backHandler: () => boolean = () => {
+    if (!this.active || this.open_question_id.length === 0) { return false; }
+    this.request_close_detail();
+    return true;
+  };
   @State tutor_phase: TabletTutorPhase = TabletTutorPhase.STOPPED;
   on_session_expired: () => void = () => {
   };
@@ -102,7 +110,7 @@ export struct LibraryPane {
   private list_seq: number = 0;
   private detail_seq: number = 0;
   private alive: boolean = false;
-  private tutor_bridge: TabletTutorBridge | null = null;
+  private tutor_bridge: TabletV2TutorBridge | null = null;
   private tutor_revision: number = 0;
   private tutor_question_id: string = '';
   private tutor_token: string = '';
@@ -111,11 +119,13 @@ export struct LibraryPane {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.backController.attach(this.backHandler);
     this.refresh_all();
     this.sync_tutor();
   }
 
   aboutToDisappear(): void {
+    this.backController.detach(this.backHandler);
     this.dispose_tutor();
     this.alive = false;
     this.list_seq += 1;
@@ -647,6 +657,8 @@ export struct LibraryPane {
         // 仅开题/重试/关闭时更换挂载代次；普通保存的请求代次不重建画布。
         ForEach([this.answer_mount_revision], (revision: number) => {
           AnswerWorkspace({
+            backController: this.backController,
+            active: this.active,
             question: this.detail,
             tutor_phase: this.tutor_phase,
             collection_name: this.scope_title(),
@@ -1534,7 +1546,7 @@ export struct LibraryPane {
       const revision: number = ++this.tutor_revision;
       this.tutor_question_id = question_id;
       this.tutor_token = token;
-      this.tutor_bridge = new TabletTutorBridge(this.canvas_controller, new SharedTabletTutorApi(),
+      this.tutor_bridge = new TabletV2TutorBridge(this.canvas_controller, new SharedTabletV2TutorApi(),
         (state: TabletTutorState) => {
           if (this.tutor_context_current(revision, question_id) && state.questionId === question_id &&
             authSession.read_access_token() === token) {
@@ -1573,7 +1585,7 @@ export struct LibraryPane {
     this.tutor_revision += 1;
     this.tutor_started = false;
     this.tutor_phase = TabletTutorPhase.STOPPED;
-    const bridge: TabletTutorBridge | null = this.tutor_bridge;
+    const bridge: TabletV2TutorBridge | null = this.tutor_bridge;
     this.tutor_bridge = null;
     this.tutor_question_id = '';
     this.tutor_token = '';

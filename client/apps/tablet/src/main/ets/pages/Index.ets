@@ -1,5 +1,6 @@
 import { AuthScreen, UserProfile, authSession } from 'common';
 import { TabletShell } from '../components/TabletShell';
+import { TabletBackController } from '../components/TabletBackController';
 
 /**
  * 平板入口：未登录时展示共享登录页，登录成功后才能看到题库。
@@ -13,10 +14,12 @@ struct Index {
   @State signed_in: boolean = false;
   @State display_name: string = '';
   @State page_visible: boolean = false;
+  private backController: TabletBackController = new TabletBackController();
 
   onPageShow(): void { this.page_visible = true; }
   onPageHide(): void { this.page_visible = false; }
   aboutToDisappear(): void { this.page_visible = false; }
+  onBackPress(): boolean { return this.backController.handle(); }
 
   build() {
     Column() {
@@ -24,6 +27,7 @@ struct Index {
         TabletShell({
           display_name: this.display_name,
           foreground: this.page_visible,
+          backController: this.backController,
           on_signed_out: () => {
             this.handle_signed_out();
           }

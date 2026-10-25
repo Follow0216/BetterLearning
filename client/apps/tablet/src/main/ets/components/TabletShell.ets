@@ -1,5 +1,7 @@
 import { AccountPane } from './AccountPane';
 import { LibraryPane } from './LibraryPane';
+import { LearningNotesView } from 'common';
+import { TabletBackController } from './TabletBackController';
 import {
   TABLET_COLOR_BORDER,
   TABLET_COLOR_CARD,
@@ -13,6 +15,7 @@ import {
 
 enum TabletTab {
   LIBRARY = 'library',
+  NOTES = 'notes',
   ACCOUNT = 'account'
 }
 
@@ -27,16 +30,30 @@ enum TabletTab {
 export struct TabletShell {
   @Prop display_name: string = '';
   @Prop foreground: boolean = false;
+  backController: TabletBackController = new TabletBackController();
   on_signed_out: () => void = () => {
   };
   @State active_tab: TabletTab = TabletTab.LIBRARY;
   @State answer_mode: boolean = false;
+  @State private notesBackToken: number = 0;
+  private backHandler: () => boolean = () => {
+    if (!this.foreground) { return false; }
+    if (this.active_tab === TabletTab.NOTES) {
+      this.notesBackToken += 1;
+      return true;
+    }
+    return false;
+  };
+
+  aboutToAppear(): void { this.backController.attach(this.backHandler); }
+  aboutToDisappear(): void { this.backController.detach(this.backHandler); }
 
   build() {
     Column() {
       this.top_bar()
       Stack() {
         LibraryPane({
+          backController: this.backController,
           active: this.foreground && this.active_tab === TabletTab.LIBRARY,
           on_session_expired: () => {
             this.on_signed_out();
@@ -53,6 +70,14 @@ export struct TabletShell {
           }
         })
           .visibility(this.active_tab === TabletTab.ACCOUNT ? Visibility.Visible : Visibility.None)
+
+        if (this.active_tab === TabletTab.NOTES) {
+          LearningNotesView({
+            backToken: this.notesBackToken,
+            onUnauthorized: () => this.on_signed_out(),
+            onBack: () => { this.active_tab = TabletTab.LIBRARY; }
+          })
+        }
       }
       .layoutWeight(1)
       .width('100%')
@@ -114,6 +139,25 @@ export struct TabletShell {
         .padding({ left: 8, right: 8 })
         .onClick(() => {
           this.active_tab = TabletTab.LIBRARY;
+        })
+
+        Column() {
+          Text('学习笔记')
+            .fontSize(15)
+            .fontWeight(this.active_tab === TabletTab.NOTES ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.active_tab === TabletTab.NOTES ? TABLET_COLOR_PRIMARY : TABLET_COLOR_MUTED)
+          Text('')
+            .width(52)
+            .height(3)
+            .borderRadius(2)
+            .backgroundColor(this.active_tab === TabletTab.NOTES ? TABLET_COLOR_PRIMARY : Color.Transparent)
+            .margin({ top: 6 })
+        }
+        .height(TABLET_TOP_BAR_HEIGHT)
+        .justifyContent(FlexAlign.Center)
+        .padding({ left: 8, right: 8 })
+        .onClick(() => {
+          this.active_tab = TabletTab.NOTES;
         })
 
         Column() {

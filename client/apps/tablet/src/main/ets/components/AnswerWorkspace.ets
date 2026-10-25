@@ -1,5 +1,7 @@
 import { AnswerState, QuestionDetail } from 'common';
 import { TabletTutorPhase } from '../features/tutor/TabletTutorBridge';
+import { TabletV2HistoryView } from '../features/tutor/TabletV2HistoryView';
+import { TabletBackController } from './TabletBackController';
 import {
   CanvasWorkspaceState,
   TabletCanvasController,
@@ -28,7 +30,9 @@ import {
  */
 @Component
 export struct AnswerWorkspace {
-  @Prop question: QuestionDetail | null = null;
+  @Prop @Watch('question_changed') question: QuestionDetail | null = null;
+  @Prop active: boolean = false;
+  backController: TabletBackController = new TabletBackController();
   @Prop collection_name: string = '';
   @Prop question_ordinal: string = '';
   @Prop answer_state: AnswerState = AnswerState.NOT_STARTED;
@@ -43,6 +47,7 @@ export struct AnswerWorkspace {
   @Prop feedback_error: boolean = false;
   @Prop tutor_phase: TabletTutorPhase = TabletTutorPhase.STOPPED;
   @State private header_width_vp: number = 1000;
+  @State private show_history: boolean = false;
   controller: TabletCanvasController = new TabletCanvasController();
   on_state_change: (state: CanvasWorkspaceState) => void = () => {
   };
@@ -56,8 +61,17 @@ export struct AnswerWorkspace {
   };
   on_continue: () => void = () => {
   };
+  private backHandler: () => boolean = () => {
+    if (!this.active) { return false; }
+    if (this.show_history) { this.show_history = false; return true; }
+    this.on_back(); return true;
+  };
+  aboutToAppear(): void { this.backController.attach(this.backHandler); }
+  aboutToDisappear(): void { this.backController.detach(this.backHandler); }
+  private question_changed(): void { this.show_history = false; }
 
   build() {
+    Stack() {
     Column() {
       this.answer_header()
 
@@ -114,6 +128,15 @@ export struct AnswerWorkspace {
     .width('100%')
     .height('100%')
     .backgroundColor(TABLET_COLOR_CARD)
+    if (this.show_history && this.question !== null) {
+      TabletV2HistoryView({ questionId: this.question.questionId,
+        backController: this.backController,
+        active: this.active,
+        onBack: () => { this.show_history = false; },
+        onUnauthorized: () => { this.show_history = false; this.on_session_expired(); } })
+        .width('100%').height('100%')
+    }
+    }.width('100%').height('100%')
   }
 
   @Builder
@@ -185,6 +208,11 @@ export struct AnswerWorkspace {
           .margin({ left: 8, right: 12 })
           .accessibilityText(this.save_hint)
       }
+
+      Button('辅导历史')
+        .fontSize(13)
+        .height(44)
+        .onClick(() => { this.show_history = true; })
 
       if (!this.show_continue) {
         Button(this.pending_action === 'save' ? '保存中…' : '保存')

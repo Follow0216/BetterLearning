@@ -40,6 +40,19 @@ class TutorFreezeContext {
     this.files = files.map((file: CanvasLocalFile): CanvasLocalFile => ({ partName: file.partName, filePath: file.filePath }));
   }
 }
+class V2FreezeContext {
+  cancelled: boolean = false;
+  captured: CanvasEditableDocument | null = null;
+  frozen: FrozenAnswerUpload | null = null;
+  promise: Promise<AuthResult<FrozenAnswerUpload>> | null = null;
+  accountId: string; questionId: string; requestId: string; token: string; generation: number;
+  mountKey: string; directory: string; files: CanvasLocalFile[];
+  constructor(accountId: string, questionId: string, requestId: string,
+    token: string, generation: number, mountKey: string, directory: string, files: CanvasLocalFile[]) {
+    this.accountId = accountId; this.questionId = questionId; this.requestId = requestId; this.token = token;
+    this.generation = generation; this.mountKey = mountKey; this.directory = directory; this.files = files;
+  }
+}
 
 
 /** 固定题面与可编辑笔迹共用一个原生世界画布；页面按钮只经 controller 调用真实结果。 */
@@ -63,6 +76,7 @@ export struct TabletCanvasWorkspace {
   private tutorApi: TutorApi = TutorApi.create_default();
   private freezeHandle: CanvasFreezeHandle | null = null;
   private tutorContext: TutorFreezeContext | null = null;
+  private v2Context: V2FreezeContext | null = null;
   private store: CanvasDraftStore | null = null;
   private accountId: string = '';
   private questionId: string = '';
@@ -80,6 +94,8 @@ export struct TabletCanvasWorkspace {
   private pending: FrozenAnswerUpload | null = null;
   private record: SolutionDetail | null = null;
   private actions: CanvasWorkspaceActions = {
+    freezeV2AtPenUp: (questionId: string, requestId: string) => this.freeze_v2_at_pen_up(questionId,requestId),
+    cancelV2Snapshot: (questionId: string, requestId: string) => this.cancel_v2_snapshot(questionId,requestId),
     freezeAtPenUp: (questionId: string, turnId: string) => this.freeze_at_pen_up(questionId,turnId),
     sendFrozenTutorAnswer: (frozen: FrozenTutorAnswer) => this.send_frozen_tutor_answer(frozen),
     cancelTutorFreeze: (questionId: string, turnId: string) => this.cancel_tutor_freeze(questionId,turnId),
@@ -90,6 +106,7 @@ export struct TabletCanvasWorkspace {
   aboutToAppear(): void { this.alive = true; this.controller.attach(this.actions); this.initialize(false); }
   aboutToDisappear(): void {
     this.cancel_tutor_context();
+    this.cancel_v2_context();
     // 存入已经捕获的账号目录，不在退出时重新查询账号，避免跨账号写入。
     if (this.document !== null && this.store !== null && !this.persist()) { this.emit(); }
     this.alive = false; this.generation++; this.controller.detach(this.actions);
@@ -110,7 +127,7 @@ export struct TabletCanvasWorkspace {
   private emit(): void {
     const result: CanvasWorkspaceState = new CanvasWorkspaceState();
     result.isReady = this.document !== null && !this.loading && !this.rasterizing;
-    result.isBusy = this.busy || this.loading || this.rasterizing || this.tutor_working();
+    result.isBusy = this.busy || this.loading || this.rasterizing || this.tutor_working() || this.v2_working();
     result.hasUnsavedChanges = this.dirty;
     result.hasSavedSolution = this.baseFileRef !== null;
     result.canComplete = result.isReady && !result.isBusy && !this.needsRefresh && !this.completed && this.baseFileRef !== null && !this.dirty;
@@ -147,6 +164,7 @@ export struct TabletCanvasWorkspace {
   }
   private async initialize(refresh: boolean): Promise<void> {
     this.cancel_tutor_context(); this.freezeHandle = null;
+    this.cancel_v2_context();
     const generation: number = ++this.generation;
     this.document = null; this.files = []; this.loading = true; this.rasterizing = false; this.busy = false;
     this.message = ''; this.needsRefresh = false; this.dirty = false; this.localSaved = false; this.canUndo = false;
@@ -275,6 +293,106 @@ export struct TabletCanvasWorkspace {
     const context: TutorFreezeContext | null = this.tutorContext;
     return context !== null && this.tutor_current(context) &&
       (context.phase === 'capturing' || context.phase === 'exporting' || context.phase === 'sending');
+  }
+  private v2_working(): boolean {
+    const context: V2FreezeContext | null = this.v2Context;
+    return context !== null && this.v2_current(context) && context.promise !== null;
+  }
+  private v2_current(context: V2FreezeContext): boolean {
+    const user: UserProfile | null = authSession.read_user();
+    return this.alive && this.v2Context === context && !context.cancelled && this.generation === context.generation &&
+      this.questionId === context.questionId && this.mountKey === context.mountKey && this.accountId === context.accountId &&
+      this.token === context.token && authSession.matches_access_token(context.token) &&
+      user !== null && user.accountId === context.accountId;
+  }
+  private cancel_v2_context(): void {
+    if (this.v2Context !== null) { this.v2Context.cancelled = true; }
+    this.freezeHandle?.cancel();
+  }
+  private cancel_v2_snapshot(questionId: string, requestId: string): void {
+    const context: V2FreezeContext | null = this.v2Context;
+    if (context !== null && context.questionId === questionId && context.requestId === requestId) {
+      this.cancel_v2_context();
+    }
+  }
+  private read_v2_frozen(context: V2FreezeContext): FrozenAnswerUpload | null {
+    const directory: string = context.directory + '/tutor-v2/' + context.requestId + '/uploads/' + context.requestId;
+    const path: string = directory + '/manifest.json';
+    if (!canvas_exists(path)) { return null; }
+    const json: string = canvas_text(canvas_read(path,8388608));
+    const manifest: AnswerManifest = JSON.parse(json) as AnswerManifest;
+    validate_answer_manifest(manifest);
+    if (manifest.saveRequestId !== context.requestId || manifest.baseFileRef !== null ||
+      manifest.document.questionLayout.questionBodySha256 !== this.bodyHash) { throw new Error('V2 冻结包与当前请求不一致'); }
+    const blocks: CanvasImageBlock[] = manifest.blocks.concat(manifest.document.questionLayout.rasterBlocks);
+    const files: CanvasLocalFile[] = blocks.map((block: CanvasImageBlock): CanvasLocalFile =>
+      ({ partName: block.partName, filePath: directory + '/' + block.partName + '.png' }));
+    if (files.some((file: CanvasLocalFile) => !canvas_exists(file.filePath))) { throw new Error('V2 冻结图块缺失'); }
+    return { manifestJson: json, files: files };
+  }
+  private freeze_v2_at_pen_up(questionId: string, requestId: string): Promise<AuthResult<FrozenAnswerUpload>> {
+    const user: UserProfile | null = authSession.read_user();
+    const handle: CanvasFreezeHandle | null = this.freezeHandle;
+    if (!this.alive || questionId !== this.questionId || this.document === null || this.store === null ||
+      this.loading || this.rasterizing || handle === null || user === null || user.accountId !== this.accountId ||
+      !authSession.matches_access_token(this.token) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(requestId)) {
+      return Promise.resolve(AuthResult.failure<FrozenAnswerUpload>(AuthError.local_validation('当前题画布或登录状态尚未就绪', {})));
+    }
+    let context: V2FreezeContext | null = this.v2Context;
+    if (context === null || context.questionId !== questionId || context.requestId !== requestId ||
+      context.accountId !== this.accountId || context.token !== this.token || context.generation !== this.generation ||
+      context.mountKey !== this.mountKey || context.cancelled) {
+      const captured: CanvasEditableDocument | null = context !== null && context.questionId === questionId &&
+        context.requestId === requestId && context.accountId === this.accountId &&
+        context.generation === this.generation && context.mountKey === this.mountKey ? context.captured : null;
+      this.cancel_v2_context();
+      context = new V2FreezeContext(this.accountId,questionId,requestId,this.token,this.generation,this.mountKey,
+        this.store.directory,this.files.map((file: CanvasLocalFile): CanvasLocalFile => ({ partName: file.partName, filePath: file.filePath })));
+      context.captured = captured;
+      this.v2Context = context;
+    }
+    if (context.frozen !== null) { return Promise.resolve(AuthResult.success<FrozenAnswerUpload>(context.frozen)); }
+    if (context.promise !== null) { return context.promise; }
+    try {
+      const existing: FrozenAnswerUpload | null = this.read_v2_frozen(context);
+      if (existing !== null) { context.frozen = existing; return Promise.resolve(AuthResult.success<FrozenAnswerUpload>(existing)); }
+    } catch (error) {
+      return Promise.resolve(AuthResult.failure<FrozenAnswerUpload>(AuthError.local_validation('原冻结包损坏，未覆盖旧包', {})));
+    }
+    // captureAtPenUp 立即登记本笔结束时刻；导出只读取克隆文档，不影响后续落笔。
+    const capture: Promise<AuthResult<CanvasEditableDocument>> = context.captured === null ? handle.captureAtPenUp() :
+      Promise.resolve(AuthResult.success<CanvasEditableDocument>(context.captured));
+    context.promise = this.export_v2(context,capture);
+    this.emit();
+    return context.promise;
+  }
+  private async export_v2(context: V2FreezeContext,
+    capture: Promise<AuthResult<CanvasEditableDocument>>): Promise<AuthResult<FrozenAnswerUpload>> {
+    let slot: CanvasUploadSlot | null = null;
+    try {
+      const captured: AuthResult<CanvasEditableDocument> = await capture;
+      if (!this.v2_current(context)) { throw new Error('题目或账号已切换'); }
+      if (!captured.isSuccess || captured.data === null) { return AuthResult.failure<FrozenAnswerUpload>(
+        captured.error ?? AuthError.local_validation('本笔已取消，请重试', {})); }
+      context.captured = captured.data;
+      while (activeCanvasUpload !== null) {
+        await activeCanvasUpload.done;
+        if (!this.v2_current(context)) { throw new Error('题目或账号已切换'); }
+      }
+      slot = this.begin_upload();
+      if (slot === null) { throw new Error('导出槽位暂不可用'); }
+      const upload: FrozenAnswerUpload = await export_canvas(context.captured,context.files,null,
+        context.directory + '/tutor-v2/' + context.requestId,() => this.v2_current(context),context.requestId);
+      if (!this.v2_current(context)) { throw new Error('题目或账号已切换'); }
+      context.frozen = upload;
+      return AuthResult.success<FrozenAnswerUpload>(upload);
+    } catch (error) {
+      return AuthResult.failure<FrozenAnswerUpload>(AuthError.local_validation((error as Error).message || 'V2 完整冻结失败', {}));
+    } finally {
+      if (slot !== null) { this.finish_upload(slot); }
+      context.promise = null;
+      if (this.v2_current(context)) { this.emit(); }
+    }
   }
   private cancel_tutor_context(): void {
     if (this.tutorContext !== null) { this.tutorContext.cancelled = true; }
@@ -435,7 +553,7 @@ export struct TabletCanvasWorkspace {
   }
   private async save(): Promise<AuthResult<SolutionDetail>> {
     if (this.document === null || this.store === null || this.loading || this.rasterizing || this.busy) { return this.failure('画布尚未准备完成或正在保存'); }
-    if (this.tutor_working()) { return this.failure('正在处理求助，请稍后保存'); }
+    if (this.tutor_working() || this.v2_working()) { return this.failure('正在处理求助，请稍后保存'); }
     if (this.needsRefresh) { return this.failure('云端作答已变化，本机草稿已保留，请刷新当前云端作答'); }
     if (!authSession.has_valid_session() || !authSession.matches_access_token(this.token)) { return this.failure('登录状态已变化，请重新登录'); }
     if (this.completed) { return this.failure('请先继续作答再保存'); }
@@ -472,7 +590,7 @@ export struct TabletCanvasWorkspace {
   private async change_state(next: AnswerState): Promise<AuthResult<SolutionDetail>> {
     if (this.busy || this.baseFileRef === null || this.needsRefresh || this.document === null) { return this.failure('请先完整保存当前作答'); }
     if (!authSession.has_valid_session() || !authSession.matches_access_token(this.token)) { return this.failure('请重新登录'); }
-    if (this.tutor_working()) { return this.failure('正在处理求助，请稍后操作'); }
+    if (this.tutor_working() || this.v2_working()) { return this.failure('正在处理求助，请稍后操作'); }
     const slot: CanvasUploadSlot | null = this.begin_upload();
     if (slot === null) { return this.failure('正在发送其他作答，请稍后操作'); }
     const generation: number = this.generation; this.busy = true; this.message = ''; this.emit();
