@@ -8,7 +8,7 @@ import type { AuthUserProfile } from "@/lib/api/auth-contract";
 
 import { validateLoginForm, validateRegisterForm, type AuthFieldName } from "./auth-validation";
 
-type Stage = "checking" | "form" | "profile" | "retry";
+type Stage = "checking" | "form" | "profile" | "retry" | "opening-home";
 type Mode = "login" | "register";
 
 interface ApiFailure {
@@ -51,7 +51,7 @@ const PRIMARY_BUTTON =
   "inline-flex h-[52px] w-full items-center justify-center rounded-2xl bg-[var(--auth-primary)] text-base font-medium text-white transition-colors hover:bg-[var(--auth-primary-hover)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
 const SECONDARY_BUTTON =
-  "inline-flex h-[52px] w-full items-center justify-center rounded-2xl border border-[var(--auth-border)] bg-white text-base font-medium text-[var(--auth-primary)] transition-colors hover:bg-[var(--auth-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex min-h-11 items-center justify-center rounded-lg border border-[var(--auth-border)] bg-white px-4 text-sm font-medium text-[var(--auth-text)] transition-colors hover:bg-[var(--auth-primary-soft)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
 
 const INPUT_CLASS =
   "h-[52px] w-full rounded-2xl border border-[var(--auth-border)] bg-[var(--auth-bg)] px-4 text-base text-[var(--auth-text)] placeholder:text-[var(--auth-muted)] focus:border-[var(--auth-primary)] focus:ring-2 focus:ring-[var(--auth-primary)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
@@ -319,6 +319,9 @@ export function AuthForm() {
             { key: "auth:login", type: "success", message: "登录成功" },
             toast.captureScope(),
           );
+          setStage("opening-home");
+          // Start a fresh document for the new session, bypassing retained client navigation state.
+          window.location.replace("/");
         }
       } catch {
         if (!isCurrent(sequence)) {
@@ -615,6 +618,8 @@ export function AuthForm() {
           { key: "auth:logout", type: "success", message: "已退出登录" },
           toast.captureScope(),
         );
+        // Start a new document so this session's retained App Router views cannot be reused.
+        window.location.replace("/account");
         return;
       }
       setProfileError("无法确认退出结果，请重试");
@@ -653,7 +658,7 @@ export function AuthForm() {
     setFormNotice("");
   };
 
-  if (stage === "checking") {
+  if (stage === "checking" || stage === "opening-home") {
     return (
       <div
         className="flex min-h-[360px] flex-col items-center justify-center gap-3"
@@ -662,9 +667,11 @@ export function AuthForm() {
       >
         <span
           aria-hidden="true"
-          className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--auth-border)] border-t-[var(--auth-primary)]"
+          className="h-8 w-8 rounded-full border-2 border-[var(--auth-border)] border-t-[var(--auth-primary)] motion-safe:animate-spin"
         />
-        <p className="text-sm text-[var(--auth-muted)]">正在检查登录状态…</p>
+        <p className="text-sm text-[var(--auth-muted)]">
+          {stage === "opening-home" ? "正在打开学习首页…" : "正在检查登录状态…"}
+        </p>
       </div>
     );
   }
@@ -695,8 +702,8 @@ export function AuthForm() {
   if (stage === "profile" && profile !== null) {
     return (
       <div>
-        <h1 className="text-[28px] leading-9 font-semibold text-[var(--auth-text)]">已登录</h1>
-        <p className="mt-2 text-base text-[var(--auth-muted)]">当前账号</p>
+        <h1 className="text-[28px] leading-9 font-semibold text-[var(--auth-text)]">账号资料</h1>
+        <p className="mt-2 text-base text-[var(--auth-muted)]">用于同步题目与作答的学习账号</p>
         <dl className="mt-6 flex flex-col gap-4">
           <div>
             <dt className="text-sm font-medium text-[var(--auth-muted)]">用户名</dt>
@@ -714,10 +721,13 @@ export function AuthForm() {
             {profileError}
           </p>
         ) : null}
-        <div className="mt-8 flex flex-col gap-3">
-          <Link href="/workspace" className={PRIMARY_BUTTON}>
-            进入题库
-          </Link>
+        <Link
+          href="/"
+          className="mt-7 inline-flex min-h-11 items-center text-sm font-medium text-[var(--auth-primary)]"
+        >
+          返回学习首页 →
+        </Link>
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--auth-border)] pt-5">
           <button
             type="button"
             onClick={() => void handleRefresh()}

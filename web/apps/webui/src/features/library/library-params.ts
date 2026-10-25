@@ -106,6 +106,14 @@ export function shouldRestoreLibraryScroll(searchParams: SearchParamsInput): boo
   return firstValue(searchParams.restore) === "1";
 }
 
+export function isHomeQuestionSource(searchParams: SearchParamsInput): boolean {
+  return firstValue(searchParams.from) === "home";
+}
+
+export function buildHomeQuestionHref(questionId: string): string {
+  return `${buildQuestionHref(questionId)}?from=home`;
+}
+
 export function totalPages(total: number, pageSize: number): number {
   if (total <= 0 || pageSize <= 0) {
     return 1;

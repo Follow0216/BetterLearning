@@ -2,34 +2,57 @@ import Link from "next/link";
 
 import { BlIcon } from "@/components/icons/BlIcon";
 
-import { LogoutButton } from "./LogoutButton";
 import styles from "./workspace.module.css";
 
-export function WorkspaceHeader() {
+export function WorkspaceHeader({
+  active = "library",
+  username,
+  showAccount = true,
+}: {
+  active?: "home" | "library" | "account";
+  username?: string;
+  showAccount?: boolean;
+}) {
   return (
     <header className={styles.header}>
+      <a href="#workspace-content" className={styles.skipLink}>
+        跳到主要内容
+      </a>
       <div className={styles.headerInner}>
-        <Link href="/workspace" aria-label="BetterLearning 题库" className={styles.brand}>
+        <Link href="/" aria-label="BetterLearning 学习首页" className={styles.brand} translate="no">
           <span>Better</span>
           <span className="text-[var(--auth-primary)]">Learning</span>
         </Link>
-        <Link href="/workspace" className={styles.headerLink}>
-          题库
-        </Link>
-        <nav
-          aria-label="账号操作"
-          className="ml-auto flex min-w-0 items-center gap-1 text-sm text-[var(--auth-muted)] sm:gap-2"
-        >
+        <nav aria-label="主要导航" className={styles.primaryNav}>
           <Link
             href="/"
+            aria-label="学习首页"
+            aria-current={active === "home" ? "page" : undefined}
+            className={styles.headerLink}
+          >
+            <span className="hidden sm:inline">学习</span>首页
+          </Link>
+          <Link
+            href="/workspace"
+            aria-current={active === "library" ? "page" : undefined}
+            className={styles.headerLink}
+          >
+            题库
+          </Link>
+        </nav>
+        {showAccount ? (
+          <Link
+            href="/account"
             title="账号资料"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 font-medium transition-colors hover:bg-[var(--auth-hover)] hover:text-[var(--auth-text)]"
+            className={styles.accountLink}
+            aria-current={active === "account" ? "page" : undefined}
           >
             <BlIcon name="user" size={17} />
-            <span className="sr-only sm:not-sr-only">账号资料</span>
+            <span className="sr-only max-w-32 truncate sm:not-sr-only">
+              {username ?? "账号资料"}
+            </span>
           </Link>
-          <LogoutButton />
-        </nav>
+        ) : null}
       </div>
     </header>
   );

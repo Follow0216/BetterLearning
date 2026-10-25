@@ -14,6 +14,8 @@ import { getCollections, getQuestionDetail, type LibraryFailure } from "@/lib/ap
 import { AnswerStateBadge } from "./AnswerStateBadge";
 import {
   buildLibraryReturnHref,
+  buildHomeQuestionHref,
+  isHomeQuestionSource,
   buildQuestionHref,
   formatQuestionTime,
   parseLibrarySource,
@@ -29,18 +31,26 @@ import { TutorHistoryPanel } from "./TutorHistoryPanel";
 import styles from "./workspace.module.css";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 
-function DetailFrame({ children, backHref }: { children: ReactNode; backHref: string }) {
+function DetailFrame({
+  children,
+  backHref,
+  backLabel,
+}: {
+  children: ReactNode;
+  backHref: string;
+  backLabel: string;
+}) {
   return (
     <div className={styles.root}>
       <WorkspaceHeader />
-      <main className={styles.detailShell}>
+      <main tabIndex={-1} id="workspace-content" className={styles.detailShell}>
         <Link
           href={backHref}
-          scroll={backHref === "/workspace"}
+          scroll={backHref === "/workspace" || backHref === "/"}
           className="inline-flex min-h-9 items-center gap-1.5 rounded-lg text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-primary)]"
         >
           <BlIcon name="back" size={16} />
-          返回题库
+          {backLabel}
         </Link>
         {children}
       </main>
@@ -52,10 +62,12 @@ function FailurePanel({
   failure,
   retryHref,
   backHref,
+  backLabel,
 }: {
   failure: LibraryFailure;
   retryHref: string;
   backHref: string;
+  backLabel: string;
 }) {
   return (
     <StatePanel
@@ -74,6 +86,7 @@ function FailurePanel({
         failure.kind === "not-found" || failure.kind === "forbidden" ? undefined : retryHref
       }
       backHref={backHref}
+      backLabel={backLabel}
     />
   );
 }
@@ -87,16 +100,21 @@ export async function QuestionDetailView({
 }) {
   const [{ questionId }, resolvedSearch] = await Promise.all([params, searchParams]);
   const source = parseLibrarySource(resolvedSearch);
-  const backHref = buildLibraryReturnHref(source);
-  const retryHref = buildQuestionHref(questionId, source ?? undefined);
+  const fromHome = isHomeQuestionSource(resolvedSearch);
+  const backHref = fromHome ? "/" : buildLibraryReturnHref(source);
+  const backLabel = fromHome ? "返回学习首页" : "返回题库";
+  const retryHref = fromHome
+    ? buildHomeQuestionHref(questionId)
+    : buildQuestionHref(questionId, source ?? undefined);
 
   if (!isValidQuestionId(questionId)) {
     return (
-      <DetailFrame backHref={backHref}>
+      <DetailFrame backHref={backHref} backLabel={backLabel}>
         <StatePanel
           title="题目链接无效"
           message="题目编号格式不正确，无法加载详情。"
           backHref={backHref}
+          backLabel={backLabel}
         />
       </DetailFrame>
     );
@@ -109,8 +127,13 @@ export async function QuestionDetailView({
   if (!result.ok) {
     if (result.failure.kind === "unauthenticated") redirect("/");
     return (
-      <DetailFrame backHref={backHref}>
-        <FailurePanel failure={result.failure} retryHref={retryHref} backHref={backHref} />
+      <DetailFrame backHref={backHref} backLabel={backLabel}>
+        <FailurePanel
+          failure={result.failure}
+          retryHref={retryHref}
+          backHref={backHref}
+          backLabel={backLabel}
+        />
       </DetailFrame>
     );
   }
@@ -125,7 +148,7 @@ export async function QuestionDetailView({
         `题集 #${question.collectionId}`);
 
   return (
-    <DetailFrame backHref={backHref}>
+    <DetailFrame backHref={backHref} backLabel={backLabel}>
       <article className={styles.detailArticle}>
         <header className={styles.detailHeader}>
           <div className="min-w-0">

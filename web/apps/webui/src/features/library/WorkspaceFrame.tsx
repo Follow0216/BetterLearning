@@ -36,7 +36,7 @@ export function WorkspaceFrame({
           inboxCount={inboxCount}
           allCount={allCount}
         />
-        <main id="workspace-content" className={styles.main}>
+        <main tabIndex={-1} id="workspace-content" className={styles.main}>
           {children}
         </main>
       </div>

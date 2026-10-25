@@ -16,7 +16,13 @@ export function WorkspaceSkeleton({ variant = "library" }: { variant?: "library"
     <div className={styles.root}>
       <WorkspaceHeader />
       {variant === "detail" ? (
-        <div className={styles.detailShell} role="status" aria-live="polite">
+        <div
+          tabIndex={-1}
+          id="workspace-content"
+          className={styles.detailShell}
+          role="status"
+          aria-live="polite"
+        >
           <span className="sr-only">正在加载题目详情…</span>
           <div
             className={`${styles.skeletonLine} w-24 motion-safe:animate-pulse`}
@@ -42,7 +48,13 @@ export function WorkspaceSkeleton({ variant = "library" }: { variant?: "library"
               <SkeletonLines />
             </div>
           </div>
-          <div className={styles.main} role="status" aria-live="polite">
+          <div
+            tabIndex={-1}
+            id="workspace-content"
+            className={styles.main}
+            role="status"
+            aria-live="polite"
+          >
             <span className="sr-only">正在加载题库…</span>
             <div className="motion-safe:animate-pulse" aria-hidden="true">
               <div className={`${styles.skeletonLine} mb-3 w-28`} />
