@@ -42,6 +42,8 @@ function allowed_resource(path: string): boolean {
 export struct QuestionMarkdownView {
   @Prop @Watch('content_changed') bodyMarkdown: string = '';
   @Prop @Watch('content_changed') fontSize: number = 16;
+  @Prop @Watch('content_changed') maxLength: number = MAX_QUESTION_MARKDOWN_LENGTH;
+  @Prop @Watch('content_changed') highlightBlock: boolean = false;
   onRenderError: () => void = () => {
   };
   @State private hasRenderError: boolean = false;
@@ -99,7 +101,7 @@ export struct QuestionMarkdownView {
       return;
     }
     const revision: number = ++this.renderRevision;
-    if (this.bodyMarkdown.length > MAX_QUESTION_MARKDOWN_LENGTH) {
+    if (this.bodyMarkdown.length > Math.min(65536,Math.max(1,this.maxLength))) {
       this.report_error(revision);
       return;
     }
@@ -108,7 +110,7 @@ export struct QuestionMarkdownView {
     // JSON 序列化仅作为 JS 字符串值传参，不把题面插入 HTML 或模板字符串。
     const markdownLiteral: string = JSON.stringify(this.bodyMarkdown)
       .split(String.fromCharCode(0x2028)).join('\\u2028').split(String.fromCharCode(0x2029)).join('\\u2029');
-    const script: string = 'window.BetterLearningQuestion.render(' + markdownLiteral + ',' + size.toString() + ')';
+    const script: string = 'window.BetterLearningQuestion.render(' + markdownLiteral + ',' + size.toString() + ',' + (this.highlightBlock ? 'true' : 'false') + ')';
     try {
       const result: string = await this.controller.runJavaScript(script);
       if (revision !== this.renderRevision || !this.pageReady) {

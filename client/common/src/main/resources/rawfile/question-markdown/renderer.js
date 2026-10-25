@@ -82,8 +82,8 @@
   }
 
   window.BetterLearningQuestion = {
-    render: function (markdown, fontSize) {
-      if (!content || typeof markdown !== 'string' || markdown.length > 20000) {
+    render: function (markdown, fontSize, highlightBlock) {
+      if (!content || typeof markdown !== 'string' || markdown.length > 65536) {
         return false;
       }
       try {
@@ -99,6 +99,8 @@
         document.documentElement.style.fontSize =
           (Number.isFinite(fontSize) ? Math.max(12, Math.min(32, fontSize)) : 16) + 'px';
         content.innerHTML = html;
+        content.style.backgroundColor = highlightBlock ? '#FEF9C3' : '';
+        content.style.boxShadow = highlightBlock ? 'inset 3px 0 #CA8A04' : '';
         content.setAttribute('data-formula-errors', String(formulaErrors));
         content.setAttribute('data-render-state', 'ready');
         window.scrollTo(0, 0);
