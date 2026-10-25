@@ -294,9 +294,9 @@ class HandwritingRetrievalIntegrationTests {
         Job original = fixture.job();
         List<Job> absent = List.of(
                 new Job(original.eventId(), owner, UUID.randomUUID().toString(), original.version(),
-                        original.kind(), original.fence(), original.indexRevision()),
+                original.kind(), original.fence(), original.indexRevision()),
                 new Job(original.eventId(), owner, original.sourceId(), 2,
-                        original.kind(), original.fence(), original.indexRevision()));
+                original.kind(), original.fence(), original.indexRevision()));
         for (Job mismatched : absent) {
             assertThat(indexes.beginIndexProtocol(mismatched, StructuredHandwritingIndexer.PROTOCOL)).isFalse();
             assertThat(indexes.confirmIndexStage(mismatched, fixture.pending(), fixture.result())).isFalse();
