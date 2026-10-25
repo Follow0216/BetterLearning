@@ -1,4 +1,4 @@
-import { AuthError, AuthResult, FrozenTutorAnswer, SolutionDetail, TutorTurn } from 'common';
+import { AuthError, AuthResult, FrozenAnswerUpload, FrozenTutorAnswer, SolutionDetail, TutorTurn } from 'common';
 
 /** A-T 仅消费该状态，不复制画布或服务端模型。 */
 export class CanvasWorkspaceState {
@@ -14,6 +14,8 @@ export class CanvasWorkspaceState {
 }
 
 export interface CanvasWorkspaceActions {
+  cancelV2Snapshot?: (questionId: string, requestId: string) => void;
+  freezeV2AtPenUp?: (questionId: string, requestId: string) => Promise<AuthResult<FrozenAnswerUpload>>;
   cancelTutorFreeze?: (questionId: string, turnId: string) => void;
   freezeAtPenUp?: (questionId: string, turnId: string) => Promise<AuthResult<FrozenTutorAnswer>>;
   sendFrozenTutorAnswer?: (frozen: FrozenTutorAnswer) => Promise<AuthResult<TutorTurn>>;
@@ -29,6 +31,12 @@ export class TabletCanvasController {
   attach(actions: CanvasWorkspaceActions): void { this.actions = actions; }
   detach(actions: CanvasWorkspaceActions): void {
     if (this.actions === actions) { this.actions = null; }
+  }
+  cancelV2Snapshot(questionId: string, requestId: string): void { this.actions?.cancelV2Snapshot?.(questionId, requestId); }
+  async freezeV2AtPenUp(questionId: string, requestId: string): Promise<AuthResult<FrozenAnswerUpload>> {
+    const action = this.actions?.freezeV2AtPenUp;
+    return action === undefined ? AuthResult.failure<FrozenAnswerUpload>(
+      AuthError.local_validation('画布冻结尚未就绪', {})) : action(questionId, requestId);
   }
   cancelTutorFreeze(questionId: string, turnId: string): void { this.actions?.cancelTutorFreeze?.(questionId,turnId); }
   async freezeAtPenUp(questionId: string, turnId: string): Promise<AuthResult<FrozenTutorAnswer>> {

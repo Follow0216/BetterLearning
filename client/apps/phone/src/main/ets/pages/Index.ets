@@ -22,6 +22,14 @@ struct Index {
     }
   }
 
+  onPageShow(): void {
+    AppStorage.setOrCreate('phoneForeground', true);
+  }
+
+  onPageHide(): void {
+    AppStorage.setOrCreate('phoneForeground', false);
+  }
+
   onBackPress(): boolean {
     return this.navigation.handleBack();
   }

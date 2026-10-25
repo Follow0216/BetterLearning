@@ -44,6 +44,7 @@ const POLL_INTERVAL_MS: number = 3000;
 
 @Component
 export struct PhoneTutorPage {
+  @Prop readOnly: boolean = false;
   toast?: ToastStore;
   private requestedToastScopes: Map<string, number> = new Map();
   @Prop @Watch('on_question_changed') questionId: string = '';
@@ -185,7 +186,14 @@ export struct PhoneTutorPage {
         .layoutWeight(1).width('100%').scrollBar(BarState.Off).align(Alignment.TopStart)
         .onScrollStop(() => { this.save_scroll_position(); })
       }
-      this.compose_section()
+      if (this.readOnly) {
+        Button('返回新版辅导').width('100%').height(44).fontSize(14)
+          .fontColor(PHONE_COLOR_WHITE).backgroundColor(PHONE_COLOR_PRIMARY)
+          .margin({ left: 16, right: 16, bottom: 12 })
+          .onClick(() => { this.onBack(); })
+      } else {
+        this.compose_section()
+      }
     }
     .width('100%').height('100%').backgroundColor(PHONE_COLOR_BACKGROUND)
   }
@@ -196,7 +204,8 @@ export struct PhoneTutorPage {
       Button({ type: ButtonType.Normal }) { Image($r('app.media.bl_back')).width(22).height(22) }
         .width(44).height(44).backgroundColor(Color.Transparent).accessibilityText('返回')
         .onClick(() => { this.onBack(); })
-      Text('学习助手').fontSize(22).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
+      Text(this.readOnly ? '旧版辅导记录' : '学习助手')
+        .fontSize(22).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
     }
     .width('100%').padding({ top: 8, left: 8, right: 16, bottom: 8 })
   }
@@ -360,7 +369,7 @@ export struct PhoneTutorPage {
         } else if (turn.status === TutorTurnStatus.WAITING_ANSWER) {
           Text('等待平板打开这道题并获取本次作答。发送时的作答会单独保留，之后仍可继续书写。')
             .fontSize(14).fontColor(PHONE_COLOR_MUTED).lineHeight(22).width('100%')
-          if (turn.fileRef === null) {
+          if (turn.fileRef === null && !this.readOnly) {
             Button(this.busyTurnId === turn.turnId ? '正在取消…' : '取消等待')
               .height(44).fontSize(13).fontColor(PHONE_COLOR_DANGER).backgroundColor(PHONE_COLOR_DANGER_SOFT)
               .enabled(this.busyTurnId.length === 0 && !this.submitting)
@@ -378,10 +387,12 @@ export struct PhoneTutorPage {
           Text(describe_tutor_failure(turn)).fontSize(14).fontColor(PHONE_COLOR_DANGER).lineHeight(22).width('100%')
           if (turn.fileRef !== null) {
             Text('重试解答会继续使用本次作答。').fontSize(12).fontColor(PHONE_COLOR_MUTED).width('100%')
-            Button(this.busyTurnId === turn.turnId ? '正在重试…' : '重试解答')
-              .height(44).fontSize(14).fontColor(PHONE_COLOR_WHITE).backgroundColor(PHONE_COLOR_PRIMARY)
-              .enabled(this.busyTurnId.length === 0 && !this.submitting)
-              .onClick(() => { this.retry_turn(turn); })
+            if (!this.readOnly) {
+              Button(this.busyTurnId === turn.turnId ? '正在重试…' : '重试解答')
+                .height(44).fontSize(14).fontColor(PHONE_COLOR_WHITE).backgroundColor(PHONE_COLOR_PRIMARY)
+                .enabled(this.busyTurnId.length === 0 && !this.submitting)
+                .onClick(() => { this.retry_turn(turn); })
+            }
           } else {
             Text('没有收到本次作答，可以重新提问。').fontSize(12).fontColor(PHONE_COLOR_MUTED).width('100%')
           }
@@ -391,7 +402,7 @@ export struct PhoneTutorPage {
             Button('本次作答 ›').height(44).fontSize(13).fontColor(PHONE_COLOR_PRIMARY)
               .backgroundColor(Color.Transparent).layoutWeight(1)
               .onClick(() => { this.onOpenFrozenAnswer(this.questionId, turn.turnId); })
-            if (turn.status === TutorTurnStatus.FAILED) {
+            if (turn.status === TutorTurnStatus.FAILED && !this.readOnly) {
               Button('重新获取作答').height(44).fontSize(13).fontColor(PHONE_COLOR_PRIMARY)
                 .backgroundColor(PHONE_COLOR_SOFT).layoutWeight(1)
                 .enabled(!this.has_active_turn() && !this.submitting && this.busyTurnId.length === 0)

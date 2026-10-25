@@ -1,5 +1,6 @@
 import { AuthScreen, UserProfile, ToastHost, ToastStore, authSession } from 'common';
 import { TabletShell } from '../components/TabletShell';
+import { TabletBackController } from '../components/TabletBackController';
 
 /**
  * 平板入口：未登录时展示共享登录页，登录成功后才能看到题库。
@@ -13,6 +14,7 @@ struct Index {
   @State signed_in: boolean = false;
   @State display_name: string = '';
   @State page_visible: boolean = false;
+  private backController: TabletBackController = new TabletBackController();
   @State toast_top: number = 12;
   private toast: ToastStore = new ToastStore();
   private account_id: string = '';
@@ -21,6 +23,7 @@ struct Index {
   onPageShow(): void { this.page_visible = true; this.sync_toast_scope(this.toast_context); }
   onPageHide(): void { this.page_visible = false; this.toast.clearScope(); }
   aboutToDisappear(): void { this.page_visible = false; this.toast.dispose(); }
+  onBackPress(): boolean { return this.backController.handle(); }
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
@@ -33,6 +36,7 @@ struct Index {
             this.sync_toast_scope(context);
           },
           foreground: this.page_visible,
+          backController: this.backController,
           on_signed_out: () => {
             this.handle_signed_out();
           }

@@ -94,6 +94,20 @@ export { OcrApi } from './src/main/ets/features/tutor/OcrApi';
 export { CANVAS_DEFAULT_PRESSURE, valid_canvas_pen, valid_canvas_pressure, canvas_point_width }
   from './src/main/ets/features/canvas/CanvasPens';
 
+export { LearningV2Api } from './src/main/ets/features/multiagent/LearningV2Api';
+export {
+  V2TutorMode, V2TutorRequestStatus, V2RunStatus, V2SnapshotInput, V2TutorRequest,
+  V2TutorRequestPage, V2PendingRequest, V2Step, V2Attempt, V2Run, V2Evidence,
+  V2SourceType, V2Citation, V2TutorResult, V2TutorRequestDetail, V2Note, V2NotePage,
+  V2WorldBounds, V2MarkdownLocator, V2HandwritingSegment, V2HandwritingLocator, V2CitationResolution
+} from './src/main/ets/features/multiagent/LearningV2Models';
+export { accept_v2_detail, v2_detail_is_active } from './src/main/ets/features/multiagent/LearningV2State';
+export { V2CitationMarker, citation_marker_ids, citation_marker_metadata }
+  from './src/main/ets/features/multiagent/CitationMarkers';
+export { LearningNotesView } from './src/main/ets/features/multiagent/LearningNotesView';
+export { CitationModal } from './src/main/ets/features/multiagent/CitationModal';
+
+export { CitationFocusController, citationFocusController } from './src/main/ets/features/multiagent/CitationFocusController';
 export { ToastType, ToastOptions, ToastItem } from './src/main/ets/components/feedback/ToastModels';
 export { ToastStore } from './src/main/ets/components/feedback/ToastStore';
 export { ToastHost } from './src/main/ets/components/feedback/ToastHost';

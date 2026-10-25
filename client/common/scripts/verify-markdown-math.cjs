@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../src/main/resources/rawfile/question-markdown');
 const attributes = {};
-const content = { innerHTML: '', setAttribute(name, value) { attributes[name] = value; } };
+const content = { innerHTML: '', style: {}, setAttribute(name, value) { attributes[name] = value; } };
 const sandbox = {
   window: {
     markdownit: require(path.join(root, 'vendor/markdown-it.min.js')),

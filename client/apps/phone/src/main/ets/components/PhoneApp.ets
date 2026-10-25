@@ -1,5 +1,7 @@
-import { authSession, AuthScreen, QuestionDetail, ToastHost, ToastStore, UserProfile } from 'common';
+import { authSession, AuthScreen, CitationModal, citationFocusController,
+  LearningNotesView, QuestionDetail, ToastHost, ToastStore, UserProfile } from 'common';
 import { PhoneBackController } from '../model/PhoneHomeState';
+import { phone_v2_clear_all_intents } from '../model/PhoneTutorV2Logic';
 import {
   PHONE_COLOR_BACKGROUND, PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_MUTED,
   PHONE_COLOR_PRIMARY, PHONE_NAV_HEIGHT
@@ -8,6 +10,8 @@ import { AccountPage } from './AccountPage';
 import { ManualEntry } from './ManualEntry';
 import { PhoneAnswerPage } from './PhoneAnswerPage';
 import { PhoneHomePage } from './PhoneHomePage';
+import { PhoneReadingPage } from './PhoneReadingPage';
+import { PhoneTutorPage } from './PhoneTutorPage';
 import { QuestionDetailPage } from './QuestionDetailPage';
 import { QuestionLibrary } from './QuestionLibrary';
 
@@ -36,6 +40,12 @@ export struct PhoneApp {
   @State @Watch('sync_toast_scope') answerTurnId: string = '';
   @State homeQuestionId: string = '';
   @State homeRequestSerial: number = 0;
+  @State @Watch('sync_toast_scope') legacyQuestionId: string = '';
+  @State @Watch('sync_toast_scope') legacyReadingOpen: boolean = false;
+  @State legacyReadingBody: string = '';
+  @State legacyReadingTitle: string = '';
+  @State @Watch('sync_toast_scope') notesOpen: boolean = false;
+  @State notesBackToken: number = 0;
   @State @Watch('sync_toast_scope') entryVisible: boolean = false;
   @State entryNavigationVisible: boolean = false;
   @State homeFullscreen: boolean = false;
@@ -43,6 +53,8 @@ export struct PhoneApp {
   @State libraryRefreshToken: number = 0;
   private entryNavigation: PhoneBackController = new PhoneBackController();
   private homeNavigation: PhoneBackController = new PhoneBackController();
+  private citationController: CustomDialogController | null = null;
+  private citationFocusId: string = '';
 
   aboutToAppear(): void {
     this.navigation.handleBack = (): boolean => this.handle_back();
@@ -56,6 +68,7 @@ export struct PhoneApp {
 
   aboutToDisappear(): void {
     this.navigation.handleBack = (): boolean => false;
+    this.close_citation(false);
     this.toast.dispose();
   }
 
@@ -63,6 +76,37 @@ export struct PhoneApp {
     Stack({ alignContent: Alignment.Top }) {
       if (this.isAuthenticated) {
         this.main_shell()
+        if (this.legacyQuestionId.length > 0) {
+          PhoneTutorPage({
+            toast: this.toast,
+            questionId: this.legacyQuestionId,
+            readOnly: true,
+            onBack: () => { this.legacyQuestionId = ''; },
+            onRead: (title: string, body: string, plainText: boolean) => {
+              this.legacyReadingTitle = title;
+              this.legacyReadingBody = body;
+              this.legacyReadingOpen = true;
+            },
+            onOpenFrozenAnswer: (questionId: string, turnId: string) => {
+              this.answerQuestionId = questionId;
+              this.answerTurnId = turnId;
+            },
+            onUnauthorized: (token: string) => { this.handle_signed_out(token); }
+          })
+        }
+        if (this.legacyReadingOpen) {
+          PhoneReadingPage({
+            title: this.legacyReadingTitle, bodyMarkdown: this.legacyReadingBody,
+            onBack: () => { this.legacyReadingOpen = false; }
+          })
+        }
+        if (this.notesOpen) {
+          LearningNotesView({
+            backToken: this.notesBackToken,
+            onBack: () => { this.notesOpen = false; },
+            onUnauthorized: () => { this.handle_signed_out(authSession.read_access_token() ?? ''); }
+          })
+        }
         if (this.answerQuestionId.length > 0) {
           PhoneAnswerPage({
             toast: this.toast,
@@ -94,7 +138,8 @@ export struct PhoneApp {
           requestedQuestionId: this.homeQuestionId,
           requestSerial: this.homeRequestSerial,
           active: this.activeTab === PhoneTab.HOME && this.detailQuestionId.length === 0 &&
-            !this.entryVisible && this.answerQuestionId.length === 0,
+            !this.entryVisible && this.answerQuestionId.length === 0 &&
+            this.legacyQuestionId.length === 0 && !this.notesOpen,
           navigation: this.homeNavigation,
           onChooseQuestion: () => { this.select_tab(PhoneTab.LIBRARY); },
           onComposingChanged: (value: boolean) => { this.homeComposing = value; },
@@ -103,10 +148,14 @@ export struct PhoneApp {
             this.answerTurnId = turnId;
             this.answerQuestionId = questionId;
           },
+          onOpenLegacy: (questionId: string) => { this.legacyQuestionId = questionId; },
+          onOpenNotes: () => { this.notesOpen = true; },
+          onOpenCitation: (citationId: string) => { this.open_citation(citationId); },
           onUnauthorized: (token: string) => { this.handle_signed_out(token); }
         })
           .visibility(this.activeTab === PhoneTab.HOME && this.detailQuestionId.length === 0 &&
-            !this.entryVisible ? Visibility.Visible : Visibility.None)
+            !this.entryVisible && this.legacyQuestionId.length === 0 && !this.notesOpen ?
+            Visibility.Visible : Visibility.None)
 
         QuestionLibrary({
           toast: this.toast,
@@ -229,7 +278,8 @@ export struct PhoneApp {
   }
 
   private show_bottom_nav(): boolean {
-    if (this.answerQuestionId.length > 0 || this.detailQuestionId.length > 0) { return false; }
+    if (this.answerQuestionId.length > 0 || this.detailQuestionId.length > 0 ||
+      this.legacyQuestionId.length > 0 || this.notesOpen) { return false; }
     if (this.entryVisible) { return this.entryNavigationVisible; }
     // 首页的编辑、阅读状态只约束首页，避免常驻组件的旧标志遮住其他顶层页面。
     return this.activeTab !== PhoneTab.HOME || (!this.homeFullscreen && !this.homeComposing);
@@ -259,7 +309,11 @@ export struct PhoneApp {
 
   private handle_back(): boolean {
     if (!this.isAuthenticated) { return false; }
+    if (this.citationController !== null) { this.close_citation(true); return true; }
     if (this.answerQuestionId.length > 0) { this.close_answer(); return true; }
+    if (this.notesOpen) { this.notesBackToken++; return true; }
+    if (this.legacyReadingOpen) { this.legacyReadingOpen = false; return true; }
+    if (this.legacyQuestionId.length > 0) { this.legacyQuestionId = ''; return true; }
     if (this.entryVisible) { this.entryNavigation.handleBack(); return true; }
     if (this.detailQuestionId.length > 0) { this.detailQuestionId = ''; return true; }
     if (this.activeTab === PhoneTab.HOME && this.homeNavigation.handleBack()) { return true; }
@@ -290,7 +344,11 @@ export struct PhoneApp {
   }
 
   private enter_session(): void {
-    this.accountId = authSession.read_user()?.accountId ?? '';
+    const nextAccountId: string = authSession.read_user()?.accountId ?? '';
+    if (this.accountId.length > 0 && this.accountId !== nextAccountId) {
+      phone_v2_clear_all_intents();
+    }
+    this.accountId = nextAccountId;
     this.sessionOwnerToken = authSession.read_access_token();
     this.isAuthenticated = true;
     this.clear_routes();
@@ -312,6 +370,11 @@ export struct PhoneApp {
   private clear_routes(): void {
     this.activeTab = PhoneTab.HOME;
     this.close_answer();
+    this.legacyQuestionId = '';
+    this.legacyReadingOpen = false;
+    this.legacyReadingTitle = '';
+    this.legacyReadingBody = '';
+    this.notesOpen = false;
     this.detailQuestionId = '';
     this.homeQuestionId = '';
     this.homeRequestSerial = 0;
@@ -328,6 +391,9 @@ export struct PhoneApp {
     let route: string = 'auth';
     if (this.isAuthenticated) {
       if (this.answerQuestionId.length > 0) { route = 'answer:' + this.answerQuestionId + ':' + this.answerTurnId; }
+      else if (this.notesOpen) { route = 'notes'; }
+      else if (this.legacyReadingOpen) { route = 'legacy-reading:' + this.legacyQuestionId; }
+      else if (this.legacyQuestionId.length > 0) { route = 'legacy:' + this.legacyQuestionId; }
       else if (this.entryVisible) { route = 'entry:' + this.entryContext; }
       else if (this.detailQuestionId.length > 0) { route = 'detail:' + this.detailQuestionId; }
       else if (this.activeTab === PhoneTab.HOME) { route = 'home:' + this.homeContext; }
@@ -346,6 +412,8 @@ export struct PhoneApp {
   }
 
   private reset_session(): void {
+    this.close_citation(false);
+    phone_v2_clear_all_intents();
     this.toast.clearScope();
     this.accountId = '';
     this.sessionOwnerToken = null;
@@ -354,5 +422,48 @@ export struct PhoneApp {
     this.clear_routes();
     this.libraryRefreshToken = this.libraryRefreshToken + 1;
     this.sync_toast_scope();
+  }
+
+  private open_citation(citationId: string): void {
+    if (this.citationController !== null) { this.close_citation(false); }
+    this.citationFocusId = 'citation-' + citationId;
+    this.citationController = new CustomDialogController({
+      builder: CitationModal({
+        citationId: citationId,
+        onUnauthorized: () => { this.handle_signed_out(authSession.read_access_token() ?? ''); },
+        onClose: () => { this.close_citation(true); }
+      }),
+      autoCancel: true,
+      customStyle: true,
+      cancel: () => {
+        const focusId: string = this.citationFocusId;
+        this.citationController = null;
+        this.citationFocusId = '';
+        this.restore_citation_focus(focusId);
+      }
+    });
+    this.citationController.open();
+  }
+
+  private close_citation(restoreFocus: boolean): void {
+    const focusId: string = this.citationFocusId;
+    if (this.citationController !== null) {
+      this.citationController.close();
+      this.citationController = null;
+    }
+    this.citationFocusId = '';
+    if (restoreFocus && focusId.length > 0) {
+      this.restore_citation_focus(focusId);
+    } else if (!restoreFocus) {
+      citationFocusController.clear();
+    }
+  }
+
+  private restore_citation_focus(focusId: string): void {
+    if (focusId.length === 0) { return; }
+    const citationId: string = focusId.substring('citation-'.length);
+    if (!citationFocusController.restore(citationId)) {
+      focusControl.requestFocus(focusId);
+    }
   }
 }
