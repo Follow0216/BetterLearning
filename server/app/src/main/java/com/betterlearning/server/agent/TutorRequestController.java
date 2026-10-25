@@ -7,6 +7,7 @@ import com.betterlearning.server.config.OpenApiConfiguration;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.security.AuthenticatedAccount;
 
 import io.swagger.v3.oas.annotations.Parameter;
@@ -35,9 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 @SecurityRequirement(name = OpenApiConfiguration.BEARER_SCHEME)
 public class TutorRequestController {
     private final TutorRequestService service;
+    private final RolloutGate rollout;
 
-    public TutorRequestController(TutorRequestService service) {
+    public TutorRequestController(TutorRequestService service, RolloutGate rollout) {
         this.service = service;
+        this.rollout = rollout;
     }
 
     @PostMapping
@@ -76,6 +79,7 @@ public class TutorRequestController {
             @PathVariable String questionId, @PathVariable String requestId,
             @RequestPart("manifest") AnswerModels.SaveManifest manifest, HttpServletRequest request)
             throws IOException, ServletException {
+        rollout.require("V2");
         return service.upload(account.accountId(), questionId, requestId, manifest, request.getParts());
     }
 
@@ -98,6 +102,7 @@ public class TutorRequestController {
             @PathVariable String questionId, @PathVariable String requestId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody TutorRequestModels.RetryRequest input) {
+        rollout.require("V2");
         return service.retry(account.accountId(), questionId, requestId, idempotencyKey, input);
     }
 }

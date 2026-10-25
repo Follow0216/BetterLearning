@@ -1,6 +1,7 @@
 package com.betterlearning.server.learning;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.multiagent.TutorLedger;
 import com.betterlearning.server.multiagent.SnapshotPort;
 import com.betterlearning.server.support.IntegrationContainers;
@@ -68,6 +70,8 @@ class TutorRequestHttpIntegrationTests {
         IntegrationProperties.registerRateLimits(registry);
         IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
         registry.add("app.files.root", FILE_ROOT::toString);
+        registry.add("app.multi-agent.rollout.mode", () -> "V2");
+        registry.add("app.multi-agent.rollout.transition-from", () -> "LEGACY");
     }
 
     @LocalServerPort
@@ -86,6 +90,9 @@ class TutorRequestHttpIntegrationTests {
     private TutorLedger ledger;
 
     @Autowired
+    private RolloutGate rollout;
+
+    @Autowired
     private SnapshotPort snapshots;
 
     private TestHttpClient http;
@@ -94,6 +101,7 @@ class TutorRequestHttpIntegrationTests {
     void clean() {
         http = new TestHttpClient(port, json);
         TestData.clean(jdbc, redis);
+        rollout.switchTo("V2");
     }
 
     @AfterAll
@@ -103,6 +111,41 @@ class TutorRequestHttpIntegrationTests {
                 Files.deleteIfExists(path);
             }
         }
+    }
+
+    @Test
+    void drainRejectsNewWorkButPreservesHistoryAndCancellationAcrossSwitches() throws Exception {
+        String token = account("rollout_owner");
+        String questionId = question(token);
+        String v2 = root(questionId);
+        String v1 = "/api/v1/learning/questions/" + questionId + "/tutor-turns";
+        String waitingId = UUID.randomUUID().toString();
+        create(v2, token, waitingId, null);
+        assertThatThrownBy(() -> rollout.switchFrom("LEGACY", "DRAIN"))
+                .isInstanceOf(IllegalStateException.class);
+        rollout.switchTo("DRAIN");
+        String drainedId = UUID.randomUUID().toString();
+        http.assertErrorEnvelope(action(v2, token, drainedId,
+                Map.of("requestId", drainedId, "prompt", "提示")), 409, "A0455");
+        http.assertErrorEnvelope(http.post(v1, json.writeValueAsString(Map.of(
+                "requestId", UUID.randomUUID().toString(), "prompt", "旧提示")), token), 409, "A0455");
+        http.assertErrorEnvelope(upload(v2, waitingId, token,
+                packet(AnswerTestData.manifest(waitingId, null), true)), 409, "A0455");
+        assertThat(http.get(v2 + "/" + waitingId, token).statusCode()).isEqualTo(200);
+        assertThat(action(v2 + "/" + waitingId + "/cancel", token, null,
+                "{\"expectedRunId\":null}").statusCode()).isEqualTo(200);
+        rollout.switchTo("LEGACY");
+        String rejectedId = UUID.randomUUID().toString();
+        http.assertErrorEnvelope(action(v2, token, rejectedId,
+                Map.of("requestId", rejectedId, "prompt", "提示")), 409, "A0455");
+        String turnId = (String) http.jsonBody(http.post(v1, json.writeValueAsString(Map.of(
+                "requestId", UUID.randomUUID().toString(), "prompt", "旧提示")), token)).get("turnId");
+        assertThat(http.get(v2 + "/" + waitingId, token).statusCode()).isEqualTo(200);
+        rollout.switchTo("DRAIN");
+        assertThat(http.post(v1 + "/" + turnId + "/cancel", "{}", token).statusCode()).isEqualTo(200);
+        rollout.switchTo("V2");
+        assertThat(http.get(v1 + "/" + turnId, token).statusCode()).isEqualTo(200);
+        http.assertErrorEnvelope(http.post(v1 + "/" + turnId + "/retry", "{}", token), 409, "A0455");
     }
 
     @Test
@@ -188,6 +231,11 @@ class TutorRequestHttpIntegrationTests {
         long revision = ledger.execution(owner, originalRun).revision();
         assertThat(ledger.fail(owner, originalRun, revision, "MODEL_UNAVAILABLE")).isTrue();
         String retryKey = UUID.randomUUID().toString();
+        rollout.switchTo("DRAIN");
+        http.assertErrorEnvelope(action(root + "/" + firstId + "/retry", alice, retryKey,
+                Map.of("targetRunId", originalRun)), 409, "A0455");
+        assertThat(http.get(root + "/" + firstId, alice).statusCode()).isEqualTo(200);
+        rollout.switchTo("V2");
         Map<String, Object> retried = http.jsonBody(action(root + "/" + firstId + "/retry", alice, retryKey,
                 Map.of("targetRunId", originalRun)));
         String nextRun = (String) map(retried.get("request")).get("currentRunId");

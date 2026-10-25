@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.UUID;
@@ -49,6 +51,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class StatefulStepExecutorIntegrationTests {
     private static final String SECRET = Base64.getEncoder().encodeToString(
             "betterlearning-step-executor-test-secret".getBytes(StandardCharsets.UTF_8));
+    private static final Path FILE_ROOT = fileRoot();
 
     @Container
     static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
@@ -62,7 +65,9 @@ class StatefulStepExecutorIntegrationTests {
         IntegrationProperties.registerJwt(registry, SECRET, "step-test", "step-client");
         IntegrationProperties.registerRateLimits(registry);
         IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
-        registry.add("app.files.root", () -> System.getProperty("java.io.tmpdir"));
+        registry.add("app.files.root", FILE_ROOT::toString);
+        registry.add("app.multi-agent.rollout.mode", () -> "V2");
+        registry.add("app.multi-agent.rollout.transition-from", () -> "LEGACY");
     }
 
     @Autowired
@@ -197,6 +202,14 @@ class StatefulStepExecutorIntegrationTests {
 
     private static String id() {
         return UUID.randomUUID().toString();
+    }
+
+    private static Path fileRoot() {
+        try {
+            return Files.createTempDirectory("bl-rollout-step-files-");
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static String digest(String value) {
