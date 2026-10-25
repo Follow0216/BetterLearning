@@ -31,7 +31,10 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.config.AppFilesProperties;
 import com.betterlearning.server.learning.config.LearningMapperConfiguration;
+import com.betterlearning.server.learning.mapper.RetentionMapper;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.learning.retention.DeletionJournal;
+import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
 import com.betterlearning.server.learning.validation.AnswerManifestValidator;
@@ -52,6 +55,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -61,6 +65,7 @@ import org.springframework.mock.web.MockPart;
 import org.springframework.http.MediaType;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -79,6 +84,7 @@ class HandwritingRetrievalIntegrationTests {
             "pgvector/pgvector@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d")
             .asCompatibleSubstituteFor("postgres");
     private static final Path FILE_ROOT = temporaryRoot();
+    private static final Path JOURNAL_ROOT = temporaryRoot();
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(IMAGE)
@@ -98,6 +104,12 @@ class HandwritingRetrievalIntegrationTests {
     @MapperScan("com.betterlearning.server.retrieval.mapper")
     @EnableTransactionManagement
     static class RetrievalTestConfiguration {
+        @Bean(initMethod = "recoverBeforeServing")
+        SourceDeletionService sourceDeletionService(RetentionMapper retention,
+                PlatformTransactionManager transactionManager) throws IOException {
+            return new SourceDeletionService(DeletionJournal.initialize(JOURNAL_ROOT), retention,
+                    new TransactionTemplate(transactionManager));
+        }
     }
 
     @BeforeAll
@@ -114,7 +126,8 @@ class HandwritingRetrievalIntegrationTests {
         String secret = Base64.getEncoder().encodeToString(
                 "handwriting-retrieval-test-signing-key".getBytes(StandardCharsets.UTF_8));
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
-                "testCursorKey", Map.of("app.jwt.secret-base64", secret)));
+                "testCursorKey", Map.of("app.jwt.secret-base64", secret,
+                "app.agent-retention.sweep-enabled", "false")));
         context.registerBean(DataSource.class, () -> dataSource);
         context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
         context.registerBean(JsonMapper.class, () -> json);

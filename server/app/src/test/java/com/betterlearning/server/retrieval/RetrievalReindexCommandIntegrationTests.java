@@ -14,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 
 import javax.sql.DataSource;
 
+import com.betterlearning.server.learning.retention.DeletionJournal;
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +44,8 @@ class RetrievalReindexCommandIntegrationTests {
     private static JdbcTemplate jdbc;
 
     @TempDir
+    Path testRoot;
+
     Path filesRoot;
 
     @BeforeAll
@@ -53,8 +57,10 @@ class RetrievalReindexCommandIntegrationTests {
     }
 
     @BeforeEach
-    void clean() {
+    void clean() throws IOException {
         jdbc.execute("TRUNCATE TABLE app_user RESTART IDENTITY CASCADE");
+        filesRoot = Files.createDirectory(testRoot.resolve("files"));
+        DeletionJournal.initialize(journalRoot());
     }
 
     @Test
@@ -110,7 +116,28 @@ class RetrievalReindexCommandIntegrationTests {
         assertThat(events(privateSource)).isZero();
     }
 
+    @Test
+    void absentOrDamagedDeletionJournalCannotQueueEvent() throws Exception {
+        long account = account();
+        String source = source(account, 1, "ACTIVE");
+        Path absent = testRoot.resolve("absent-journal");
+
+        Result missing = invoke(account, source, 1, 1, absent);
+        assertThat(missing.exitCode()).isEqualTo(4);
+        assertThat(events(source)).isZero();
+
+        Files.writeString(journalRoot().resolve("head.tsv"), "damaged", StandardCharsets.UTF_8);
+        Result damaged = invoke(account, source, 1, 1);
+        assertThat(damaged.exitCode()).isEqualTo(4);
+        assertThat(events(source)).isZero();
+    }
+
     private Result invoke(long account, String source, long version, long revision) throws Exception {
+        return invoke(account, source, version, revision, journalRoot());
+    }
+
+    private Result invoke(long account, String source, long version, long revision,
+            Path deletionJournal) throws Exception {
         String configuredJar = System.getProperty("p4.reindex.jar");
         String configuredScript = System.getProperty("p4.reindex.script");
         assertThat(configuredJar == null).isEqualTo(configuredScript == null);
@@ -138,6 +165,7 @@ class RetrievalReindexCommandIntegrationTests {
         environment.put("SPRING_DATASOURCE_USERNAME", POSTGRES.getUsername());
         environment.put("SPRING_DATASOURCE_PASSWORD", POSTGRES.getPassword());
         environment.put("APP_FILES_ROOT", filesRoot.toString());
+        environment.put("APP_AGENT_RETENTION_DELETE_LOG_ROOT", deletionJournal.toString());
         environment.put("PATH", Path.of(System.getProperty("java.home"), "bin") + ":/usr/bin:/bin");
         if (configuredJar != null) {
             environment.put("SERVER_APP_JAR", configuredJar);
@@ -151,6 +179,10 @@ class RetrievalReindexCommandIntegrationTests {
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         String error = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
         return new Result(process.exitValue(), output, error);
+    }
+
+    private Path journalRoot() {
+        return testRoot.resolve("delete-journal");
     }
 
     private static long account() {

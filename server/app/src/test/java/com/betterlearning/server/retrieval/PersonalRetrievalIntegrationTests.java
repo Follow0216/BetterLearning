@@ -6,8 +6,11 @@ import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
@@ -37,8 +40,11 @@ import com.betterlearning.server.exception.ApiErrorResponseFactory;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.config.LearningMapperConfiguration;
 import com.betterlearning.server.learning.controller.NoteControllerAdvice;
+import com.betterlearning.server.learning.mapper.RetentionMapper;
 import com.betterlearning.server.learning.model.answer.AnswerModels;
 import com.betterlearning.server.learning.model.note.NoteModels;
+import com.betterlearning.server.learning.retention.DeletionJournal;
+import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.NoteService;
 import com.betterlearning.server.learning.service.NoteService.NoteFailure;
 import com.betterlearning.server.learning.service.impl.NoteServiceImpl;
@@ -60,6 +66,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -68,6 +75,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -95,6 +103,7 @@ class PersonalRetrievalIntegrationTests {
     private static RetrievalIndexStore index;
     private static CitationService citations;
     private static AnswerFileStore files;
+    private static Path journalRoot;
     private long owner;
     private long stranger;
 
@@ -102,19 +111,27 @@ class PersonalRetrievalIntegrationTests {
     @MapperScan("com.betterlearning.server.retrieval.mapper")
     @EnableTransactionManagement
     static class RetrievalTestConfiguration {
+        @Bean(initMethod = "recoverBeforeServing")
+        SourceDeletionService sourceDeletionService(RetentionMapper retention,
+                PlatformTransactionManager transactionManager) throws IOException {
+            return new SourceDeletionService(DeletionJournal.initialize(journalRoot), retention,
+                    new TransactionTemplate(transactionManager));
+        }
     }
 
     @BeforeAll
-    static void setupDatabase() {
+    static void setupDatabase() throws IOException {
         DataSource dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
+        journalRoot = Files.createTempDirectory("bl-personal-retrieval-journal-");
         context = new AnnotationConfigApplicationContext();
         String jwtSecret = Base64.getEncoder().encodeToString(
                 "integration-test-signing-key-32-bytes".getBytes(StandardCharsets.UTF_8));
         context.getEnvironment().getPropertySources().addFirst(
-                new MapPropertySource("testCursorKey", Map.of("app.jwt.secret-base64", jwtSecret)));
+                new MapPropertySource("testCursorKey", Map.of("app.jwt.secret-base64", jwtSecret,
+                "app.agent-retention.sweep-enabled", "false")));
         context.registerBean(DataSource.class, () -> dataSource);
         context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
         context.registerBean(JsonMapper.class, () -> JsonMapper.builder().build());

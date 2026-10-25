@@ -33,6 +33,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("integration")
 class SourceRetentionIntegrationTests {
     private static final Path ROOT = temporaryRoot();
+    private static final Path JOURNAL_ROOT = temporaryRoot();
     @Container
     static final PostgreSQLContainer POSTGRES = IntegrationContainers.postgres();
     @Container
@@ -44,6 +45,9 @@ class SourceRetentionIntegrationTests {
                 "retention-integration-only-secret-value-32".getBytes(StandardCharsets.UTF_8)), "retention", "retention");
         IntegrationProperties.registerCorsOrigins(registry, "http://localhost:3000");
         registry.add("app.files.root", ROOT::toString);
+        registry.add("app.agent-retention.delete-log-root", JOURNAL_ROOT::toString);
+        registry.add("app.agent-retention.initialize-journal", () -> "true");
+        registry.add("app.agent-retention.sweep-enabled", () -> "false");
     }
     @Autowired
     private JdbcTemplate jdbc;
@@ -56,15 +60,6 @@ class SourceRetentionIntegrationTests {
 
     @BeforeEach
     void clean() {
-        // Compatibility fixtures contain exactly the P4 columns touched by P6, not a fake RAG acceptance.
-        jdbc.execute("CREATE TABLE IF NOT EXISTS ma_note_version(source_id varchar(36),version bigint,title text)");
-        jdbc.execute("CREATE TABLE IF NOT EXISTS ma_retrieval_chunk(source_id varchar(36),version bigint,text text)");
-        jdbc.execute("CREATE TABLE IF NOT EXISTS ma_index_job(event_id varchar(36),status varchar(16),fence bigint,"
-                + "lease_until timestamptz,completed_at timestamptz)");
-        jdbc.execute("DROP TRIGGER IF EXISTS ma_chunk_retained ON ma_retrieval_chunk");
-        jdbc.execute("CREATE TRIGGER ma_chunk_retained BEFORE INSERT ON ma_retrieval_chunk "
-                + "FOR EACH ROW EXECUTE FUNCTION ma_retained_version_guard()");
-        jdbc.execute("TRUNCATE ma_note_version,ma_retrieval_chunk,ma_index_job");
         TestData.clean(jdbc, redis);
     }
 
@@ -75,16 +70,20 @@ class SourceRetentionIntegrationTests {
         String source = first.source().sourceId();
         String run = linkedRun(account, first, "SUCCEEDED");
         note(account, "note", "private second", 1L);
-        jdbc.update("INSERT INTO ma_note_version VALUES (?,1,'old private title'),(?,2,'new private title')", source, source);
-        jdbc.update("INSERT INTO ma_retrieval_chunk VALUES (?,1,'private chunk')", source);
-        jdbc.update("INSERT INTO ma_index_job SELECT event_id,'PROCESSING',1,CURRENT_TIMESTAMP,NULL "
-                + "FROM ma_outbox WHERE aggregate_id=?", source);
+        jdbc.update("INSERT INTO ma_note_version(source_id,version,title) "
+                + "VALUES (?,1,'old private title'),(?,2,'new private title')", source, source);
+        String anchor = jdbc.queryForObject("SELECT anchor_id FROM ma_anchor WHERE source_id=? AND version=1",
+                String.class, source);
+        insertChunk(account, source, anchor, "private chunk", "retention-fixture");
+        jdbc.update("INSERT INTO ma_index_job(event_id,status,fence,lease_until) "
+                + "SELECT event_id,'PROCESSING',1,CURRENT_TIMESTAMP FROM ma_outbox "
+                + "WHERE aggregate_type='SOURCE' AND aggregate_id=?", source);
         sources.withdraw(account, source);
         assertThatThrownBy(() -> sources.get(account, source, 1)).isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> sources.get(account, source, 2)).isInstanceOf(RuntimeException.class);
         assertThat(sources.markIndex(account, source, 2, "READY")).isFalse();
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO ma_retrieval_chunk VALUES (?,1,'late private copy')", source))
-                .isInstanceOf(RuntimeException.class);
+        assertThatThrownBy(() -> insertChunk(account, source, anchor, "late private copy", "retention-fixture-late"))
+                .isInstanceOf(RuntimeException.class).hasStackTraceContaining("source version is unavailable");
         retention.sweep(100);
         assertThat(jdbc.queryForObject("SELECT title FROM ma_source WHERE source_id=?", String.class, source)).isEmpty();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_source_version WHERE source_id=? "
@@ -171,6 +170,12 @@ class SourceRetentionIntegrationTests {
     private SourceContent note(long account, String origin, String text, long expected) {
         return sources.publish(account, new PublishSource(SourceType.NOTE, origin, "private title", text,
                 AnswerManifestValidator.sha256(text.getBytes(StandardCharsets.UTF_8)), null, null, expected, id()));
+    }
+    private void insertChunk(long account, String source, String anchor, String text, String model) {
+        jdbc.update("INSERT INTO ma_retrieval_chunk(chunk_id,account_id,source_id,version,anchor_id,"
+                + "question_id,text,method_tags,terms,embedding,embedding_model,dimensions,index_revision) "
+                + "VALUES (?,?,?,?,?,NULL,?,CAST('[]' AS jsonb),CAST('[]' AS jsonb),"
+                + "CAST('[1,0]' AS vector),?,2,1)", id(), account, source, 1, anchor, text, model);
     }
     private long account() {
         return jdbc.queryForObject("INSERT INTO app_user(username,password_hash) VALUES (?, 'hash') RETURNING account_id", Long.class, "retention_" + id().substring(0, 16));

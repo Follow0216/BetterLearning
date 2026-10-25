@@ -7,6 +7,8 @@ import static org.mockito.Mockito.mock;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
@@ -31,6 +33,9 @@ import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.QueryEmbeddingKey;
 import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.learning.config.LearningMapperConfiguration;
+import com.betterlearning.server.learning.mapper.RetentionMapper;
+import com.betterlearning.server.learning.retention.DeletionJournal;
+import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
 import com.betterlearning.server.learning.validation.SourceAnchorValidator;
@@ -47,6 +52,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -54,6 +60,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -78,6 +85,7 @@ class QueryEmbeddingRecoveryIntegrationTests {
     private static AnnotationConfigApplicationContext context;
     private static JdbcTemplate jdbc;
     private static RetrievalIndexStore index;
+    private static Path journalRoot;
     private HttpServer stub;
     private AtomicInteger requests;
     private CountDownLatch received;
@@ -90,19 +98,27 @@ class QueryEmbeddingRecoveryIntegrationTests {
     @MapperScan("com.betterlearning.server.retrieval.mapper")
     @EnableTransactionManagement
     static class MapperConfiguration {
+        @Bean(initMethod = "recoverBeforeServing")
+        SourceDeletionService sourceDeletionService(RetentionMapper retention,
+                PlatformTransactionManager transactionManager) throws IOException {
+            return new SourceDeletionService(DeletionJournal.initialize(journalRoot), retention,
+                    new TransactionTemplate(transactionManager));
+        }
     }
 
     @BeforeAll
-    static void database() {
+    static void database() throws IOException {
         DataSource dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
         jdbc = new JdbcTemplate(dataSource);
+        journalRoot = Files.createTempDirectory("bl-query-deletion-journal-");
         context = new AnnotationConfigApplicationContext();
         String secret = Base64.getEncoder().encodeToString(
                 "integration-test-signing-key-32-bytes".getBytes(StandardCharsets.UTF_8));
         context.getEnvironment().getPropertySources().addFirst(
-                new MapPropertySource("testCursorKey", Map.of("app.jwt.secret-base64", secret)));
+                new MapPropertySource("testCursorKey", Map.of("app.jwt.secret-base64", secret,
+                "app.agent-retention.sweep-enabled", "false")));
         context.registerBean(DataSource.class, () -> dataSource);
         context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
         context.registerBean(JsonMapper.class, () -> JsonMapper.builder().build());

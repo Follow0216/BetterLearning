@@ -19,6 +19,7 @@ import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.learning.service.impl.FileRetentionService;
+import com.betterlearning.server.learning.service.impl.NoteServiceImpl;
 import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.support.IntegrationContainers;
 
@@ -32,6 +33,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.testcontainers.junit.jupiter.Container;
@@ -98,7 +100,9 @@ class RetentionWorkerContextIntegrationTests {
             "com.betterlearning.server.learning.service.impl",
             "com.betterlearning.server.learning.retention",
             "com.betterlearning.server.learning.dao",
-            "com.betterlearning.server.learning.validation"})
+            "com.betterlearning.server.learning.validation"},
+            excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE,
+            classes = NoteServiceImpl.class))
     static class WorkerContext {
     }
 }

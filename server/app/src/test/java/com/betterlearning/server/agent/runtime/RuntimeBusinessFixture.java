@@ -9,6 +9,10 @@ import com.betterlearning.server.multiagent.MultiAgentModels.Status;
 import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.multiagent.StepExecutorFactory;
 import com.betterlearning.server.multiagent.TutorLedger;
+import com.betterlearning.server.learning.retention.DeletionJournal;
+import com.betterlearning.server.learning.retention.SourceDeletionService;
+import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
+import com.betterlearning.server.retrieval.MybatisRetrievalIndexStore;
 import com.betterlearning.worker.AgentWorkerApplication;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -34,11 +38,13 @@ import org.testcontainers.utility.DockerImageName;
  * 不复用 Temporal 历史库，也不连接既有业务数据库。
  */
 public final class RuntimeBusinessFixture implements AutoCloseable {
-    private static final String POSTGRES_IMAGE = "postgres:18.3@sha256:"
-            + "7e32e9833a6fb1c92c32552794cb6ed569d51b445a54907d35fc112ef39684db";
+    private static final String POSTGRES_IMAGE = "pgvector/pgvector@sha256:"
+            + "42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d";
 
     private final PostgreSQLContainer postgres;
+    private final Path fixtureRoot;
     private final Path filesRoot;
+    private final Path journalRoot;
     private final ConfigurableApplicationContext context;
     private final JdbcTemplate jdbc;
     private final TutorLedger ledger;
@@ -50,7 +56,10 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
         Path directory = null;
         ConfigurableApplicationContext application = null;
         try {
-            directory = Files.createTempDirectory("bl-p2-business-files-").toAbsolutePath();
+            directory = Files.createTempDirectory("bl-p2-business-").toAbsolutePath();
+            Path files = Files.createDirectory(directory.resolve("files"));
+            Path journal = directory.resolve("journal");
+            DeletionJournal.initialize(journal);
             String password = UUID.randomUUID().toString().replace("-", "");
             database = new PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE)
                     .asCompatibleSubstituteFor("postgres"))
@@ -58,26 +67,39 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
                     .withUsername("p2_test")
                     .withPassword(password);
             database.start();
-            Map<String, Object> properties = Map.of(
-                    "spring.datasource.url", database.getJdbcUrl(),
-                    "spring.datasource.username", database.getUsername(),
-                    "spring.datasource.password", password,
-                    "app.files.root", directory.toString(),
-                    "app.agent.workflow.enabled", "false",
-                    "app.agent.workflow.worker-enabled", "false",
-                    "app.agent.workflow.dispatcher-enabled", "false",
-                    "spring.main.banner-mode", "off");
+            Map<String, Object> properties = Map.ofEntries(
+                    Map.entry("spring.datasource.url", database.getJdbcUrl()),
+                    Map.entry("spring.datasource.username", database.getUsername()),
+                    Map.entry("spring.datasource.password", password),
+                    Map.entry("app.files.root", files.toString()),
+                    Map.entry("app.agent-retention.delete-log-root", journal.toString()),
+                    Map.entry("app.agent-retention.initialize-journal", "false"),
+                    Map.entry("app.agent-retention.sweep-enabled", "false"),
+                    Map.entry("app.multi-agent.rollout.mode", "V2"),
+                    Map.entry("app.multi-agent.rollout.transition-from", "LEGACY"),
+                    Map.entry("app.agent.embedding.enabled", "false"),
+                    Map.entry("app.agent.workflow.enabled", "false"),
+                    Map.entry("app.agent.workflow.worker-enabled", "false"),
+                    Map.entry("app.agent.workflow.dispatcher-enabled", "false"),
+                    Map.entry("spring.main.banner-mode", "off"));
             MapPropertySource fixtureProperties = new MapPropertySource("p2-fixture", properties);
             ApplicationContextInitializer<ConfigurableApplicationContext> initializer =
                     initialized -> initialized.getEnvironment().getPropertySources().addFirst(fixtureProperties);
             application = new SpringApplicationBuilder(AgentWorkerApplication.class)
                     .web(WebApplicationType.NONE).initializers(initializer).run();
             postgres = database;
-            filesRoot = directory;
+            fixtureRoot = directory;
+            filesRoot = files;
+            journalRoot = journal;
             context = application;
             jdbc = application.getBean(JdbcTemplate.class);
             ledger = application.getBean(TutorLedger.class);
             sources = application.getBean(SourceStore.class);
+            if (sources != application.getBean(SourceStoreImpl.class)) {
+                throw new IllegalStateException("Worker 未使用生产 SourceStoreImpl");
+            }
+            application.getBean(SourceDeletionService.class);
+            application.getBean(MybatisRetrievalIndexStore.class);
             executors = application.getBean(StepExecutorFactory.class);
         } catch (Exception error) {
             cleanup(application, database, directory, error);
@@ -85,7 +107,7 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
         }
     }
 
-    /** 启动独立业务库并加载 P1 Flyway 与 Worker 非 Web 装配。 */
+    /** 启动独立业务库，加载完整 Flyway 迁移与 Worker 非 Web 装配。 */
     public static RuntimeBusinessFixture start() {
         return new RuntimeBusinessFixture();
     }
@@ -112,6 +134,10 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
 
     public Path filesRoot() {
         return filesRoot;
+    }
+
+    public Path journalRoot() {
+        return journalRoot;
     }
 
     /** 仅供受控子 JVM 连接本夹具数据库；调用方不得记录凭据。 */
@@ -200,7 +226,7 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
     @Override
     public void close() {
         RuntimeException cleanupError = new IllegalStateException("隔离业务夹具清理失败");
-        cleanup(context, postgres, filesRoot, cleanupError);
+        cleanup(context, postgres, fixtureRoot, cleanupError);
         if (cleanupError.getSuppressed().length > 0) {
             throw cleanupError;
         }

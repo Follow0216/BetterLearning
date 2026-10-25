@@ -395,6 +395,11 @@ public final class RuntimeFaultScenario implements AutoCloseable {
         environment.put("SPRING_DATASOURCE_USERNAME", business.databaseUsername());
         environment.put("SPRING_DATASOURCE_PASSWORD", business.databasePassword());
         environment.put("APP_FILES_ROOT", business.filesRoot().toString());
+        environment.put("APP_AGENT_RETENTION_DELETE_LOG_ROOT", business.journalRoot().toString());
+        environment.put("APP_AGENT_RETENTION_INITIALIZE_JOURNAL", "false");
+        environment.put("APP_AGENT_RETENTION_SWEEP_ENABLED", "false");
+        environment.put("APP_MULTI_AGENT_ROLLOUT_MODE", "V2");
+        environment.put("APP_AGENT_EMBEDDING_ENABLED", "false");
         environment.put("APP_AGENT_WORKFLOW_TEMPORAL_TARGET", temporal.target());
         environment.put("APP_AGENT_WORKFLOW_NAMESPACE", namespace);
         environment.put("APP_AGENT_WORKFLOW_TASK_QUEUE", taskQueue);
