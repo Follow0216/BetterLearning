@@ -44,6 +44,13 @@ public final class HybridRanker {
             if (explicitMethods) {
                 candidateMethods.addAll(ChineseMathTerms.literalMethodsInText(
                         candidate.text(), queryAliases));
+                if (candidate.type() == SourceType.SAVED_ANSWER) {
+                    Set<String> inferred = new HashSet<>(candidate.inferredMethods());
+                    inferred.retainAll(HandwritingMethodTaxonomy.methods());
+                    inferred.retainAll(queryMethods);
+                    inferred.removeAll(ChineseMathTerms.negatedMethods(candidate.text()));
+                    candidateMethods.addAll(inferred);
+                }
             }
             Set<String> methods = intersection(queryMethods, candidateMethods);
             if (!explicitMethods && methods.isEmpty()
@@ -148,12 +155,19 @@ public final class HybridRanker {
     /** One SQL candidate row; the caller must first enforce current READY version and live authorization. */
     public record Candidate(String sourceId, long version, String anchorId, SourceType type,
             String questionId, String text, Set<String> methodTags, Double vectorScore,
-            Double lexicalScore, String answerState) {
+            Double lexicalScore, String answerState, Set<String> inferredMethods) {
         public Candidate(String sourceId, long version, String anchorId, SourceType type,
                 String questionId, String text, Set<String> methodTags, Double vectorScore,
                 Double lexicalScore) {
             this(sourceId, version, anchorId, type, questionId, text, methodTags,
-                    vectorScore, lexicalScore, null);
+                    vectorScore, lexicalScore, null, Set.of());
+        }
+
+        public Candidate(String sourceId, long version, String anchorId, SourceType type,
+                String questionId, String text, Set<String> methodTags, Double vectorScore,
+                Double lexicalScore, String answerState) {
+            this(sourceId, version, anchorId, type, questionId, text, methodTags,
+                    vectorScore, lexicalScore, answerState, Set.of());
         }
 
         public Candidate {
@@ -171,6 +185,11 @@ public final class HybridRanker {
             }
             text = text == null ? "" : text;
             methodTags = methodTags == null ? Set.of() : Set.copyOf(methodTags);
+            inferredMethods = inferredMethods == null ? Set.of() : Set.copyOf(inferredMethods);
+            if (!inferredMethods.isEmpty() && (type != SourceType.SAVED_ANSWER
+                    || !HandwritingMethodTaxonomy.methods().containsAll(inferredMethods))) {
+                throw new IllegalArgumentException("invalid inferred handwriting methods");
+            }
         }
     }
 

@@ -16,7 +16,7 @@
 
 `method_metadata` 是独立可重建投影，含formatVersion、accountId、sourceId/sourceVersion/indexRevision、anchorId/anchorSha256、crop imageSha256/像素尺寸、model和完整结构化结果。服务端绑定身份、摘要与定位，模型不决定source/anchor身份。原 `anchor.text/hash/locator`、chunk.text、embedding输入及 Evidence.claim 均保持 transcript；模型区域只描述裁图内候选出处，不覆盖既有笔划/世界坐标定位器。
 
-默认 `APP_AGENT_HANDWRITING_METHODS_ENABLED=false`，新索引沿原通用转写路径。启用后新手写索引持久化结构化候选；独立 `APP_AGENT_HANDWRITING_METHODS_RECALL_ENABLED=false` 默认只保存候选。打开召回开关后，SQL在同账号ACTIVE/current READY/revision/model/dim过滤内对合法候选作词法加分，Java再验证同版本词表与实际方法交集；UNKNOWN/UNCERTAIN/REJECTED候选不准入。无合适候选仍可无引用，不放宽纯向量阈值。
+默认 `APP_AGENT_HANDWRITING_METHODS_ENABLED=false`，新索引沿原通用转写路径。启用后仅新保存的 SOURCE_VERSION_CREATED 手写索引持久化结构化候选；旧 SOURCE_REINDEX 不因开关变化切换契约。独立 `APP_AGENT_HANDWRITING_METHODS_RECALL_ENABLED=false` 默认只保存候选。打开召回开关后，SQL在同账号ACTIVE/current READY/revision/model/dim过滤内对合法候选作词法加分，Java再验证同版本词表与实际方法交集；UNKNOWN/UNCERTAIN/REJECTED候选不经新推断通道准入。该状态不删除原文明确方法的既有字面召回路径；错误旧解仍可作非权威反思材料，不能由召回断言其解法正确。无合适候选仍可无引用，不放宽纯向量阈值。
 
 推断方法不混入原文，不作为解法正确或引用主张的证明。P3收到的仍是固定原文及OCR/作答状态提示，TEACH/REVIEW须独立检查原文能否支持主张；不能因召回而强制引用。引用发布、resolve与原图读取的实时授权及锚点摘要合同不变。
 

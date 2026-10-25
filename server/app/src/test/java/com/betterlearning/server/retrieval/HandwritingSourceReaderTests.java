@@ -49,10 +49,10 @@ class HandwritingSourceReaderTests {
 
     @Test
     void cropsCrossBlockNegativeWorldStepAndRetainsOriginalSegments() throws Exception {
-        byte[] left = png(100, 100, Color.RED);
-        byte[] right = png(200, 200, Color.BLUE);
-        AnswerModels.Block first = block(0, "chunk_0000", -10, 0, 10, 10, 100, 100, left);
-        AnswerModels.Block second = block(1, "chunk_0001", 0, 0, 10, 10, 200, 200, right);
+        byte[] left = png(1024, 10, Color.RED);
+        byte[] right = png(10, 10, Color.BLUE);
+        AnswerModels.Block first = block(0, "chunk_0000", -1024, 0, 1024, 10, 1024, 10, left);
+        AnswerModels.Block second = block(1, "chunk_0001", 0, 0, 10, 10, 10, 10, right);
         AnswerFileStore store = store(List.of(stroke("s1", -1, 2, 1, 2)),
                 List.of(first, second), List.of(left, right));
         List<BufferedImage> received = new ArrayList<>();
@@ -77,12 +77,12 @@ class HandwritingSourceReaderTests {
         JsonNode segments = locator.path("handwritingLocator").path("segments");
         assertThat(segments.size()).isEqualTo(2);
         assertThat(segments.get(0).path("questionRaster").booleanValue()).isFalse();
-        assertThat(segments.get(0).path("blockWorldBounds").path("x").doubleValue()).isEqualTo(-10);
+        assertThat(segments.get(0).path("blockWorldBounds").path("x").doubleValue()).isEqualTo(-1024);
         assertThat(segments.get(1).path("blockWorldBounds").path("x").doubleValue()).isZero();
         assertThat(segments.get(0).has("assetUrl")).isFalse();
         assertThat(segments.get(0).path("regionWorldBounds").path("x").doubleValue())
                 .isLessThan(0);
-        assertThat(segments.get(1).path("pixelWidth").intValue()).isEqualTo(200);
+        assertThat(segments.get(1).path("pixelWidth").intValue()).isEqualTo(10);
         assertThat(segments.get(0).path("strokeIds").get(0).textValue()).isEqualTo("s1");
         assertThat(received).hasSize(1);
         BufferedImage crop = received.get(0);
@@ -93,9 +93,38 @@ class HandwritingSourceReaderTests {
     }
 
     @Test
+    void prepareProducesBoundedImmutableCropsWithoutCallingOcr() throws Exception {
+        byte[] image = png(10, 10, Color.BLACK);
+        AnswerModels.Block block = block(0, "chunk_0000", -10, 0, 10, 10, 10, 10, image);
+        AnswerFileStore store = store(List.of(stroke("s1", -8, 2, -7, 2)),
+                List.of(block), List.of(image));
+        OcrModel ocr = mock(OcrModel.class);
+        HandwritingSourceReader reader = new HandwritingSourceReader(store, ocr, json);
+
+        List<HandwritingSourceReader.PreparedStep> prepared = reader.prepare(fileRef);
+        verifyNoInteractions(ocr);
+        assertThat(prepared).hasSize(1);
+        var step = prepared.get(0);
+        assertThat(step.ordinal()).isZero();
+        assertThat(step.image().mediaType()).isEqualTo("image/png");
+        assertThat(step.imageSha256()).isEqualTo(AnswerManifestValidator.sha256(step.image().bytes()));
+        assertThat(decode(step.image()).getWidth()).isEqualTo(step.pixelWidth());
+        assertThat(decode(step.image()).getHeight()).isEqualTo(step.pixelHeight());
+        assertThat(json.readTree(step.locatorJson()).path("handwritingLocator").path("segments").size())
+                .isEqualTo(1);
+        HandwritingSourceReader.AnchorDraft draft = reader.anchorDraft(step, "第一步\r\n配方");
+        assertThat(draft.ordinal()).isZero();
+        assertThat(draft.text()).isEqualTo("第一步\n配方");
+        assertThat(draft.locatorJson()).isEqualTo(step.locatorJson());
+        assertThat(draft.contentSha256()).isEqualTo(AnswerManifestValidator.sha256(
+                draft.text().getBytes(StandardCharsets.UTF_8)));
+        verifyNoInteractions(ocr);
+    }
+
+    @Test
     void groupsSeparatedRowsWithoutCallingOcrForWholeQuestion() throws Exception {
-        byte[] image = png(100, 100, Color.BLACK);
-        AnswerModels.Block block = block(0, "chunk_0000", -10, 0, 10, 10, 100, 100, image);
+        byte[] image = png(10, 10, Color.BLACK);
+        AnswerModels.Block block = block(0, "chunk_0000", -10, 0, 10, 10, 10, 10, image);
         AnswerFileStore store = store(List.of(stroke("first", -8, 2, -7, 2),
                 stroke("second", -8, 7, -7, 7)), List.of(block), List.of(image));
         List<ModelImage> received = new ArrayList<>();
@@ -111,9 +140,9 @@ class HandwritingSourceReaderTests {
     }
 
     @Test
-    void rejectsIncompleteCoverageBeforeOcr() throws Exception {
-        byte[] left = png(100, 100, Color.RED);
-        AnswerModels.Block block = block(0, "chunk_0000", -10, 0, 10, 10, 100, 100, left);
+    void rejectsInvalidManifestBeforeOcr() throws Exception {
+        byte[] left = png(10, 10, Color.RED);
+        AnswerModels.Block block = block(0, "chunk_0000", -10, 0, 10, 10, 10, 10, left);
         AnswerFileStore store = store(List.of(stroke("s1", -1, 2, 1, 2)),
                 List.of(block), List.of(left));
         OcrModel ocr = input -> {
@@ -121,17 +150,18 @@ class HandwritingSourceReaderTests {
         };
         assertThatThrownBy(() -> new HandwritingSourceReader(store, ocr, json).read(fileRef))
                 .isInstanceOfSatisfying(HandwritingReadException.class, error -> {
-                    assertThat(error.reason()).isEqualTo("INCOMPLETE_BLOCK_COVERAGE");
+                    assertThat(error.reason()).isEqualTo("INVALID_MANIFEST");
                     assertThat(error.ocrCalls()).isZero();
                 });
     }
 
     @Test
     void missingOcrAndExcessStepsFailVisibly() throws Exception {
-        byte[] image = png(100, 100, Color.BLACK);
-        AnswerModels.Block block = block(0, "chunk_0000", 0, 0, 10, 100, 100, 100, image);
+        byte[] image = png(10, 100, Color.BLACK);
+        AnswerModels.Block block = block(0, "chunk_0000", 0, 0, 10, 100, 10, 100, image);
         AnswerFileStore oneStep = store(List.of(stroke("s1", 1, 2, 2, 2)),
                 List.of(block), List.of(image));
+        assertThat(new HandwritingSourceReader(oneStep, null, json).prepare(fileRef)).hasSize(1);
         assertThatThrownBy(() -> new HandwritingSourceReader(oneStep, null, json).read(fileRef))
                 .isInstanceOfSatisfying(HandwritingReadException.class, error -> {
                     assertThat(error.reason()).isEqualTo("OCR_UNAVAILABLE");
@@ -213,7 +243,7 @@ class HandwritingSourceReaderTests {
     private AnswerFileStore store(List<AnswerModels.Stroke> strokes,
             List<AnswerModels.Block> blocks, List<byte[]> images) {
         AnswerFileStore store = mock(AnswerFileStore.class);
-        AnswerModels.Document document = new AnswerModels.Document(1, null, strokes);
+        String body = "题";
         // Test inputs use world positions; the saved composite block grid is canvas-local.
         double originX = blocks.stream().mapToDouble(AnswerModels.Block::x).min().orElseThrow();
         double originY = blocks.stream().mapToDouble(AnswerModels.Block::y).min().orElseThrow();
@@ -222,13 +252,33 @@ class HandwritingSourceReaderTests {
         List<AnswerModels.Block> local = blocks.stream().map(block -> new AnswerModels.Block(block.index(),
                 block.partName(), block.x() - originX, block.y() - originY, block.width(), block.height(),
                 block.pixelWidth(), block.pixelHeight(), block.sha256())).toList();
-        AnswerModels.SaveManifest manifest = new AnswerModels.SaveManifest(1, "request", null,
+        byte[] raster = pngUnchecked(10, 10, Color.WHITE);
+        AnswerModels.Block clean = block(0, "question_0000", originX, originY,
+                10, 10, 10, 10, raster);
+        AnswerModels.QuestionLayout layout = new AnswerModels.QuestionLayout(
+                AnswerManifestValidator.sha256(body.getBytes(StandardCharsets.UTF_8)), 10.0, 12.0,
+                "local-markdown-v1", new AnswerModels.Bounds(originX, originY, 10.0, 10.0),
+                List.of(new AnswerModels.LayoutBlock("body-0", originX, originY, 10.0, 10.0)),
+                List.of(clean));
+        AnswerModels.Document document = new AnswerModels.Document(1, layout, strokes);
+        AnswerModels.SaveManifest manifest = new AnswerModels.SaveManifest(1,
+                UUID.randomUUID().toString(), null,
                 new AnswerModels.Canvas(width, height, originX, originY, "logical"), document, local);
-        when(store.manifest(fileRef)).thenReturn(new AnswerModels.StoredManifest(manifest, null));
+        when(store.manifest(fileRef)).thenReturn(new AnswerModels.StoredManifest(manifest,
+                new AnswerModels.QuestionSnapshot("1", "OTHER", body)));
+        when(store.block(fileRef, "question_0000")).thenReturn(raster);
         for (int index = 0; index < blocks.size(); index++) {
             when(store.block(fileRef, blocks.get(index).partName())).thenReturn(images.get(index));
         }
         return store;
+    }
+
+    private static byte[] pngUnchecked(int width, int height, Color color) {
+        try {
+            return png(width, height, color);
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private static AnswerModels.Stroke stroke(String id, double x1, double y1,

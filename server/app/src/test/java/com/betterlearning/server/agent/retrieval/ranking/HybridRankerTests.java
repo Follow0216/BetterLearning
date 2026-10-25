@@ -55,6 +55,41 @@ class HybridRankerTests {
     }
 
     @Test
+    void validatedHandwritingInferenceOnlySupportsExplicitActualMethodQueries() {
+        HybridRanker.Candidate formula = new HybridRanker.Candidate("formula", 1, "anchor",
+                HybridRanker.SourceType.SAVED_ANSWER, "q1", "x²+2x=(x+1)²-1", Set.of(),
+                0.1, 0.0, "DRAFT", Set.of("配方法"));
+        HybridRanker.Candidate wrongMethod = new HybridRanker.Candidate("wrong", 1, "anchor2",
+                HybridRanker.SourceType.SAVED_ANSWER, "q2", "x²+2x=(x+1)²-1", Set.of(),
+                0.99, 0.99, "COMPLETED", Set.of("换元法"));
+        assertEquals(List.of("formula"), ranker.rank(
+                new HybridRanker.Query("求函数最值", Set.of("配方")),
+                List.of(wrongMethod, formula), HybridRanker.Limits.defaults(), null)
+                .evidence().stream().map(item -> item.candidate().sourceId()).toList());
+        assertTrue(ranker.rank(new HybridRanker.Query("求函数最值", Set.of("二次函数最值")),
+                List.of(formula), HybridRanker.Limits.defaults(), null).evidence().isEmpty());
+        assertTrue(ranker.rank(new HybridRanker.Query("求函数最值", Set.of("柯西施瓦茨不等式")),
+                List.of(formula), HybridRanker.Limits.defaults(), null).evidence().isEmpty());
+        assertTrue(ranker.rank(new HybridRanker.Query("求函数最值", Set.of()),
+                List.of(formula), HybridRanker.Limits.defaults(), null).evidence().isEmpty());
+    }
+
+    @Test
+    void inferredMethodCannotOverrideNegatedOcrOrNonAnswerSource() {
+        HybridRanker.Candidate denied = new HybridRanker.Candidate("denied", 1, "anchor",
+                HybridRanker.SourceType.SAVED_ANSWER, "q1", "这里不使用配方法。", Set.of(),
+                0.99, 0.99, "DRAFT", Set.of("配方法"));
+        assertTrue(ranker.rank(new HybridRanker.Query("二次函数", Set.of("配方法")),
+                List.of(denied), HybridRanker.Limits.defaults(), null).evidence().isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> new HybridRanker.Candidate(
+                "note", 1, "anchor", HybridRanker.SourceType.NOTE, null, "公式", Set.of(),
+                0.5, 0.5, null, Set.of("配方法")));
+        assertThrows(IllegalArgumentException.class, () -> new HybridRanker.Candidate(
+                "unknown", 1, "anchor", HybridRanker.SourceType.SAVED_ANSWER, "q2", "公式",
+                Set.of(), 0.5, 0.5, "DRAFT", Set.of("柯西施瓦茨不等式")));
+    }
+
+    @Test
     void explicitUnknownMethodDoesNotFallBackToSurfaceOrVector() {
         HybridRanker.Query query = new HybridRanker.Query(
                 "二次函数与随机变量联合分布求概率，不讨论配方法", Set.of("概率积分"));

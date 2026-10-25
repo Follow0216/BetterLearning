@@ -146,28 +146,31 @@ public final class HandwritingSourceReader {
         return new Bounds(left, top, right - left, bottom - top);
     }
 
-    /** The caller must authorize SourceContent, then pass its immutable fileRef. */
-    public ParsedHandwriting read(String fileRef) {
+    /** The caller authorizes SourceContent; this prepares immutable step images without any OCR call. */
+    public List<PreparedStep> prepare(String fileRef) {
         AnswerModels.StoredManifest stored;
         try {
             stored = files.manifest(fileRef);
         } catch (RuntimeException exception) {
             throw failure("SOURCE_UNAVAILABLE", 0, exception);
         }
-        AnswerModels.SaveManifest manifest = stored.source();
-        if (manifest == null || manifest.canvas() == null || manifest.document() == null
-                || manifest.document().strokes() == null || manifest.blocks() == null) {
-            throw failure("INVALID_MANIFEST", 0, null);
+        AnswerModels.SaveManifest manifest;
+        try {
+            if (stored == null || stored.source() == null || stored.questionSnapshot() == null
+                    || stored.questionSnapshot().bodyMarkdown() == null) {
+                throw new IllegalArgumentException("missing immutable manifest or question snapshot");
+            }
+            manifest = stored.source();
+            AnswerManifestValidator.validate(manifest, stored.questionSnapshot().bodyMarkdown());
+        } catch (RuntimeException exception) {
+            throw failure("INVALID_MANIFEST", 0, exception);
         }
         List<StepGroup> steps = groupSteps(manifest.document().strokes());
         if (steps.isEmpty()) {
-            return new ParsedHandwriting(List.of(), 0);
+            return List.of();
         }
         if (steps.size() > MAX_STEPS) {
             throw failure("TOO_MANY_STEPS", 0, null);
-        }
-        if (ocr == null) {
-            throw failure("OCR_UNAVAILABLE", 0, null);
         }
         List<HandwritingStepLocator.Block> locatorBlocks = new ArrayList<>();
         Map<Integer, AnswerModels.Block> sourceBlocks = new HashMap<>();
@@ -186,44 +189,73 @@ public final class HandwritingSourceReader {
             throw failure("INVALID_MANIFEST", 0, exception);
         }
 
-        List<Locator> locators = new ArrayList<>();
-        List<byte[]> images = new ArrayList<>();
-        for (StepGroup step : steps) {
+        List<PreparedStep> prepared = new ArrayList<>();
+        for (int index = 0; index < steps.size(); index++) {
+            StepGroup step = steps.get(index);
             Locator locator;
             try {
                 locator = HandwritingStepLocator.locate(step.bounds, locatorBlocks, step.strokeIds);
             } catch (IllegalArgumentException exception) {
                 throw failure("INCOMPLETE_BLOCK_COVERAGE", 0, exception);
             }
-            locators.add(locator);
-            images.add(crop(fileRef, step.bounds, locator, sourceBlocks, 0));
+            CroppedImage cropped = crop(fileRef, step.bounds, locator, sourceBlocks, 0);
+            String locatorJson;
+            try {
+                AnchorLocator typed = storedLocator(locator);
+                AnchorLocators.validate("HANDWRITING_STEP", "prepared-step", typed);
+                locatorJson = json.writeValueAsString(typed);
+            } catch (RuntimeException exception) {
+                throw failure("LOCATOR_SERIALIZATION_FAILED", 0, exception);
+            }
+            prepared.add(new PreparedStep(index, new ModelImage("image/png", cropped.bytes(),
+                    "handwriting-step-" + index), cropped.width(), cropped.height(),
+                    AnswerManifestValidator.sha256(cropped.bytes()), locatorJson));
+        }
+        return List.copyOf(prepared);
+    }
+
+    /** Create only the OCR-derived anchor text; the locator comes exclusively from prepare. */
+    public AnchorDraft anchorDraft(PreparedStep step, String transcript) {
+        if (step == null || transcript == null || transcript.isBlank()
+                || transcript.length() > MAX_OCR_CHARS) {
+            throw failure("OCR_INVALID_OUTPUT", 0, null);
+        }
+        String text = transcript.replace("\r\n", "\n");
+        try {
+            AnchorLocator locator = json.readValue(step.locatorJson(), AnchorLocator.class);
+            AnchorLocators.validate("HANDWRITING_STEP", text, locator);
+        } catch (RuntimeException exception) {
+            throw failure("LOCATOR_SERIALIZATION_FAILED", 0, exception);
+        }
+        return new AnchorDraft("HANDWRITING_STEP", step.ordinal(), text,
+                AnswerManifestValidator.sha256(text.getBytes(StandardCharsets.UTF_8)),
+                step.locatorJson());
+    }
+
+    /** Legacy OCR entrypoint; new structured OCR callers use prepare and anchorDraft. */
+    public ParsedHandwriting read(String fileRef) {
+        List<PreparedStep> prepared = prepare(fileRef);
+        if (prepared.isEmpty()) {
+            return new ParsedHandwriting(List.of(), 0);
+        }
+        if (ocr == null) {
+            throw failure("OCR_UNAVAILABLE", 0, null);
         }
         List<AnchorDraft> anchors = new ArrayList<>();
         int ocrCalls = 0;
-        for (int index = 0; index < images.size(); index++) {
+        for (PreparedStep step : prepared) {
             String text;
             ocrCalls++;
             try {
-                text = ocr.recognize(new ModelImage("image/png", images.get(index),
-                        "handwriting-step-" + index));
+                text = ocr.recognize(step.image());
             } catch (RuntimeException exception) {
                 throw failure("OCR_FAILED", ocrCalls, exception);
             }
-            if (text == null || text.isBlank() || text.length() > MAX_OCR_CHARS) {
-                throw failure("OCR_INVALID_OUTPUT", ocrCalls, null);
-            }
-            text = text.replace("\r\n", "\n");
-            String locatorJson;
             try {
-                AnchorLocator locator = storedLocator(locators.get(index));
-                AnchorLocators.validate("HANDWRITING_STEP", text, locator);
-                locatorJson = json.writeValueAsString(locator);
-            } catch (RuntimeException exception) {
-                throw failure("LOCATOR_SERIALIZATION_FAILED", ocrCalls, exception);
+                anchors.add(anchorDraft(step, text));
+            } catch (HandwritingReadException exception) {
+                throw failure(exception.reason(), ocrCalls, exception);
             }
-            anchors.add(new AnchorDraft("HANDWRITING_STEP", anchors.size(), text,
-                    AnswerManifestValidator.sha256(text.getBytes(StandardCharsets.UTF_8)),
-                    locatorJson));
         }
         return new ParsedHandwriting(List.copyOf(anchors), ocrCalls);
     }
@@ -250,7 +282,7 @@ public final class HandwritingSourceReader {
                 manifest.canvas().originY() + block.y(), block.width(), block.height());
     }
 
-    private byte[] crop(String fileRef, Bounds step, Locator locator,
+    private CroppedImage crop(String fileRef, Bounds step, Locator locator,
             Map<Integer, AnswerModels.Block> sourceBlocks, int completedCalls) {
         double scaleX = 0;
         double scaleY = 0;
@@ -301,7 +333,7 @@ public final class HandwritingSourceReader {
             if (!ImageIO.write(composite, "png", output)) {
                 throw failure("OCR_IMAGE_FAILED", completedCalls, null);
             }
-            return output.toByteArray();
+            return new CroppedImage(output.toByteArray(), width, height);
         } catch (IOException exception) {
             throw failure("OCR_IMAGE_FAILED", completedCalls, exception);
         } finally {
@@ -418,6 +450,10 @@ public final class HandwritingSourceReader {
             String locatorJson) {
     }
 
+    public record PreparedStep(int ordinal, ModelImage image, int pixelWidth, int pixelHeight,
+            String imageSha256, String locatorJson) {
+    }
+
     public record ParsedHandwriting(List<AnchorDraft> anchors, int ocrCalls) {
     }
 
@@ -441,6 +477,9 @@ public final class HandwritingSourceReader {
     }
 
     private record StrokeBox(String id, Bounds bounds) {
+    }
+
+    private record CroppedImage(byte[] bytes, int width, int height) {
     }
 
     private static final class StepGroup {

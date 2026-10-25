@@ -3,12 +3,18 @@ package com.betterlearning.server.retrieval;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -29,18 +35,24 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
+import javax.imageio.ImageIO;
 import javax.sql.DataSource;
 
 import com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration;
 import com.betterlearning.server.agent.config.EmbeddingProperties;
+import com.betterlearning.server.agent.config.HandwritingMethodsProperties;
 import com.betterlearning.server.agent.embedding.HttpEmbeddingClient;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Chunk;
 import com.betterlearning.server.agent.retrieval.RetrievalIndexStore.Job;
 import com.betterlearning.server.agent.retrieval.anchor.MarkdownAnchorParser;
+import com.betterlearning.server.agent.retrieval.handwriting.HandwritingMethodMetadata;
 import com.betterlearning.server.agent.retrieval.ranking.ChineseMathTerms;
+import com.betterlearning.server.agent.retrieval.ranking.HandwritingMethodTaxonomy;
 import com.betterlearning.server.agent.retrieval.ranking.HybridRanker;
+import com.betterlearning.server.agent.service.HandwritingIndexOcr;
 import com.betterlearning.server.config.MybatisConfiguration;
 import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.ApiErrorResponseFactory;
@@ -54,9 +66,10 @@ import com.betterlearning.server.learning.retention.DeletionJournal;
 import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.NoteService;
 import com.betterlearning.server.learning.service.NoteService.NoteFailure;
+import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.learning.service.impl.NoteServiceImpl;
 import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
-import com.betterlearning.server.learning.service.impl.AnswerFileStore;
+import com.betterlearning.server.learning.validation.AnswerManifestValidator;
 import com.betterlearning.server.learning.validation.NoteContent;
 import com.betterlearning.server.learning.validation.SourceAnchorValidator;
 import com.betterlearning.server.multiagent.MultiAgentModels.Anchor;
@@ -89,6 +102,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 /** 真实 PostgreSQL/pgvector 机制验证；二维合成向量不代表中文语义质量。 */
 @Testcontainers
@@ -110,6 +124,7 @@ class PersonalRetrievalIntegrationTests {
     private static RetrievalIndexStore index;
     private static CitationService citations;
     private static AnswerFileStore files;
+    private static HandwritingMethodsProperties handwritingMethods;
     private static Path journalRoot;
     private long owner;
     private long stranger;
@@ -144,6 +159,8 @@ class PersonalRetrievalIntegrationTests {
         context.registerBean(JsonMapper.class, () -> JsonMapper.builder().build());
         files = mock(AnswerFileStore.class);
         context.registerBean(AnswerFileStore.class, () -> files);
+        handwritingMethods = new HandwritingMethodsProperties();
+        context.registerBean(HandwritingMethodsProperties.class, () -> handwritingMethods);
         context.register(MybatisConfiguration.class, LearningMapperConfiguration.class,
                 RetrievalTestConfiguration.class, MybatisPlusAutoConfiguration.class,
                 SourceAnchorValidator.class, SourceStoreImpl.class, NoteServiceImpl.class,
@@ -164,6 +181,8 @@ class PersonalRetrievalIntegrationTests {
 
     @BeforeEach
     void resetData() {
+        handwritingMethods.setEnabled(false);
+        handwritingMethods.setRecallEnabled(false);
         jdbc.execute("TRUNCATE TABLE app_user RESTART IDENTITY CASCADE");
         owner = account("owner");
         stranger = account("stranger");
@@ -491,6 +510,107 @@ class PersonalRetrievalIntegrationTests {
     }
 
     @Test
+    void structuredHandwritingFormulaRecallIsOptInAndBeatsFortyHigherVectors() throws Exception {
+        String formula = "$$x^2+2x=(x+1)^2-1$$";
+        handwritingMethods.setEnabled(true);
+        StructuredSaved saved = readyStructuredSaved(owner, formula);
+        assertThat(jdbc.queryForObject("SELECT method_tags::text FROM ma_retrieval_chunk "
+                + "WHERE source_id=?", String.class, saved.sourceId())).isEqualTo("[]");
+        assertThat(saved.anchor().text()).isEqualTo(formula);
+        assertThat(saved.anchor().contentSha256())
+                .isEqualTo(sha256(formula.getBytes(StandardCharsets.UTF_8)));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ma_index_stage WHERE event_id=? "
+                + "AND call_state='CONFIRMED'", Integer.class, saved.eventId())).isEqualTo(2);
+        for (int ordinal = 0; ordinal < 41; ordinal++) {
+            readyLegacyNote(owner, "无关笔记", "无关公式第" + ordinal + "份", 1, 0);
+        }
+        Set<String> methods = Set.of("配方法");
+        double[] query = {1, 0};
+        var disabled = index.candidates(owner, Set.of(), methods, query, MODEL, 2);
+        assertThat(disabled).extracting(item -> item.sourceId()).doesNotContain(saved.sourceId());
+        assertThat(new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                disabled, HybridRanker.Limits.defaults(), null).evidence()).isEmpty();
+
+        try {
+            handwritingMethods.setRecallEnabled(true);
+            var enabled = index.candidates(owner, Set.of(), methods, query, MODEL, 2);
+            var restored = enabled.stream().filter(item -> saved.sourceId().equals(item.sourceId()))
+                    .findFirst().orElseThrow();
+            assertThat(restored.methodTags()).isEmpty();
+            assertThat(restored.inferredMethods()).containsExactly("配方法");
+            assertThat(restored.lexicalScore()).isPositive();
+            assertThat(enabled).hasSize(41);
+            var ranked = new HybridRanker().rank(new HybridRanker.Query("配方法", methods),
+                    enabled, HybridRanker.Limits.defaults(), null);
+            assertThat(ranked.evidence()).extracting(item -> item.candidate().sourceId())
+                    .containsExactly(saved.sourceId());
+            assertThat(ranked.evidence().get(0).candidate().text()).isEqualTo(formula);
+            String citation = citationFixture(owner, saved.sourceId(), 1,
+                    saved.anchor().anchorId(), "VERIFIED", "SAVED_ANSWER");
+            assertThat(jdbc.queryForObject("SELECT e.claim FROM ma_evidence e JOIN ma_citation c "
+                    + "ON c.source_id=e.source_id AND c.version=e.version AND c.anchor_id=e.anchor_id "
+                    + "WHERE c.citation_id=?", String.class, citation)).isEqualTo(formula);
+            assertThat(citations.resolve(owner, citation).quotedText()).isNull();
+            assertThat(citations.resolve(owner, citation).handwritingLocator()).isNotNull();
+        } finally {
+            handwritingMethods.setRecallEnabled(false);
+            handwritingMethods.setEnabled(false);
+        }
+    }
+
+    @Test
+    void structuredHandwritingMetadataRejectsWrongMethodStateTopicAndBrokenBindings() throws Exception {
+        String formula = "$$x^2+2x=(x+1)^2-1$$";
+        handwritingMethods.setEnabled(true);
+        StructuredSaved saved = readyStructuredSaved(owner, formula);
+        handwritingMethods.setRecallEnabled(true);
+        HandwritingMethodMetadata valid = HandwritingMethodMetadata.parse(saved.metadataJson());
+        Set<String> methods = Set.of("配方法");
+        try {
+            assertThat(methodHits(owner, methods)).containsExactly(saved.sourceId());
+            assertThat(methodHits(owner, Set.of("换元法"))).isEmpty();
+            assertThat(methodHits(owner, Set.of("一元一次方程"))).isEmpty();
+            for (String state : List.of("UNCERTAIN", "REJECTED")) {
+                String reason = "UNCERTAIN".equals(state) ? "ILLEGIBLE" : "NEGATED";
+                replaceMetadata(saved.sourceId(), withCandidate(valid, "配方法", state, reason,
+                        "UNCERTAIN".equals(state) ? "UNCERTAIN" : "CLEAR"));
+                assertThat(methodHits(owner, methods)).isEmpty();
+            }
+            replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
+                    ((ObjectNode) node.get("result").get("methodCandidates").get(0))
+                            .put("method", "二次函数最值")));
+            assertThat(methodHits(owner, methods)).isEmpty();
+            replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
+                    ((ObjectNode) node.get("result").get("methodCandidates").get(0))
+                            .put("state", "UNKNOWN")));
+            assertThat(methodHits(owner, methods)).isEmpty();
+            replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
+                    node.put("accountId", stranger)));
+            assertThat(methodHits(owner, methods)).isEmpty();
+            replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
+                    node.put("indexRevision", 2)));
+            assertThat(methodHits(owner, methods)).isEmpty();
+            replaceMetadata(saved.sourceId(), mutatedMetadata(saved.metadataJson(), node ->
+                    node.put("anchorSha256", "0".repeat(64))));
+            assertThat(methodHits(owner, methods)).isEmpty();
+
+            NoteModels.Note note = readyLegacyNote(owner, "无关标题", formula, 0.8, 0.6);
+            Anchor noteAnchor = sources.get(owner, note.sourceId(), 1).anchors().get(0);
+            HandwritingMethodMetadata noteOnly = new HandwritingMethodMetadata(
+                    HandwritingMethodMetadata.FORMAT_VERSION, owner, note.sourceId(), 1, 1,
+                    noteAnchor.anchorId(), noteAnchor.contentSha256(), valid.imageSha256(),
+                    valid.imageWidth(), valid.imageHeight(), valid.model(), valid.result());
+            replaceMetadata(note.sourceId(), noteOnly.encode());
+            assertThat(methodHits(owner, methods)).isEmpty();
+            replaceMetadata(saved.sourceId(), saved.metadataJson());
+            assertThat(methodHits(stranger, methods)).isEmpty();
+        } finally {
+            handwritingMethods.setRecallEnabled(false);
+            handwritingMethods.setEnabled(false);
+        }
+    }
+
+    @Test
     void citationResolvesPinnedOldTextThenDeletionAndWithheldResultRevokeIt() {
         NoteModels.Note note = notes.create(owner, UUID.randomUUID().toString(),
                 new NoteModels.Write("旧标题", "旧😀内容"));
@@ -740,6 +860,130 @@ class PersonalRetrievalIntegrationTests {
                 new double[] {x, y});
         assertThat(index.complete(job, List.of(legacy), MODEL, 2)).isTrue();
         return note;
+    }
+
+    private StructuredSaved readyStructuredSaved(long accountId, String formula) throws IOException {
+        Long questionId = jdbc.queryForObject("INSERT INTO question(account_id,request_id,subject,"
+                + "body_markdown,summary) VALUES (?,?,?,?,?) RETURNING question_id", Long.class,
+                accountId, UUID.randomUUID().toString(), "OTHER", "公开测试题", "公开测试题");
+        String fileRef = UUID.randomUUID().toString();
+        String questionBody = "公开测试题";
+        byte[] composite = realPng(10, 10, Color.BLACK);
+        byte[] raster = realPng(10, 10, Color.WHITE);
+        AnswerModels.Block written = new AnswerModels.Block(0, "chunk_0000", 0.0, 0.0,
+                10.0, 10.0, 10, 10, sha256(composite));
+        AnswerModels.Block clean = new AnswerModels.Block(0, "question_0000", 0.0, 0.0,
+                10.0, 10.0, 10, 10, sha256(raster));
+        AnswerModels.QuestionLayout layout = new AnswerModels.QuestionLayout(
+                sha256(questionBody.getBytes(StandardCharsets.UTF_8)), 10.0, 12.0,
+                "local-markdown-v1", new AnswerModels.Bounds(0.0, 0.0, 10.0, 10.0),
+                List.of(new AnswerModels.LayoutBlock("body-0", 0.0, 0.0, 10.0, 10.0)),
+                List.of(clean));
+        AnswerModels.Stroke stroke = new AnswerModels.Stroke("step-1", "#000000", 1.0,
+                List.of(new AnswerModels.Point(2.0, 2.0), new AnswerModels.Point(3.0, 2.0)));
+        AnswerModels.SaveManifest manifest = new AnswerModels.SaveManifest(1,
+                UUID.randomUUID().toString(), null,
+                new AnswerModels.Canvas(10.0, 10.0, 0.0, 0.0, "logical"),
+                new AnswerModels.Document(1, layout, List.of(stroke)), List.of(written));
+        AnswerManifestValidator.validate(manifest, questionBody);
+        when(files.manifest(fileRef)).thenReturn(new AnswerModels.StoredManifest(manifest,
+                new AnswerModels.QuestionSnapshot(Long.toString(questionId), "OTHER", questionBody)));
+        when(files.block(fileRef, "chunk_0000")).thenReturn(composite);
+        when(files.block(fileRef, "question_0000")).thenReturn(raster);
+        SourceContent published = sources.publish(accountId, new PublishSource(SourceType.SAVED_ANSWER,
+                Long.toString(questionId), "手写作答", null, sha256(JsonMapper.builder().build()
+                .writeValueAsBytes(manifest)), fileRef, "DRAFT", 0L, UUID.randomUUID().toString()));
+        Job job = index.claim().orElseThrow();
+        assertThat(job.sourceId()).isEqualTo(published.source().sourceId());
+        EmbeddingProperties properties = new EmbeddingProperties();
+        properties.setEnabled(true);
+        properties.setModel(MODEL);
+        properties.setDimensions(2);
+        HttpEmbeddingClient embedding = mock(HttpEmbeddingClient.class);
+        when(embedding.embedWithStats(List.of(formula))).thenReturn(
+                new HttpEmbeddingClient.EmbeddingResult(List.of(new double[] {0.9, 0.435}),
+                        1, 5L, 5L, MODEL));
+        HandwritingIndexOcr ocr = mock(HandwritingIndexOcr.class);
+        when(ocr.model()).thenReturn("mock-structured-ocr");
+        when(ocr.recognize(any(com.betterlearning.server.agent.model.ModelImage.class),
+                eq(0), anyInt(), anyInt())).thenReturn(new HandwritingIndexOcr.Result(
+                HandwritingIndexOcr.SCHEMA_VERSION, HandwritingMethodTaxonomy.VERSION, 0,
+                formula, "CLEAR", List.of(new HandwritingIndexOcr.MethodCandidate(
+                "配方", 0, formula.length(), new HandwritingIndexOcr.Region(0, 0, 1, 1),
+                "CANDIDATE", "VISIBLE_STEPS"))));
+        JsonMapper mapper = JsonMapper.builder().build();
+        HandwritingSourceReader reader = new HandwritingSourceReader(files, null, mapper);
+        StructuredHandwritingIndexer structured = new StructuredHandwritingIndexer(index,
+                embedding, properties, handwritingMethods, reader, ocr, mapper);
+        new RetrievalIndexWorker(sources, index, embedding, properties, mapper, reader, structured)
+                .process(job);
+        SourceContent indexed = sources.get(accountId, published.source().sourceId(), 1);
+        assertThat(indexed.version().status()).isEqualTo("READY");
+        assertThat(indexed.anchors()).hasSize(1);
+        String metadata = jdbc.queryForObject("SELECT method_metadata::text FROM ma_retrieval_chunk "
+                + "WHERE source_id=?", String.class, published.source().sourceId());
+        assertThat(metadata).isNotBlank();
+        verify(ocr).recognize(any(com.betterlearning.server.agent.model.ModelImage.class),
+                eq(0), anyInt(), anyInt());
+        verify(embedding).embedWithStats(List.of(formula));
+        return new StructuredSaved(published.source().sourceId(), indexed.anchors().get(0),
+                job.eventId(), metadata);
+    }
+
+    private List<String> methodHits(long accountId, Set<String> methods) {
+        var candidates = index.candidates(accountId, Set.of(), methods, new double[] {1, 0}, MODEL, 2);
+        return new HybridRanker().rank(new HybridRanker.Query("纯公式历史", methods), candidates,
+                HybridRanker.Limits.defaults(), null).evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList();
+    }
+
+    private void replaceMetadata(String sourceId, String metadata) {
+        jdbc.update("UPDATE ma_retrieval_chunk SET method_metadata=CAST(? AS jsonb) WHERE source_id=?",
+                metadata, sourceId);
+    }
+
+    private static String mutatedMetadata(String value, Consumer<ObjectNode> change) {
+        JsonMapper mapper = JsonMapper.builder().build();
+        ObjectNode node = (ObjectNode) mapper.readTree(value);
+        change.accept(node);
+        return mapper.writeValueAsString(node);
+    }
+
+    private static String withCandidate(HandwritingMethodMetadata prior, String method,
+            String state, String reason, String uncertainty) {
+        var previous = prior.result().methodCandidates().get(0);
+        var result = new HandwritingIndexOcr.Result(prior.result().schemaVersion(),
+                prior.result().taxonomyVersion(), prior.result().stepOrdinal(),
+                prior.result().transcript(), uncertainty,
+                List.of(new HandwritingIndexOcr.MethodCandidate(method,
+                        previous.evidenceStartUtf16(), previous.evidenceEndUtf16(),
+                        previous.region(), state, reason)));
+        return new HandwritingMethodMetadata(prior.formatVersion(), prior.accountId(),
+                prior.sourceId(), prior.sourceVersion(), prior.indexRevision(), prior.anchorId(),
+                prior.anchorSha256(), prior.imageSha256(), prior.imageWidth(),
+                prior.imageHeight(), prior.model(), result).encode();
+    }
+
+    private static byte[] realPng(int width, int height, Color color) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        try {
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    image.setRGB(x, y, color.getRGB());
+                }
+            }
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            if (!ImageIO.write(image, "png", output)) {
+                throw new IOException("No PNG writer");
+            }
+            return output.toByteArray();
+        } finally {
+            image.flush();
+        }
+    }
+
+    private record StructuredSaved(String sourceId, Anchor anchor, String eventId,
+            String metadataJson) {
     }
 
     private String citationFixture(long accountId, String sourceId, long version,
