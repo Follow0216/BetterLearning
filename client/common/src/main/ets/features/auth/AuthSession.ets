@@ -8,7 +8,7 @@ import { AuthSessionData, UserProfile } from './AuthModels';
  * 令牌到期后读取返回 null，是否清除由调用方决定。</p>
  *
  * <p>本类不负责登录、注册或修改密码流程；这些流程由 {@code AuthApi} 完成，
- * 成功后由调用方调用 {@link save_session}。</p>
+ * 登录成功后由调用方调用 {@link save_session}；资料更新不延长会话，改密成功按原令牌退出。</p>
  */
 export class AuthSession {
   /** 访问令牌；未登录或已清除时为空串。 */
@@ -89,6 +89,16 @@ export class AuthSession {
       return false;
     }
     this.clear_session();
+    return true;
+  }
+
+  /** 仅更新当前有效会话所属账号的资料，不替换 token 或延长到期时刻。 */
+  update_user_if_token(token: string, user: UserProfile, nowMillis: number = Date.now()): boolean {
+    if (!this.matches_access_token(token) || !this.has_valid_session(nowMillis) ||
+      this.user === null || this.user.accountId !== user.accountId) {
+      return false;
+    }
+    this.user = user;
     return true;
   }
 
