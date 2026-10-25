@@ -78,7 +78,7 @@ class UserPersistenceIntegrationTests {
     @Test
     void migratesEmptyDatabaseWithExpectedSchema() {
         assertThat(migrateResult.success).isTrue();
-        assertThat(migrateResult.migrationsExecuted).isEqualTo(6);
+        assertThat(migrateResult.migrationsExecuted).isEqualTo(7);
 
         List<String> columns = jdbcTemplate.queryForList(
                 "SELECT column_name FROM information_schema.columns "
