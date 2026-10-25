@@ -1,7 +1,10 @@
 package com.betterlearning.server.multiagent;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /** 跨模块纯 Java 契约；正文与供应商诊断不进入工作流历史。 */
 public final class MultiAgentModels {
@@ -12,6 +15,7 @@ public final class MultiAgentModels {
     public enum Role { RETRIEVE, SOLVE, DIAGNOSE, TEACH, REVIEW }
     public enum Status { WAITING_INPUT, QUEUED, RUNNING, CANCELLING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT }
     public enum SourceType { QUESTION, SAVED_ANSWER, TUTOR_SNAPSHOT, TUTOR_REPLY, NOTE }
+    public enum StrokeLocationsStatus { COMPLETE, UNAVAILABLE, TOO_LARGE }
 
     public record SnapshotInput(String kind, String sourceRequestId) { }
     public record CreateRequest(String requestId, String prompt, Mode mode, SnapshotInput snapshotInput) { }
@@ -92,9 +96,62 @@ public final class MultiAgentModels {
             return bytes.clone();
         }
     }
-    /** hasHandwriting 来自真实manifest笔划列表；OCR未执行时text/confidence为null，不将缺文本推断为空笔迹。 */
+    /** 一笔全部点外扩半笔宽后的世界范围；图片序号对应 Snapshot.images 的零基位置。 */
+    public record StrokeLocation(String strokeId, WorldBounds worldBounds, List<Integer> imageOrdinals) {
+        public StrokeLocation {
+            if (strokeId == null || strokeId.isBlank() || worldBounds == null
+                    || !Double.isFinite(worldBounds.x()) || !Double.isFinite(worldBounds.y())
+                    || !Double.isFinite(worldBounds.width()) || !Double.isFinite(worldBounds.height())
+                    || worldBounds.width() <= 0 || worldBounds.height() <= 0
+                    || !Double.isFinite(worldBounds.x() + worldBounds.width())
+                    || !Double.isFinite(worldBounds.y() + worldBounds.height())) {
+                throw new IllegalArgumentException("invalid stroke location");
+            }
+            imageOrdinals = List.copyOf(imageOrdinals);
+            if (imageOrdinals.isEmpty() || new HashSet<>(imageOrdinals).size() != imageOrdinals.size()
+                    || imageOrdinals.stream().anyMatch(ordinal -> ordinal < 0)) {
+                throw new IllegalArgumentException("invalid stroke image ordinals");
+            }
+        }
+    }
+    /** hasHandwriting 来自真实manifest；位置不可用或超限时保留完整原图和strokeIds，OCR未执行则为null。 */
     public record Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
-            Boolean hasHandwriting, String ocrText, Double ocrConfidence) {
+            Boolean hasHandwriting, String ocrText, Double ocrConfidence,
+            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+        public Snapshot {
+            images = List.copyOf(images);
+            strokeIds = List.copyOf(strokeIds);
+            strokeLocationsStatus = Objects.requireNonNull(strokeLocationsStatus);
+            strokeLocations = List.copyOf(strokeLocations);
+            if (strokeLocationsStatus == StrokeLocationsStatus.COMPLETE) {
+                Set<String> expected = new HashSet<>(strokeIds);
+                Set<String> actual = new HashSet<>();
+                if (strokeLocations.size() > 2000 || expected.size() != strokeIds.size()
+                        || strokeIds.stream().anyMatch(String::isBlank)) {
+                    throw new IllegalArgumentException("invalid complete stroke locations");
+                }
+                for (StrokeLocation location : strokeLocations) {
+                    if (!actual.add(location.strokeId())) {
+                        throw new IllegalArgumentException("duplicate stroke location");
+                    }
+                    for (int ordinal : location.imageOrdinals()) {
+                        if (ordinal >= images.size()) {
+                            throw new IllegalArgumentException("stroke image ordinal out of range");
+                        }
+                    }
+                }
+                if (!expected.equals(actual)) {
+                    throw new IllegalArgumentException("incomplete stroke locations");
+                }
+            } else if (!strokeLocations.isEmpty()) {
+                throw new IllegalArgumentException("unavailable stroke locations must be empty");
+            }
+        }
+        public Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
+                Boolean hasHandwriting, String ocrText, Double ocrConfidence) {
+            this(fileRef, questionMarkdown, images, strokeIds, hasHandwriting, ocrText, ocrConfidence,
+                    StrokeLocationsStatus.UNAVAILABLE, List.of());
+        }
         public Snapshot(String fileRef, String questionMarkdown, List<Image> images) {
             this(fileRef, questionMarkdown, images, List.of(), null, null, null);
         }
