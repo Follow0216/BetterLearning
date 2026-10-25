@@ -502,12 +502,12 @@ export struct AccountPage {
     const input: UpdateProfileInput = new UpdateProfileInput();
     if (this.unbindPhone) {
       input.phone = null;
-    } else if (this.phoneInput.trim() !== (this.user.phone === null ? '' : this.user.phone)) {
+    } else if (this.phoneInput !== (this.user.phone === null ? '' : this.user.phone)) {
       input.phone = this.phoneInput;
     }
     if (this.unbindEmail) {
       input.email = null;
-    } else if (this.emailInput.trim() !== (this.user.email === null ? '' : this.user.email)) {
+    } else if (this.emailInput !== (this.user.email === null ? '' : this.user.email)) {
       input.email = this.emailInput;
     }
     const errors: Record<string, string> = validate_profile_update(input);
