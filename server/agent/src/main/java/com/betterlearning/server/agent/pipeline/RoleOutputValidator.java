@@ -46,8 +46,7 @@ public final class RoleOutputValidator {
                 case REVIEW -> review(node);
                 default -> throw new PipelineFailure(Reason.INVALID_OUTPUT);
             }
-            boolean locationBudgetExceeded = !input.strokeIds().isEmpty()
-                    && input.strokeLocationsStatus() == StrokeLocationsStatus.TOO_LARGE;
+            boolean locationBudgetExceeded = TutoringInputBudget.locationBudgetExceeded(input);
             if (locationBudgetExceeded && role == Role.DIAGNOSE) {
                 return JSON.readTree("""
                         {"status":"UNCERTAIN","summary":"完整笔划定位数据超过当前单次处理范围，本轮无法逐笔判断对错。",
@@ -55,10 +54,11 @@ public final class RoleOutputValidator {
                         """);
             }
             if (locationBudgetExceeded && role == Role.TEACH) {
-                return JSON.readTree("""
-                        {"hint":"","nextStep":"","clarification":"本次作答的完整笔划定位数据超过当前处理范围，暂时无法逐笔判断对错。请保留原作答；重试同一份内容或仅提升图片清晰度不能解除容量限制。若需继续精确检查，请将目标步骤另行写成较小范围的独立作答后重新发起辅导。",
-                        "fullSolution":null,"evidenceIds":[]}
-                        """);
+                var clarification = JSON.createObjectNode().put("hint", "").put("nextStep", "")
+                        .put("clarification", TutoringInputBudget.LOCATION_LIMIT_CLARIFICATION)
+                        .putNull("fullSolution");
+                clarification.putArray("evidenceIds");
+                return clarification;
             }
             if (unlocatedWriting && !uncertainOcr && role == Role.DIAGNOSE) {
                 return JSON.readTree("""

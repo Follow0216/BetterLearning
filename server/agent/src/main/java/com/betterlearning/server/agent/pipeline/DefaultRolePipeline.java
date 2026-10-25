@@ -82,6 +82,12 @@ public final class DefaultRolePipeline implements RolePipeline {
                     snapshot.strokeLocationsStatus(), snapshot.strokeLocations());
             LangChain4jRoleModel model = new LangChain4jRoleModel(properties.getTutoring());
             RuntimeBoundary boundary = new RuntimeBoundary(context, steps, ledger, model, input);
+            if (input.writingMetadataKnown() && TutoringInputBudget.locationBudgetExceeded(input)
+                    && execution.modelCalls() == 0 && boundary.activeExecution().modelCalls() == 0) {
+                // 仅新运行早止；已有调用仍走原执行器复用/UNKNOWN守卫。未伪造任何模型角色输出。
+                // verified只表示固定说明经程序校验，发布仍由P2/P1执行权限与状态CAS。
+                return new PipelineResult(true, TutoringInputBudget.LOCATION_LIMIT_CLARIFICATION, List.of(), null);
+            }
             var candidate = new TutoringPipeline().run(input, boundary);
             return new PipelineResult(true, candidate.bodyMarkdown(), candidate.evidenceIds(), null);
         } catch (PipelineFailure exception) {
@@ -171,6 +177,10 @@ public final class DefaultRolePipeline implements RolePipeline {
 
         @Override
         public void checkActive() {
+            activeExecution();
+        }
+
+        private MultiAgentModels.Execution activeExecution() {
             var original = context.execution();
             var current = ledger.execution(original.accountId(), original.runId());
             if (current == null || current.status() != MultiAgentModels.Status.RUNNING
@@ -178,6 +188,7 @@ public final class DefaultRolePipeline implements RolePipeline {
                     || (current.runDeadlineAt() != null && !current.runDeadlineAt().isAfter(Instant.now()))) {
                 throw new PipelineFailure(Reason.CANCELLED);
             }
+            return current;
         }
 
         @Override
