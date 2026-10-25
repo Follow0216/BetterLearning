@@ -23,6 +23,8 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.learning.service.TutorTurnService;
 import com.betterlearning.server.learning.service.RolloutGate;
+import com.betterlearning.server.learning.model.answer.AnswerModels;
+import com.betterlearning.server.learning.service.impl.AnswerFileStore;
 import com.betterlearning.server.multiagent.MultiAgentModels.Anchor;
 import com.betterlearning.server.multiagent.MultiAgentModels.Attempt;
 import com.betterlearning.server.multiagent.MultiAgentModels.CreateRequest;
@@ -45,6 +47,8 @@ import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.IntegrationProperties;
 import com.betterlearning.server.support.TestData;
 
+import jakarta.servlet.http.Part;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -52,6 +56,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockPart;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -61,6 +67,8 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import tools.jackson.databind.json.JsonMapper;
 
 @Testcontainers
 @SpringBootTest(classes = ServerApplication.class,
@@ -106,6 +114,12 @@ class TutorLedgerIntegrationTests {
 
     @Autowired
     private SourceStore sources;
+
+    @Autowired
+    private AnswerFileStore files;
+
+    @Autowired
+    private JsonMapper json;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -469,7 +483,7 @@ class TutorLedgerIntegrationTests {
         Anchor foreignAnchor = anchor(foreign);
         sources.addAnchors(bob, foreign.source().sourceId(), foreign.version().version(), List.of(foreignAnchor));
         Evidence forged = new Evidence(id(), runId, retrieval.stepId(), "HISTORY",
-                foreign.source().sourceId(), foreign.version().version(), foreignAnchor.anchorId(), "伪造证据", null);
+                foreign.source().sourceId(), foreign.version().version(), foreignAnchor.anchorId(), "正文", null);
         assertThatThrownBy(() -> ledger.recordEvidence(alice, runId, List.of(forged)))
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> ledger.publish(alice, runId, ledger.execution(alice, runId).revision(),
@@ -480,7 +494,7 @@ class TutorLedgerIntegrationTests {
         Anchor ownedAnchor = anchor(owned);
         sources.addAnchors(alice, owned.source().sourceId(), owned.version().version(), List.of(ownedAnchor));
         Evidence valid = new Evidence(id(), runId, retrieval.stepId(), "HISTORY", owned.source().sourceId(),
-                owned.version().version(), ownedAnchor.anchorId(), "已授权证据", null);
+                owned.version().version(), ownedAnchor.anchorId(), "正文", null);
         ledger.recordEvidence(alice, runId, List.of(valid));
         sources.withdraw(alice, owned.source().sourceId());
         assertThatThrownBy(() -> ledger.publish(alice, runId, ledger.execution(alice, runId).revision(),
@@ -503,7 +517,7 @@ class TutorLedgerIntegrationTests {
         Anchor target = anchor(source);
         sources.addAnchors(account, source.source().sourceId(), source.version().version(), List.of(target));
         Evidence evidence = new Evidence(id(), runId, retrieval.stepId(), "HISTORY", source.source().sourceId(),
-                source.version().version(), target.anchorId(), "已有笔记", null);
+                source.version().version(), target.anchorId(), "正文", null);
         ledger.recordEvidence(account, runId, List.of(evidence));
         String draft = "这里参考你的笔记 [[evidence:" + evidence.evidenceId() + "]]。";
         assertThat(ledger.publish(account, runId, ledger.execution(account, runId).revision(),
@@ -532,7 +546,7 @@ class TutorLedgerIntegrationTests {
         Anchor target = anchor(source);
         sources.addAnchors(account, source.source().sourceId(), source.version().version(), List.of(target));
         Evidence evidence = new Evidence(id(), runId, retrieval.stepId(), "HISTORY", source.source().sourceId(),
-                source.version().version(), target.anchorId(), "来源", null);
+                source.version().version(), target.anchorId(), "正文", null);
         ledger.recordEvidence(account, runId, List.of(evidence));
         long revision = ledger.execution(account, runId).revision();
         assertThatThrownBy(() -> ledger.publish(account, runId, revision,
@@ -638,6 +652,165 @@ class TutorLedgerIntegrationTests {
                 null, null, null, "不同推导", null);
         assertConflict(() -> ledger.recordEvidence(account, runId, List.of(changed)));
         assertThat(ledger.evidence(account, runId)).containsExactly(first);
+    }
+
+    @Test
+    void publicationRejectsFourUniqueCitationsButAcceptsThreeWithoutPartialRows() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        String runId = request.currentRunId();
+        start(account, runId);
+        Attempt step = ledger.beginAttempt(account, runId, Role.RETRIEVE, 1, digest("retrieve"));
+        List<Evidence> evidence = new java.util.ArrayList<>();
+        for (int index = 0; index < 4; index++) {
+            evidence.add(historyEvidence(account, runId, step.stepId(), "citation-" + index));
+        }
+        ledger.recordEvidence(account, runId, evidence);
+        long revision = ledger.execution(account, runId).revision();
+        List<String> allIds = evidence.stream().map(Evidence::evidenceId).toList();
+        assertThatThrownBy(() -> ledger.publish(account, runId, revision,
+                new ResultDraft(markedBody(allIds), allIds))).isInstanceOf(BusinessException.class);
+        assertNoResult(runId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_outbox WHERE aggregate_type = 'RESULT'",
+                Integer.class)).isZero();
+        List<String> allowed = allIds.subList(0, 3);
+        assertThat(ledger.publish(account, runId, revision,
+                new ResultDraft(markedBody(allowed), allowed))).isTrue();
+        String resultId = jdbc.queryForObject("SELECT result_id FROM ma_result WHERE run_id = ?",
+                String.class, runId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_citation WHERE result_id = ?",
+                Integer.class, resultId)).isEqualTo(3);
+        assertThat(ledger.detail(account, question, request.requestId()).result().bodyMarkdown())
+                .doesNotContain("[[evidence:");
+    }
+
+    @Test
+    void duplicateEvidenceIdsInDraftRejectPublicationAtomically() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        String runId = request.currentRunId();
+        start(account, runId);
+        Attempt step = ledger.beginAttempt(account, runId, Role.RETRIEVE, 1, digest("retrieve"));
+        Evidence evidence = historyEvidence(account, runId, step.stepId(), "duplicate");
+        ledger.recordEvidence(account, runId, List.of(evidence));
+        assertThatThrownBy(() -> ledger.publish(account, runId,
+                ledger.execution(account, runId).revision(), new ResultDraft(
+                        markedBody(List.of(evidence.evidenceId())),
+                        List.of(evidence.evidenceId(), evidence.evidenceId()))))
+                .isInstanceOf(BusinessException.class);
+        assertNoResult(runId);
+    }
+
+    @Test
+    void recordEvidenceRejectsForgedClaimAndSourceTypeMismatches() {
+        long account = account();
+        String question = question(account);
+        Request request = captured(account, question, id());
+        String runId = request.currentRunId();
+        start(account, runId);
+        Attempt step = ledger.beginAttempt(account, runId, Role.RETRIEVE, 1, digest("retrieve"));
+        SourceContent note = note(account, "evidence-type");
+        Anchor target = anchor(note);
+        sources.addAnchors(account, note.source().sourceId(), note.version().version(), List.of(target));
+        Evidence forgedClaim = new Evidence(id(), runId, step.stepId(), "HISTORY", note.source().sourceId(),
+                note.version().version(), target.anchorId(), "伪造的推导", null);
+        assertConflict(() -> ledger.recordEvidence(account, runId, List.of(forgedClaim)));
+        Evidence currentOnNote = new Evidence(id(), runId, step.stepId(), "CURRENT_SNAPSHOT",
+                note.source().sourceId(), note.version().version(), target.anchorId(), "正文", null);
+        assertConflict(() -> ledger.recordEvidence(account, runId, List.of(currentOnNote)));
+        Evidence derivationWithSource = new Evidence(id(), runId, step.stepId(), "DERIVATION",
+                note.source().sourceId(), note.version().version(), target.anchorId(), "正文", null);
+        assertConflict(() -> ledger.recordEvidence(account, runId, List.of(derivationWithSource)));
+        assertThat(ledger.evidence(account, runId)).isEmpty();
+        Evidence valid = new Evidence(id(), runId, step.stepId(), "HISTORY", note.source().sourceId(),
+                note.version().version(), target.anchorId(), target.text(), null);
+        ledger.recordEvidence(account, runId, List.of(valid));
+        // 模拟补丁前已存的自造quote；发布边界也必须重新核对，不能只信旧账本行。
+        jdbc.update("UPDATE ma_evidence SET claim = ? WHERE evidence_id = ?", "旧的伪造文本", valid.evidenceId());
+        assertConflict(() -> ledger.publish(account, runId, ledger.execution(account, runId).revision(),
+                new ResultDraft(markedBody(List.of(valid.evidenceId())), List.of(valid.evidenceId()))));
+        assertNoResult(runId);
+    }
+
+    @Test
+    void currentSnapshotEvidenceRequiresThisRunSourceAndHistoryCannotPointToSnapshot() throws Exception {
+        long account = account();
+        String question = question(account);
+        jdbc.update("UPDATE question SET body_markdown = ?, summary = ? WHERE account_id = ? "
+                + "AND question_id = ?", AnswerTestData.BODY, "求导", account, Long.parseLong(question));
+        String requestId = id();
+        AnswerModels.SaveManifest manifest = AnswerTestData.manifest(requestId, null);
+        AnswerFileStore.Candidate candidate = files.save(manifest,
+                new AnswerModels.QuestionSnapshot(question, "OTHER", AnswerTestData.BODY),
+                List.of(part("manifest", json.writeValueAsBytes(manifest), MediaType.APPLICATION_JSON),
+                part("chunk_0000", AnswerTestData.png(32), MediaType.IMAGE_PNG),
+                part("question_0000", AnswerTestData.png(16), MediaType.IMAGE_PNG)));
+        try {
+            ledger.create(account, question, requestId, create(requestId));
+            Request request = ledger.bindSnapshot(account, question, requestId,
+                    new SnapshotBinding(candidate.fileRef(), candidate.requestHash(), id(), 1));
+            String runId = request.currentRunId();
+            start(account, runId);
+            Attempt step = ledger.beginAttempt(account, runId, Role.RETRIEVE, 1, digest("retrieve"));
+            Execution execution = ledger.execution(account, runId);
+            SourceContent current = sources.get(account, execution.snapshotSourceId(), execution.snapshotVersion());
+            Anchor currentAnchor = handwritingAnchor(current);
+            sources.addAnchors(account, current.source().sourceId(), current.version().version(),
+                    List.of(currentAnchor));
+            Evidence allowed = new Evidence(id(), runId, step.stepId(), "CURRENT_SNAPSHOT",
+                    current.source().sourceId(), current.version().version(), currentAnchor.anchorId(),
+                    "手写推导", null);
+            ledger.recordEvidence(account, runId, List.of(allowed));
+            Evidence historyOnSnapshot = new Evidence(id(), runId, step.stepId(), "HISTORY",
+                    current.source().sourceId(), current.version().version(), currentAnchor.anchorId(),
+                    "手写推导", null);
+            assertConflict(() -> ledger.recordEvidence(account, runId, List.of(historyOnSnapshot)));
+
+            SourceContent other = sources.publish(account, new PublishSource(SourceType.TUTOR_SNAPSHOT,
+                    id(), "other snapshot", null, candidate.requestHash(), candidate.fileRef(),
+                    null, null, id()));
+            Anchor otherAnchor = handwritingAnchor(other);
+            sources.addAnchors(account, other.source().sourceId(), other.version().version(), List.of(otherAnchor));
+            Evidence stolen = new Evidence(id(), runId, step.stepId(), "CURRENT_SNAPSHOT",
+                    other.source().sourceId(), other.version().version(), otherAnchor.anchorId(),
+                    "手写推导", null);
+            assertConflict(() -> ledger.recordEvidence(account, runId, List.of(stolen)));
+            assertThat(ledger.evidence(account, runId)).containsExactly(allowed);
+        } finally {
+            files.discard(candidate);
+        }
+    }
+
+    private static Part part(String name, byte[] bytes, MediaType type) {
+        MockPart part = new MockPart(name, name, bytes);
+        part.getHeaders().setContentType(type);
+        return part;
+    }
+
+    private Anchor handwritingAnchor(SourceContent content) {
+        String locator = "{\"schemaVersion\":1,\"markdownLocator\":null,"
+                + "\"handwritingLocator\":{\"segments\":[{\"blockIndex\":0,"
+                + "\"questionRaster\":false,\"blockWorldBounds\":{\"x\":0.0,\"y\":0.0,"
+                + "\"width\":32.0,\"height\":32.0},\"pixelWidth\":32,\"pixelHeight\":32,"
+                + "\"regionWorldBounds\":{\"x\":0.0,\"y\":0.0,\"width\":32.0,"
+                + "\"height\":32.0},\"strokeIds\":[\"s-1\"]}]}}";
+        return new Anchor(id(), content.source().sourceId(), content.version().version(),
+                "HANDWRITING_STEP", 0, digest("手写推导"), locator, "手写推导");
+    }
+
+    private Evidence historyEvidence(long account, String runId, String stepId, String origin) {
+        SourceContent source = note(account, origin);
+        Anchor target = anchor(source);
+        sources.addAnchors(account, source.source().sourceId(), source.version().version(), List.of(target));
+        return new Evidence(id(), runId, stepId, "HISTORY", source.source().sourceId(),
+                source.version().version(), target.anchorId(), "正文", null);
+    }
+
+    private static String markedBody(List<String> evidenceIds) {
+        return "提示：" + evidenceIds.stream().map(value -> "[[evidence:" + value + "]]")
+                .collect(java.util.stream.Collectors.joining("、"));
     }
 
     private void assertNoResult(String runId) {
