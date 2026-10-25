@@ -14,6 +14,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>io.temporal</groupId>
+            <artifactId>temporal-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.betterlearning</groupId>
             <artifactId>server-common</artifactId>
         </dependency>
