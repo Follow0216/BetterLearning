@@ -59,6 +59,15 @@ export class UserProfile {
 }
 
 /**
+ * 联系方式 PATCH 输入。缺省/undefined 保持原值，null 明确解绑，空串不表示解绑。
+ * 仅给需要修改的字段赋值；服务端负责最终规范化、校验和唯一性约束。
+ */
+export class UpdateProfileInput {
+  phone?: string | null;
+  email?: string | null;
+}
+
+/**
  * 登录成功数据；对应服务端 {@code SessionVO}。
  *
  * <p>只包含访问令牌、令牌类型、有效期秒数与用户资料。服务端不提供刷新令牌，

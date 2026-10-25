@@ -6,12 +6,15 @@ import {
   AuthResult,
   AuthSessionData,
   ServerErrorPayload,
-  UserProfile
+  UserProfile,
+  UpdateProfileInput
 } from './AuthModels';
 import {
   AuthFormErrors,
   validate_login_form,
-  validate_register_form
+  validate_register_form,
+  validate_profile_update,
+  validate_change_password
 } from './AuthValidation';
 
 
@@ -39,6 +42,9 @@ const LOGIN_PATH: string = '/api/v1/sessions';
 /** 当前用户路径。 */
 const CURRENT_USER_PATH: string = '/api/v1/users/me';
 
+/** 当前用户改密路径。 */
+const CHANGE_PASSWORD_PATH: string = '/api/v1/users/me/password';
+
 /** 当前会话路径。 */
 const CURRENT_SESSION_PATH: string = '/api/v1/sessions/current';
 
@@ -61,9 +67,14 @@ interface RegisterPayload {
   confirmPassword: string;
 }
 
-/**
- * 登录请求体。
- */
+/** 改密请求体；口令原样传递。 */
+interface ChangePasswordPayload {
+  oldPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+/** 登录请求体。 */
 interface LoginPayload {
   username: string;
   password: string;
@@ -488,6 +499,73 @@ export class AuthApi {
         AuthError.protocol_failure('用户资料响应格式不符合预期'));
     }
     return AuthResult.success<UserProfile>(user);
+  }
+
+  /** 更新联系方式；缺省保持，null 解绑，不自动更新全局会话或重试。 */
+  async updateProfile(token: string, input: UpdateProfileInput): Promise<AuthResult<UserProfile>> {
+    if (token.length === 0) {
+      return AuthResult.failure<UserProfile>(
+        AuthError.local_validation('登录状态缺失，请重新登录', {}));
+    }
+    const errors: Record<string, string> = validate_profile_update(input);
+    if (Object.keys(errors).length > 0) {
+      return AuthResult.failure<UserProfile>(AuthError.local_validation('请检查联系方式', errors));
+    }
+    const payload: UpdateProfileInput = new UpdateProfileInput();
+    if (input.phone !== undefined) {
+      payload.phone = input.phone;
+    }
+    if (input.email !== undefined) {
+      payload.email = input.email;
+    }
+    const outcome: RequestOutcome = await this.send_request(http.RequestMethod.PATCH,
+      CURRENT_USER_PATH, token, JSON.stringify(payload));
+    const transportError: AuthError | null = this.transport_error(outcome);
+    if (transportError !== null) {
+      return AuthResult.failure<UserProfile>(transportError);
+    }
+    const response: RawHttpResponse = outcome.response as RawHttpResponse;
+    if (response.status !== STATUS_OK) {
+      return AuthResult.failure<UserProfile>(this.http_error(response));
+    }
+    const user: UserProfile | null = parse_user_body(response.body);
+    if (user === null) {
+      return AuthResult.failure<UserProfile>(AuthError.protocol_failure('用户资料响应格式不符合预期'));
+    }
+    return AuthResult.success<UserProfile>(user);
+  }
+
+  /**
+   * 改密成功 204 表示所有旧令牌失效；不签发新 token，不自动改全局会话。
+   * 调用方须按请求 token 处理退出，网络失败不能据此判断事务是否已提交。
+   */
+  async changePassword(token: string, oldPassword: string, newPassword: string,
+    confirmPassword: string): Promise<AuthResult<boolean>> {
+    if (token.length === 0) {
+      return AuthResult.failure<boolean>(
+        AuthError.local_validation('登录状态缺失，请重新登录', {}));
+    }
+    const errors: Record<string, string> =
+      validate_change_password(oldPassword, newPassword, confirmPassword);
+    if (Object.keys(errors).length > 0) {
+      return AuthResult.failure<boolean>(AuthError.local_validation('请检查密码信息', errors));
+    }
+    const payload: ChangePasswordPayload = {
+      oldPassword: oldPassword,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword
+    };
+    const outcome: RequestOutcome = await this.send_request(http.RequestMethod.PATCH,
+      CHANGE_PASSWORD_PATH, token, JSON.stringify(payload));
+    const transportError: AuthError | null = this.transport_error(outcome);
+    if (transportError !== null) {
+      return AuthResult.failure<boolean>(transportError);
+    }
+    const response: RawHttpResponse = outcome.response as RawHttpResponse;
+    if (response.status !== STATUS_NO_CONTENT) {
+      return AuthResult.failure<boolean>(this.http_error(response));
+    }
+    return AuthResult.success<boolean>(true);
   }
 
   /**
