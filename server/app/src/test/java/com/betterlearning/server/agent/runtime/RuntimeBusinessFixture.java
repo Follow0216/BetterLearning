@@ -14,6 +14,7 @@ import com.betterlearning.server.learning.retention.SourceDeletionService;
 import com.betterlearning.server.learning.service.impl.SourceStoreImpl;
 import com.betterlearning.server.retrieval.MybatisRetrievalIndexStore;
 import com.betterlearning.worker.AgentWorkerApplication;
+import com.betterlearning.server.support.IntegrationContainers;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -31,16 +32,12 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * P2 故障测试的独立业务库夹具。只创建自己的 PostgreSQL 容器与临时文件根目录；
  * 不复用 Temporal 历史库，也不连接既有业务数据库。
  */
 public final class RuntimeBusinessFixture implements AutoCloseable {
-    private static final String POSTGRES_IMAGE = "pgvector/pgvector@sha256:"
-            + "42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d";
-
     private final PostgreSQLContainer postgres;
     private final Path fixtureRoot;
     private final Path filesRoot;
@@ -61,8 +58,7 @@ public final class RuntimeBusinessFixture implements AutoCloseable {
             Path journal = directory.resolve("journal");
             DeletionJournal.initialize(journal);
             String password = UUID.randomUUID().toString().replace("-", "");
-            database = new PostgreSQLContainer(DockerImageName.parse(POSTGRES_IMAGE)
-                    .asCompatibleSubstituteFor("postgres"))
+            database = IntegrationContainers.postgres()
                     .withDatabaseName("betterlearning_p2")
                     .withUsername("p2_test")
                     .withPassword(password);
