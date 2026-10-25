@@ -3,7 +3,7 @@ import {
   AnswerManifest, AnswerState, AuthError, AuthResult, CanvasEditableDocument, CanvasImageBlock, CanvasLocalFile, CanvasView,
   FrozenAnswerUpload, FrozenTutorAnswer, TutorApi, TutorTurn, QuestionDetail, QuestionRasterHost, QuestionRasterResult, SolutionApi, SolutionDetail,
   UserProfile, authSession, canvas_exists, canvas_read, canvas_text, canvas_sha256, canvas_utf8, canvas_write, clone_canvas_document,
-  validate_answer_manifest, validate_canvas_document
+  valid_canvas_view, validate_answer_manifest, validate_canvas_document
 } from 'common';
 import { CanvasWorkspaceActions, CanvasWorkspaceState, TabletCanvasController } from './CanvasWorkspaceController';
 import { CanvasDraftStore, LocalCanvasDraft } from './CanvasDraftStore';
@@ -140,7 +140,7 @@ export struct TabletCanvasWorkspace {
     }
   }
   private install_local(draft: LocalCanvasDraft): void {
-    this.document = draft.document; this.files = draft.files; this.initialView = draft.view; this.view = draft.view;
+    this.document = draft.document; this.files = draft.files; this.initialView = valid_canvas_view(draft.view) ? draft.view : null; this.view = draft.view;
     this.baseFileRef = draft.baseFileRef; this.state = draft.answerState; this.completed = this.state === AnswerState.COMPLETED;
     this.dirty = draft.dirty; this.pending = draft.pendingUpload; this.localSaved = true;
     this.mountKey = this.accountId + ':' + this.questionId + ':' + this.generation.toString();
@@ -253,8 +253,8 @@ export struct TabletCanvasWorkspace {
     this.document = doc; this.dirty = true; this.pending = null; this.message = ''; this.persist(); this.emit();
   }
   private view_changed(view: CanvasView, key: string): void {
-    if (!this.alive || key !== this.mountKey || !authSession.matches_access_token(this.token)) { return; }
-    this.view = view; this.persist(); this.emit();
+    if (!this.alive || key !== this.mountKey || !authSession.matches_access_token(this.token) || !valid_canvas_view(view)) { return; }
+    this.view = { x: view.x, y: view.y, scale: view.scale }; this.persist(); this.emit();
   }
   private failure(message: string): AuthResult<SolutionDetail> {
     this.message = message; this.emit(); return AuthResult.failure<SolutionDetail>(AuthError.local_validation(message, {}));

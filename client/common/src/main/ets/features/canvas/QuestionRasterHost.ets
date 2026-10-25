@@ -182,7 +182,11 @@ export struct QuestionRasterHost {
       const status: RasterStatus = await this.wait_status(-1,batch,active,deadline);
       const bounds: CanvasRect = status.bounds;
       const count: number = Math.ceil(bounds.width / CANVAS_TILE_SIZE) * Math.ceil(bounds.height / CANVAS_TILE_SIZE);
-      if (!Number.isFinite(count) || count > 256 || bounds.width * bounds.height > 64000000) { throw new Error('完整题面过大，不能截断保存'); }
+      const exportWidth: number = bounds.width + 32; const exportHeight: number = bounds.height + 32;
+      const exportCount: number = Math.ceil(exportWidth / CANVAS_TILE_SIZE) * Math.ceil(exportHeight / CANVAS_TILE_SIZE);
+      if (!Number.isFinite(count) || count + exportCount > 256 ||
+        bounds.width * bounds.height + exportWidth * exportHeight > 64000000) { throw new Error('完整题面过大，不能截断保存'); }
+      let density: number = 0;
       const blocks: CanvasImageBlock[] = []; const files: CanvasLocalFile[] = [];
       const bodyHash: string = await canvas_sha256(canvas_utf8(body));
       for (let y: number = bounds.y; y < bounds.y + bounds.height; y += CANVAS_TILE_SIZE) {
@@ -196,16 +200,28 @@ export struct QuestionRasterHost {
           await this.wait_status(index,batch,active,deadline);
           const snapshot: image.PixelMap = await this.capture(width,height,index,batch,active,deadline);
           let png: Uint8Array;
+          let pixelWidth: number = width; let pixelHeight: number = height;
           try {
             const info: image.ImageInfo = await snapshot.getImageInfo();
             if (!active() || Date.now() >= deadline) { throw new Error('题面生成已停止'); }
-            if (info.size.width < width || info.size.height < height || Math.abs(info.size.width / width - info.size.height / height) > 0.05) {
+            if (info.size.width < width || info.size.height < height || Math.abs(info.size.width * height - info.size.height * width) > Math.max(width,height)) {
               throw new Error('题面快照尺寸不符合布局');
             }
-            const canvas: OffscreenCanvas = new OffscreenCanvas(width, height, LengthMetricsUnit.PX);
+            if (density === 0) {
+              // 保留真实快照细节，密度上限2；不把低分辨率源放大伪装成高清源。
+              density = Math.floor(Math.min(2,info.size.width / width,info.size.height / height) * 64) / 64;
+              const pixels: number = Math.round(bounds.width * density) * Math.round(bounds.height * density);
+              if (density < 1 || pixels + exportWidth * exportHeight > 64000000) { throw new Error('高清题面超过像素限制'); }
+            }
+            // 相邻图块共用同一个像素边界，末端窄/短块不会累积取整偏移。
+            pixelWidth = Math.round((x - bounds.x + width) * density) - Math.round((x - bounds.x) * density);
+            pixelHeight = Math.round((y - bounds.y + height) * density) - Math.round((y - bounds.y) * density);
+            if (pixelWidth > info.size.width || pixelHeight > info.size.height) { throw new Error('题面快照像素不足'); }
+            const canvas: OffscreenCanvas = new OffscreenCanvas(pixelWidth,pixelHeight,LengthMetricsUnit.PX);
             const context: OffscreenCanvasRenderingContext2D = canvas.getContext('2d');
-            context.fillStyle = '#FFFFFF'; context.fillRect(0,0,width,height); context.drawImage(snapshot,0,0,width,height);
-            const normalized: image.PixelMap = context.getPixelMap(0,0,width,height);
+            context.fillStyle = '#FFFFFF'; context.fillRect(0,0,pixelWidth,pixelHeight);
+            context.drawImage(snapshot,0,0,pixelWidth,pixelHeight);
+            const normalized: image.PixelMap = context.getPixelMap(0,0,pixelWidth,pixelHeight);
             try { png = await canvas_png(normalized); } finally { await normalized.release(); }
           } finally { await snapshot.release(); }
           if (!active() || Date.now() >= deadline) { throw new Error('题面生成已停止'); }
@@ -216,7 +232,7 @@ export struct QuestionRasterHost {
           canvas_write(path, png);
           const name: string = 'question_' + index.toString().padStart(4,'0');
           blocks.push({ index: index, partName: name, x: x, y: y, width: width, height: height,
-            pixelWidth: width, pixelHeight: height, sha256: sha });
+            pixelWidth: pixelWidth, pixelHeight: pixelHeight, sha256: sha });
           files.push({ partName: name, filePath: path });
         }
       }

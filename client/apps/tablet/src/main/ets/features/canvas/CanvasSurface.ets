@@ -2,8 +2,8 @@ import { image } from '@kit.ImageKit';
 import { LengthMetricsUnit } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import {
-  AuthError, AuthResult, CanvasEditableDocument, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView, CanvasPenKind,
-  canvas_image, clone_canvas_document, fit_canvas, stroke_hit, valid_world_number, world_point, zoom_canvas
+  AuthError, AuthResult, CanvasEditableDocument, CanvasImageBlock, CanvasLocalFile, CanvasPoint, CanvasRect, CanvasStroke, CanvasTool, CanvasView, CanvasPenKind,
+  canvas_image, clone_canvas_document, fit_canvas, initial_canvas_view, stroke_hit, valid_canvas_view, valid_world_number, world_point, zoom_canvas
 } from 'common';
 import { canvas_intersects, draw_canvas_stroke, stroke_bounds } from './CanvasPainter';
 import { CanvasPressureSampler, CANVAS_PEN_COLORS, CANVAS_PEN_SIZES, canvas_pen_color, canvas_pen_width } from './CanvasPenInput';
@@ -53,6 +53,15 @@ export struct CanvasSurface {
   private viewSet: boolean = false;
   private backgroundMap: image.PixelMap | null = null;
   private paintGeneration: number = 0;
+  private backgroundView: CanvasView | null = null;
+  private backgroundWidthVp: number = 0;
+  private backgroundHeightVp: number = 0;
+  private backgroundRequested: boolean = false;
+  private backgroundRunning: boolean = false;
+  private rasterMaps: Map<string, image.PixelMap> = new Map<string, image.PixelMap>();
+  private rasterPixels: Map<string, number> = new Map<string, number>();
+  private rasterOrder: string[] = [];
+  private rasterPixelCount: number = 0;
   private pointers: Map<number, CanvasPoint> = new Map<number, CanvasPoint>();
   private pointerSources: Map<number, SourceTool> = new Map<number, SourceTool>();
   private editPointerId: number | null = null;
@@ -73,12 +82,12 @@ export struct CanvasSurface {
   }
   aboutToDisappear(): void {
     this.alive = false; this.paintGeneration++; this.cancel_gesture(); this.onFreezeHandle(this.freezeHandle,false);
-    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
+    this.release_background();
   }
   private reset(): void {
     this.cancel_gesture(); this.committedDocument = this.document; this.undoHistory = []; this.update_undo(); this.viewSet = false;
     this.paintGeneration++;
-    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
+    this.release_background();
     this.configure_view();
   }
   private document_changed(): void {
@@ -101,53 +110,118 @@ export struct CanvasSurface {
     return { x: x, y: y, width: right - x, height: bottom - y };
   }
   private configure_view(): void {
-    if (!this.ready || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
+    if (!this.alive || !this.ready || this.committedDocument === null || !Number.isFinite(this.canvasWidthVp) ||
+      !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
     if (!this.viewSet) {
-      this.view = this.initialView === null ? fit_canvas(this.bounds(),this.canvasWidthVp,this.canvasHeightVp) :
-        { x: this.initialView.x, y: this.initialView.y, scale: this.initialView.scale };
+      const initial: CanvasView | null = this.initialView;
+      this.view = initial !== null && valid_canvas_view(initial) ?
+        { x: initial.x, y: initial.y, scale: initial.scale } :
+        initial_canvas_view(this.committedDocument.questionLayout.bounds,this.canvasWidthVp,this.committedDocument.questionLayout.fontSize);
       this.viewSet = true;
+      // 首次适配同样进入草稿；未移动就退出也能恢复实际阅读位置。
+      this.onViewChange({ x: this.view.x, y: this.view.y, scale: this.view.scale });
     }
     this.zoomText = Math.round(this.view.scale * 100).toString() + '%';
-    this.rebuild_background();
+    this.paint(); this.rebuild_background();
   }
-  private async rebuild_background(): Promise<void> {
-    if (!this.ready || this.committedDocument === null || !Number.isFinite(this.canvasWidthVp) || !Number.isFinite(this.canvasHeightVp) || this.canvasWidthVp < 1 || this.canvasHeightVp < 1) { return; }
-    const generation: number = ++this.paintGeneration;
-    const doc: CanvasEditableDocument = this.committedDocument;
-    const view: CanvasView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
-    const files: CanvasLocalFile[] = this.rasterFiles.slice();
-    const width: number = Math.ceil(this.canvasWidthVp); const height: number = Math.ceil(this.canvasHeightVp);
-    try {
-      const canvas: OffscreenCanvas = new OffscreenCanvas(width,height,LengthMetricsUnit.PX);
-      const context: OffscreenCanvasRenderingContext2D = canvas.getContext('2d');
-      context.fillStyle = '#FFFFFF'; context.fillRect(0,0,width,height);
-      context.scale(view.scale,view.scale); context.translate(-view.x,-view.y);
-      const visible: CanvasRect = { x: view.x, y: view.y, width: width / view.scale, height: height / view.scale };
-      for (let i: number = 0; i < doc.questionLayout.rasterBlocks.length; i++) {
-        const block = doc.questionLayout.rasterBlocks[i];
-        if (!canvas_intersects(visible,block)) { continue; }
-        const file: CanvasLocalFile | undefined = files.find((item: CanvasLocalFile) => item.partName === block.partName);
-        if (file === undefined) { throw new Error('题面底图缺失'); }
-        const map: image.PixelMap = await canvas_image(file.filePath);
-        try {
-          if (!this.alive || generation !== this.paintGeneration) { return; }
-          context.drawImage(map,block.x,block.y,block.width,block.height);
-        } finally { await map.release(); }
-      }
-      if (!this.alive || generation !== this.paintGeneration) { return; }
-      const next: image.PixelMap = context.getPixelMap(0,0,width,height);
-      const previous: image.PixelMap | null = this.backgroundMap;
-      this.backgroundMap = next; this.paint();
-      if (previous !== null) { await previous.release(); }
-    } catch (error) {
-      if (this.alive && generation === this.paintGeneration) { this.onFailure('画布底图读取失败，请重新打开'); }
+  private release_background(): void {
+    this.backgroundRequested = false;
+    if (this.backgroundMap !== null) { this.backgroundMap.release().catch(() => {}); this.backgroundMap = null; }
+    this.backgroundView = null;
+    this.rasterMaps.forEach((map: image.PixelMap) => { map.release().catch(() => {}); });
+    this.rasterMaps.clear(); this.rasterPixels.clear(); this.rasterOrder = []; this.rasterPixelCount = 0;
+  }
+  private async load_raster(file: CanvasLocalFile, block: CanvasImageBlock, generation: number): Promise<image.PixelMap | null> {
+    const cached: image.PixelMap | undefined = this.rasterMaps.get(file.filePath);
+    if (cached !== undefined) {
+      this.rasterOrder = this.rasterOrder.filter((path: string) => path !== file.filePath);
+      this.rasterOrder.push(file.filePath); return cached;
     }
+    const map: image.PixelMap = await canvas_image(file.filePath);
+    if (!this.alive || generation !== this.paintGeneration) { await map.release(); return null; }
+    let info: image.ImageInfo;
+    try { info = await map.getImageInfo(); }
+    catch (error) { await map.release().catch(() => {}); throw new Error('题面底图尺寸读取失败'); }
+    if (!this.alive || generation !== this.paintGeneration) { await map.release(); return null; }
+    if (info.size.width !== block.pixelWidth || info.size.height !== block.pixelHeight) {
+      await map.release(); throw new Error('题面底图实际尺寸不符');
+    }
+    this.rasterMaps.set(file.filePath,map); this.rasterOrder.push(file.filePath);
+    const pixels: number = block.pixelWidth * block.pixelHeight;
+    this.rasterPixels.set(file.filePath,pixels); this.rasterPixelCount += pixels;
+    // 解码缓存最多8M像素（RGBA约32MiB）；题目切换时全部释放。
+    while (this.rasterPixelCount > 8388608 && this.rasterOrder.length > 1) {
+      const path: string = this.rasterOrder.shift() as string;
+      const old: image.PixelMap | undefined = this.rasterMaps.get(path);
+      this.rasterPixelCount -= this.rasterPixels.get(path) ?? 0;
+      this.rasterMaps.delete(path); this.rasterPixels.delete(path);
+      if (old !== undefined) { await old.release().catch(() => {}); }
+    }
+    return map;
+  }
+  private rebuild_background(): void {
+    this.backgroundRequested = true;
+    if (!this.backgroundRunning && this.alive && this.ready && this.committedDocument !== null &&
+      this.canvasWidthVp >= 1 && this.canvasHeightVp >= 1) { this.build_background(); }
+  }
+  private async build_background(): Promise<void> {
+    this.backgroundRunning = true;
+    try {
+      // 一个在途重建，操作期间只记录最新视口；不会因每次Move取消解码而饿死题面。
+      while (this.alive && this.backgroundRequested && this.committedDocument !== null) {
+        this.backgroundRequested = false;
+        const generation: number = this.paintGeneration;
+        const doc: CanvasEditableDocument = this.committedDocument;
+        const view: CanvasView = { x: this.view.x, y: this.view.y, scale: this.view.scale };
+        const files: CanvasLocalFile[] = this.rasterFiles.slice();
+        const widthVp: number = this.canvasWidthVp; const heightVp: number = this.canvasHeightVp;
+        try {
+          const deviceDensity: number = this.getUIContext().vp2px(1);
+          const density: number = Math.min(Number.isFinite(deviceDensity) ? Math.max(1,deviceDensity) : 1,
+            3,Math.sqrt(4194304 / (widthVp * heightVp)));
+          const width: number = Math.max(1,Math.floor(widthVp * density));
+          const height: number = Math.max(1,Math.floor(heightVp * density));
+          const canvas: OffscreenCanvas = new OffscreenCanvas(width,height,LengthMetricsUnit.PX);
+          const context: OffscreenCanvasRenderingContext2D = canvas.getContext('2d');
+          context.fillStyle = '#FFFFFF'; context.fillRect(0,0,width,height);
+          context.scale(width / widthVp,height / heightVp);
+          context.scale(view.scale,view.scale); context.translate(-view.x,-view.y);
+          const visible: CanvasRect = { x: view.x, y: view.y, width: widthVp / view.scale, height: heightVp / view.scale };
+          let cancelled: boolean = false;
+          for (let i: number = 0; i < doc.questionLayout.rasterBlocks.length; i++) {
+            const block: CanvasImageBlock = doc.questionLayout.rasterBlocks[i];
+            if (!canvas_intersects(visible,block)) { continue; }
+            const file: CanvasLocalFile | undefined = files.find((item: CanvasLocalFile) => item.partName === block.partName);
+            if (file === undefined) { throw new Error('题面底图缺失'); }
+            const map: image.PixelMap | null = await this.load_raster(file,block,generation);
+            if (map === null || !this.alive || generation !== this.paintGeneration) { cancelled = true; break; }
+            context.drawImage(map,block.x,block.y,block.width,block.height);
+          }
+          if (cancelled || !this.alive || generation !== this.paintGeneration) { continue; }
+          const next: image.PixelMap = context.getPixelMap(0,0,width,height);
+          const previous: image.PixelMap | null = this.backgroundMap;
+          this.backgroundMap = next; this.backgroundView = view;
+          this.backgroundWidthVp = widthVp; this.backgroundHeightVp = heightVp;
+          this.paint();
+          if (previous !== null) { await previous.release().catch(() => {}); }
+        } catch (error) {
+          if (this.alive && generation === this.paintGeneration) { this.onFailure('画布底图读取失败，请重新打开'); }
+        }
+      }
+    } finally { this.backgroundRunning = false; }
   }
   private paint(): void {
     if (!this.ready) { return; }
     const context: CanvasRenderingContext2D = this.context;
     context.resetTransform(); context.fillStyle = '#FFFFFF'; context.fillRect(0,0,this.canvasWidthVp,this.canvasHeightVp);
-    if (this.backgroundMap !== null) { context.drawImage(this.backgroundMap,0,0,this.canvasWidthVp,this.canvasHeightVp); }
+    const cachedView: CanvasView | null = this.backgroundView;
+    if (this.backgroundMap !== null && cachedView !== null) {
+      // 缓存绑定其生成视口；按同一世界坐标投影到当前视口，移动中保持题面与笔迹对齐。
+      const ratio: number = this.view.scale / cachedView.scale;
+      context.drawImage(this.backgroundMap,(cachedView.x - this.view.x) * this.view.scale,
+        (cachedView.y - this.view.y) * this.view.scale,this.backgroundWidthVp * ratio,this.backgroundHeightVp * ratio);
+    }
+    this.paint_cached_rasters(context);
     this.paint_paper(context);
     context.save(); context.scale(this.view.scale,this.view.scale); context.translate(-this.view.x,-this.view.y);
     const strokes: CanvasStroke[] = this.erased ?? this.committedDocument?.strokes ?? [];
@@ -156,6 +230,20 @@ export struct CanvasSurface {
       if (canvas_intersects(visible,stroke_bounds(strokes[i]))) { draw_canvas_stroke(context,strokes[i]); }
     }
     if (this.liveStroke !== null) { draw_canvas_stroke(context,this.liveStroke); }
+    context.restore();
+  }
+  private paint_cached_rasters(context: CanvasRenderingContext2D): void {
+    if (this.committedDocument === null) { return; }
+    context.save(); context.scale(this.view.scale,this.view.scale); context.translate(-this.view.x,-this.view.y);
+    const visible: CanvasRect = { x: this.view.x, y: this.view.y, width: this.canvasWidthVp / this.view.scale, height: this.canvasHeightVp / this.view.scale };
+    for (let i: number = 0; i < this.committedDocument.questionLayout.rasterBlocks.length; i++) {
+      const block: CanvasImageBlock = this.committedDocument.questionLayout.rasterBlocks[i];
+      if (!canvas_intersects(visible,block)) { continue; }
+      const file: CanvasLocalFile | undefined = this.rasterFiles.find((item: CanvasLocalFile) => item.partName === block.partName);
+      const map: image.PixelMap | undefined = file === undefined ? undefined : this.rasterMaps.get(file.filePath);
+      // 命中源图时直接交给原生Canvas按世界矩形绘制，缩放不再放大旧视口缓存。
+      if (map !== undefined) { context.drawImage(map,block.x,block.y,block.width,block.height); }
+    }
     context.restore();
   }
   /** 仅为屏幕纸面着色和绘制点阵，不修改固定题面 PNG 或导出画布。 */
@@ -259,11 +347,11 @@ export struct CanvasSurface {
     if (world !== null) { this.erased = this.erased.filter((stroke: CanvasStroke) => !stroke_hit(stroke,world,12 / this.view.scale)); }
   }
   private change_view(view: CanvasView, persist: boolean): void {
-    if (!valid_world_number(view.x) || !valid_world_number(view.y)) { return; }
-    this.view = view; this.zoomText = Math.round(view.scale * 100).toString() + '%';
-    // 旧视口题面不与新坐标混画；新底图只影响显示，笔迹继续使用世界坐标。
-    if (this.backgroundMap !== null) { this.backgroundMap.release(); this.backgroundMap = null; }
-    this.paint(); this.rebuild_background(); if (persist) { this.onViewChange(view); }
+    if (!valid_canvas_view(view)) { return; }
+    this.view = { x: view.x, y: view.y, scale: view.scale };
+    this.zoomText = Math.round(view.scale * 100).toString() + '%';
+    this.paint(); this.rebuild_background();
+    if (persist) { this.onViewChange({ x: view.x, y: view.y, scale: view.scale }); }
   }
   private touch(event: TouchEvent): void {
     event.stopPropagation();
@@ -501,7 +589,9 @@ export struct CanvasSurface {
           const height: number = typeof area.height === 'number' ? area.height : parseFloat(area.height.toString());
           if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
             this.chromeWidthVp = width;
-            this.canvasWidthVp = width; this.canvasHeightVp = height; this.configure_view();
+            if (width !== this.canvasWidthVp || height !== this.canvasHeightVp) {
+              this.canvasWidthVp = width; this.canvasHeightVp = height; this.configure_view();
+            }
           }
         })
         .onTouch((event: TouchEvent) => { this.touch(event); })

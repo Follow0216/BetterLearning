@@ -24,6 +24,19 @@ export function fit_canvas(rect: CanvasRect, width: number, height: number): Can
   return { x: rect.x - (width / scale - rect.width) / 2, y: rect.y - (height / scale - rect.height) / 2, scale: scale };
 }
 
+/** 首次阅读按题面宽度适配，保留至少16vp字号；长题从顶端开始，允许双向平移。 */
+export function initial_canvas_view(rect: CanvasRect, width: number, fontSize: number): CanvasView {
+  const readable: number = Math.min(1, 16 / Math.max(1, fontSize));
+  const scale: number = Math.max(readable, Math.min(1, Math.max(1, width - 48) / rect.width));
+  const margin: number = 24 / scale;
+  return { x: rect.x - Math.max(margin, (width / scale - rect.width) / 2), y: rect.y - margin, scale: scale };
+}
+
+export function valid_canvas_view(view: CanvasView | null): boolean {
+  return view !== null && valid_world_number(view.x) && valid_world_number(view.y) &&
+    Number.isFinite(view.scale) && view.scale >= 0.000001 && view.scale <= 8;
+}
+
 export function valid_world_number(value: number): boolean {
   return Number.isFinite(value) && Math.abs(value) <= 1000000;
 }
@@ -37,10 +50,21 @@ function contains_rect(outer: CanvasRect, inner: CanvasRect): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width &&
     inner.y + inner.height <= outer.y + outer.height;
 }
-function check_grid(blocks: CanvasImageBlock[], x: number, y: number, width: number, height: number, prefix: string): number {
+function check_grid(blocks: CanvasImageBlock[], x: number, y: number, width: number, height: number, prefix: string, questionRaster: boolean = false): number {
   const columns: number = Math.ceil(width / CANVAS_TILE_SIZE);
   const count: number = columns * Math.ceil(height / CANVAS_TILE_SIZE);
   if (!Array.isArray(blocks) || count < 1 || count > 256 || blocks.length !== count) { throw new Error('图块不完整'); }
+  let pixels: number = 0;
+  let density: number = 1;
+  if (questionRaster) {
+    const first: CanvasImageBlock = blocks[0];
+    if (!first || !Number.isFinite(first.width) || !Number.isFinite(first.height) || first.width <= 0 || first.height <= 0) {
+      throw new Error('题面图块尺寸无效');
+    }
+    // 取首块较长轴，避免末端窄块以短轴推导密度时放大取整误差。
+    density = first.width >= first.height ? first.pixelWidth / first.width : first.pixelHeight / first.height;
+    if (!Number.isFinite(density) || density < 1 || density > 2) { throw new Error('题面像素密度无效'); }
+  }
   for (let i: number = 0; i < count; i++) {
     const block: CanvasImageBlock = blocks[i];
     const bx: number = (i % columns) * CANVAS_TILE_SIZE;
@@ -49,11 +73,16 @@ function check_grid(blocks: CanvasImageBlock[], x: number, y: number, width: num
     const bh: number = Math.min(CANVAS_TILE_SIZE, height - by);
     if (!block || block.index !== i || block.partName !== prefix + i.toString().padStart(4, '0') ||
       block.x !== x + bx || block.y !== y + by || block.width !== bw || block.height !== bh ||
-      block.pixelWidth !== bw || block.pixelHeight !== bh || !/^[0-9a-f]{64}$/.test(block.sha256)) {
+      !Number.isInteger(block.pixelWidth) || !Number.isInteger(block.pixelHeight) ||
+      block.pixelWidth < bw || block.pixelHeight < bh || block.pixelWidth > bw * 2 || block.pixelHeight > bh * 2 ||
+      (questionRaster ? Math.abs(block.pixelWidth - Math.round(bw * density)) > 1 ||
+        Math.abs(block.pixelHeight - Math.round(bh * density)) > 1 : block.pixelWidth !== bw || block.pixelHeight !== bh) ||
+      !/^[0-9a-f]{64}$/.test(block.sha256)) {
       throw new Error('图块网格或摘要无效');
     }
+    pixels += block.pixelWidth * block.pixelHeight;
   }
-  return width * height;
+  return pixels;
 }
 export function validate_canvas_document(doc: CanvasEditableDocument): void {
   if (!doc || doc.schemaVersion !== 1 || !doc.questionLayout || !Array.isArray(doc.strokes) ||
@@ -72,8 +101,9 @@ export function validate_canvas_document(doc: CanvasEditableDocument): void {
     ids.add(block.blockId);
   }
   const left: number = Math.floor(bounds.x); const top: number = Math.floor(bounds.y);
-  check_grid(layout.rasterBlocks, left, top, Math.ceil(bounds.x + bounds.width) - left,
-    Math.ceil(bounds.y + bounds.height) - top, 'question_');
+  const questionPixels: number = check_grid(layout.rasterBlocks, left, top, Math.ceil(bounds.x + bounds.width) - left,
+    Math.ceil(bounds.y + bounds.height) - top, 'question_', true);
+  if (questionPixels > 64000000) { throw new Error('题面超过像素限制'); }
   ids.clear();
   let points: number = 0;
   for (let i: number = 0; i < doc.strokes.length; i++) {
@@ -108,9 +138,11 @@ export function validate_answer_manifest(manifest: AnswerManifest): void {
   const outer: CanvasRect = { x: canvas.originX, y: canvas.originY, width: canvas.width, height: canvas.height };
   const bounds: CanvasRect = manifest.document.questionLayout.bounds;
   if (!contains_rect(outer, bounds)) { throw new Error('完整解答裁掉了题面'); }
-  const left: number = Math.floor(bounds.x); const top: number = Math.floor(bounds.y);
-  const pixels: number = check_grid(manifest.blocks, 0, 0, canvas.width, canvas.height, 'chunk_') +
-    (Math.ceil(bounds.x + bounds.width) - left) * (Math.ceil(bounds.y + bounds.height) - top);
+  let pixels: number = check_grid(manifest.blocks, 0, 0, canvas.width, canvas.height, 'chunk_');
+  for (let i: number = 0; i < manifest.document.questionLayout.rasterBlocks.length; i++) {
+    const block: CanvasImageBlock = manifest.document.questionLayout.rasterBlocks[i];
+    pixels += block.pixelWidth * block.pixelHeight;
+  }
   if (pixels > 64000000 || manifest.blocks.length + manifest.document.questionLayout.rasterBlocks.length > 256) {
     throw new Error('完整解答超过图块限制');
   }
