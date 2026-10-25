@@ -4,14 +4,14 @@
     <insert id="prepareJobs">
         INSERT INTO ma_index_job(event_id)
         SELECT event_id FROM ma_outbox WHERE aggregate_type = 'SOURCE'
-            AND kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN') AND status != 'DELIVERED'
+            AND kind IN ('SOURCE_VERSION_CREATED','SOURCE_REINDEX','SOURCE_WITHDRAWN') AND status IN ('PENDING','FAILED')
             AND NOT EXISTS (SELECT 1 FROM ma_index_job j WHERE j.event_id = ma_outbox.event_id)
         ORDER BY created_at,event_id LIMIT 100 ON CONFLICT DO NOTHING
     </insert>
     <select id="claim" resultType="map" affectData="true" flushCache="true">
         WITH chosen AS (
             SELECT j.event_id FROM ma_index_job j JOIN ma_outbox e USING(event_id)
-            WHERE e.aggregate_type = 'SOURCE' AND e.status != 'DELIVERED'
+            WHERE e.aggregate_type = 'SOURCE' AND e.status IN ('PENDING','FAILED')
                 AND (j.status = 'PROCESSING' OR (j.status = 'PENDING' AND j.attempts &lt; 3)) AND j.next_attempt_at &lt;= CURRENT_TIMESTAMP
                 AND (j.status != 'PROCESSING' OR j.lease_until &lt; CURRENT_TIMESTAMP)
             ORDER BY e.created_at,e.event_id FOR UPDATE OF j SKIP LOCKED LIMIT 1
@@ -111,6 +111,7 @@
     <update id="eventStatus">
         UPDATE ma_outbox SET status = #{status}
         WHERE event_id = #{eventId} AND account_id = #{accountId} AND aggregate_type = 'SOURCE'
+            AND status IN ('PENDING','FAILED')
     </update>
     <sql id="authorized">
         FROM ma_retrieval_chunk c JOIN ma_source s ON s.source_id = c.source_id AND s.account_id = c.account_id
