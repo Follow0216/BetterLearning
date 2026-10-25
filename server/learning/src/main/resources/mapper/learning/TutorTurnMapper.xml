@@ -56,8 +56,9 @@
     </update>
     <update id="claim">
         UPDATE tutor_turn SET status = 'GENERATING', answer_markdown = NULL,
-            failure_code = NULL, failure_message = NULL, updated_at = CURRENT_TIMESTAMP
+            failure_code = NULL, failure_message = NULL, updated_at = clock_timestamp()
         WHERE <include refid="owner"/> AND turn_id = #{turnId} AND status = #{status} AND file_ref IS NOT NULL
+            AND (failure_code IS NULL OR failure_code NOT IN ('TABLET_CANCELLED', 'GENERATION_OUTCOME_UNKNOWN'))
     </update>
     <update id="finish">
         UPDATE tutor_turn SET status = #{status}, answer_markdown = #{answer,jdbcType=VARCHAR},
