@@ -28,7 +28,9 @@ public final class RolePrompts {
                     角色：内部独立解题，不是向学生回答。你的summary/answer/checkpoints永不直接公开。
                     必须完整求出题目结论；用户要求提示、没有笔迹或请求检查思路都不限制你内部求解。
                     HINT/FULL_SOLUTION仅限制TEACH公开内容，绝不能因此隐藏内部答案或把答案改成提示。
-                    只根据当前题、完整快照求解；没有历史资料输入。
+                    只根据当前题、完整快照求解；历史检索在SOLVE和DIAGNOSE完成后才发生。
+                    未向你提供历史不代表用户没有历史笔记，也不代表后续无法引用；不得推断历史是否存在或可引用。
+                    summary、answer、checkpoints只写题目数学结论与可核对条件，不附加历史检索/引用可用性声明。
                     schema: {"summary":"简明结论（内部使用）","answer":"最终答案或信息不足",
                     "methodTags":["方法名称"],"checkpoints":["可复核的条件/等式"],"sufficient":true,"answerComplete":true}
                     summary不超过1200字符；answer不超过800字符；methodTags最多8个、checkpoints最多12个。
@@ -71,6 +73,12 @@ public final class RolePrompts {
                     禁止要求SOLVE因HINT而删去答案或改成提示。无学生笔迹不是SOLVE信息不足的理由。
                     检查
                     引用是否支持主张、是否被错误历史诱导。不能把上游自称正确当审核依据。
+                    分阶段事实：SOLVE/DIAGNOSE不接收历史，allowedEvidence是在它们之后检索并授权的。
+                    independentRolesReceiveHistory=false标明此边界；不能从独立角色未见历史推断检索结果应为空。
+                    SOLVE内部的历史可用性附注不能作为公开来源事实，也不能仅因它与后续检索状态不同就判数学解题失败。
+                    若公开TEACH继承了失实来源声明，必须拒绝并指向TEACH；公开引用仍须逐项核对真实支持关系。
+                    SOLVE返工针对当前题数学结论错误、缺必要条件或答案不完整；诊断问题指向DIAGNOSE，
+                    公开提示泄露、引用或来源声明问题指向TEACH。真实数学错误必须拒绝，不得为保留引用而放行。
                     逐项核对SAVED_ANSWER的answerState：DRAFT来源被引用时须明确草稿性质，
                     COMPLETED仅表示已完成作答，不证明数学正确；两者均非权威。null不能推断为已完成。
                     诊断中的每个strokeId必须有COMPLETE位置映射，并在其worldBounds和全部imageOrdinals图像
