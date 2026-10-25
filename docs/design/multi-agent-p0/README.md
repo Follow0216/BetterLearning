@@ -2,6 +2,8 @@
 
 > 本文保存已审核的P0设计基线；当前P0–P6实现、标签和未过门槛见[里程碑](milestones.md)及[最新审核入口](../../testing/multi-agent-delivery/review-guide.md)。
 
+当前实施快照本轮候选 `multi-agent-p6-rc3` 工程审核候选：用户已明确**本机隔离环境 4 并发用户**为本轮性能目标，20 个固定真实模型样本已结束，19 个成功、1 个 `REVIEW_REJECTED`，未补跑。性能验收**未通过**；详细耗时统计待[本机性能复核报告](../../testing/multi-agent-delivery/p6-local-performance-review.md)固定，生产环境另行验收。本段不改变下文 P0 设计基线。
+
 - 状态：**P0 已于 2026-10-25 获用户审核通过，已授权提交、合并 develop，并按里程碑继续实施；本提交保存 P0 设计与验证基线。**
 - 基线：`develop@0c8bd94556d417a00bde847b055d26363a46eda5`，核对日期 2026-10-25。
 - 范围：BetterLearning 内当前题目与手写作答的解题、错误诊断、分步辅导，以及可追溯的个人历史引用。
