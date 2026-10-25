@@ -403,7 +403,9 @@ export struct PhoneTutorPage {
 
   private track_latest_turn(turn: TutorTurn, area: Area): void {
     if (this.turns.length === 0 || turn.turnId !== this.turns[this.turns.length - 1].turnId) { return; }
-    const value: number = typeof area.position.y === 'number' ? area.position.y : parseFloat(area.position.y.toString());
+    const positionY: Length | undefined = area.position.y;
+    if (positionY === undefined) { return; }
+    const value: number = typeof positionY === 'number' ? positionY : parseFloat(positionY.toString());
     if (Number.isFinite(value) && value >= 0) {
       this.latestTurnTop = value;
       this.latestTurnMeasured = true;
