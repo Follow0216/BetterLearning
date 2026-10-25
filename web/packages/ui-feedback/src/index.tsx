@@ -5,7 +5,6 @@ import {
   useContext,
   useEffect,
   useState,
-  useRef,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -33,13 +32,13 @@ const portalTarget = () => document.querySelector("dialog[open]") ?? document.bo
 const serverPortalTarget = () => null;
 
 function ToastCard({ item, store }: { item: ToastItem; store: ToastStore }) {
+  useEffect(() => store.present(item.key, item.revision), [item.key, item.revision, store]);
   useEffect(() => {
-    store.present(item.key, item.revision);
     return () => {
       store.setPaused(item.key, "hover", false);
       store.setPaused(item.key, "focus", false);
     };
-  }, [item.key, item.revision, store]);
+  }, [item.key, store]);
   return (
     <div
       className="bl-toast"
@@ -95,17 +94,7 @@ function ToastHost({ store }: { store: ToastStore }) {
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new ToastStore());
-  const lifecycle = useRef(0);
-  useEffect(() => {
-    const version = ++lifecycle.current;
-    return () => {
-      // StrictMode immediately sets up the same instance again. A real unmount
-      // has no later setup and permanently disposes captured async callbacks.
-      queueMicrotask(() => {
-        if (lifecycle.current === version) store.dispose();
-      });
-    };
-  }, [store]);
+  useEffect(() => store.attachProvider(), [store]);
   return (
     <ToastContext.Provider value={store}>
       {children}
