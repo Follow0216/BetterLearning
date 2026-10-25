@@ -46,10 +46,12 @@ export function LogoutButton() {
         onClick={() => void handleLogout()}
         disabled={pending}
         aria-busy={pending}
+        aria-label={pending ? "正在退出" : "退出"}
+        title="退出"
         className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium text-[var(--auth-muted)] transition-colors hover:text-[var(--auth-text)] focus-visible:ring-2 focus-visible:ring-[var(--auth-primary)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         <BlIcon name="logout" size={16} />
-        {pending ? "正在退出…" : "退出"}
+        <span className="hidden sm:inline">{pending ? "正在退出…" : "退出"}</span>
       </button>
     </span>
   );

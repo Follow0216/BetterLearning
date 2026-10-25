@@ -71,8 +71,39 @@ export function buildWorkspaceHref(view: LibraryView, page: number): string {
   return query.length === 0 ? "/workspace" : `/workspace?${query}`;
 }
 
-export function buildQuestionHref(questionId: string): string {
-  return `/workspace/questions/${encodeURIComponent(questionId)}`;
+export interface LibrarySource {
+  view: LibraryView;
+  page: number;
+}
+
+export function parseLibrarySource(searchParams: SearchParamsInput): LibrarySource | null {
+  if (firstValue(searchParams.from) !== "library") {
+    return null;
+  }
+  return { view: parseLibraryView(searchParams), page: parsePageNumber(searchParams.page) };
+}
+
+export function buildQuestionHref(questionId: string, source?: LibrarySource): string {
+  const path = `/workspace/questions/${encodeURIComponent(questionId)}`;
+  if (source === undefined) {
+    return path;
+  }
+  const params = new URLSearchParams(buildWorkspaceHref(source.view, source.page).split("?")[1]);
+  params.set("from", "library");
+  return `${path}?${params}`;
+}
+
+export function buildLibraryReturnHref(source: LibrarySource | null): string {
+  if (source === null) {
+    return "/workspace";
+  }
+  const params = new URLSearchParams(buildWorkspaceHref(source.view, source.page).split("?")[1]);
+  params.set("restore", "1");
+  return `/workspace?${params}`;
+}
+
+export function shouldRestoreLibraryScroll(searchParams: SearchParamsInput): boolean {
+  return firstValue(searchParams.restore) === "1";
 }
 
 export function totalPages(total: number, pageSize: number): number {
