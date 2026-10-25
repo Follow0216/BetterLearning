@@ -9,6 +9,7 @@ import com.betterlearning.server.agent.pipeline.RoleProtocol.Input;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.PipelineFailure;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Reason;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Role;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.core.json.JsonFactory;
@@ -33,17 +34,18 @@ public final class RoleOutputValidator {
         }
         try {
             JsonNode node = JSON.readTree(value);
+            boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8
+                    && !input.strokeIds().isEmpty();
+            // 只有完整位置映射才能支持具体笔划观察；旧快照和超预算快照不猜测位置。
+            boolean unlocatedWriting = !input.writingMetadataKnown() || (!input.strokeIds().isEmpty()
+                    && input.strokeLocationsStatus() != StrokeLocationsStatus.COMPLETE);
             switch (role) {
                 case SOLVE -> solve(node);
-                case DIAGNOSE -> diagnose(node, input);
+                case DIAGNOSE -> diagnose(node, input, unlocatedWriting);
                 case TEACH -> teach(node);
                 case REVIEW -> review(node);
                 default -> throw new PipelineFailure(Reason.INVALID_OUTPUT);
             }
-            boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8
-                    && !input.strokeIds().isEmpty();
-            // 当前公共快照没有strokeId到世界位置的完整映射；ID存在不等于可定位。
-            boolean unlocatedWriting = !input.strokeIds().isEmpty();
             if (unlocatedWriting && !uncertainOcr && role == Role.DIAGNOSE) {
                 return JSON.readTree("""
                         {"status":"UNCERTAIN","summary":"当前缺少笔划到图像位置的可核对映射，不能可靠定位具体步骤。",
@@ -119,7 +121,7 @@ public final class RoleOutputValidator {
         }
     }
 
-    private static void diagnose(JsonNode node, Input input) {
+    private static void diagnose(JsonNode node, Input input, boolean unlocatedWriting) {
         fields(node, "status", "summary", "observations", "clarification");
         text(node, "summary", 1200, false);
         text(node, "clarification", 1600, true);
@@ -127,10 +129,20 @@ public final class RoleOutputValidator {
         require(Set.of("NO_WRITING", "OBSERVED", "UNCERTAIN").contains(status));
         JsonNode observations = node.get("observations");
         array(observations, 12);
+        // 先校验全部字段结构，拒绝额外字段；无完整映射时不采纳任何模型诊断，统一安全澄清。
+        for (JsonNode observation : observations) {
+            fields(observation, "kind", "description", "strokeIds");
+            require(Set.of("CORRECT", "ERROR", "UNCERTAIN").contains(text(observation, "kind", 32, false)));
+            text(observation, "description", 1000, false);
+            textArray(observation.get("strokeIds"), 128, 128);
+            List<String> ids = strings(observation.get("strokeIds"));
+            require(!ids.isEmpty() && new HashSet<>(ids).size() == ids.size());
+        }
+        if (unlocatedWriting) {
+            return;
+        }
         boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8;
-        if (!input.writingMetadataKnown()) {
-            require("UNCERTAIN".equals(status) && observations.isEmpty());
-        } else if (input.strokeIds().isEmpty()) {
+        if (input.strokeIds().isEmpty()) {
             require("NO_WRITING".equals(status) && observations.isEmpty());
         } else {
             require(!"NO_WRITING".equals(status));
@@ -142,14 +154,8 @@ public final class RoleOutputValidator {
             require(!node.get("clarification").asString().isBlank());
         }
         for (JsonNode observation : observations) {
-            fields(observation, "kind", "description", "strokeIds");
-            String kind = text(observation, "kind", 32, false);
-            require(Set.of("CORRECT", "ERROR", "UNCERTAIN").contains(kind));
-            require(!uncertainOcr || !"ERROR".equals(kind));
-            text(observation, "description", 1000, false);
-            textArray(observation.get("strokeIds"), 128, 128);
-            List<String> ids = strings(observation.get("strokeIds"));
-            require(!ids.isEmpty() && input.strokeIds().containsAll(ids));
+            require(!uncertainOcr || !"ERROR".equals(observation.get("kind").asString()));
+            require(input.strokeIds().containsAll(strings(observation.get("strokeIds"))));
         }
     }
 

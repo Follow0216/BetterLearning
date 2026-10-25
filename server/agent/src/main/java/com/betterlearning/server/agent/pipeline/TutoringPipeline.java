@@ -258,6 +258,8 @@ public final class TutoringPipeline {
             envelope.put("studentPrompt", input.prompt());
             envelope.put("strokeIds", input.strokeIds().stream().sorted().toList());
             envelope.put("writingMetadataKnown", input.writingMetadataKnown());
+            envelope.put("strokeLocationsStatus", input.strokeLocationsStatus().name());
+            envelope.put("strokeLocations", input.strokeLocations());
             envelope.put("ocrConfidence", input.ocrConfidence());
             envelope.put("ocrText", input.ocrText());
             envelope.put("context", context);

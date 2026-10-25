@@ -1,5 +1,7 @@
 package com.betterlearning.server.agent.pipeline;
 
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.HexFormat;
 import java.security.MessageDigest;
@@ -7,13 +9,17 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 
 import com.betterlearning.server.agent.model.TutorModels.FrozenAnswer;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocation;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 
 import tools.jackson.databind.JsonNode;
 
 /** Agent内部角色协议；不是HTTP/common DTO，不含供应商密钥或隐藏思维链。 */
 public final class RoleProtocol {
-    public static final String PROMPT_VERSION = "p3-roles-v3";
+    public static final String PROMPT_VERSION = "p3-roles-v4";
     public static final int MAX_GENERATION_CALLS = 8;
+    public static final int MAX_STROKE_LOCATIONS = 2000;
+    public static final int MAX_STROKE_LOCATIONS_JSON_BYTES = 256 * 1024;
 
     private RoleProtocol() {
     }
@@ -29,7 +35,14 @@ public final class RoleProtocol {
 
     /** 必须来自已经授权且完整校验的不可变快照；全部世界坐标与块原样传给模型。 */
     public record Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
-            Double ocrConfidence, boolean writingMetadataKnown, String ocrText) {
+            Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
+            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+        public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
+                Double ocrConfidence, boolean writingMetadataKnown, String ocrText) {
+            this(prompt, mode, snapshot, strokeIds, ocrConfidence, writingMetadataKnown, ocrText,
+                    StrokeLocationsStatus.UNAVAILABLE, List.of());
+        }
+
         public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds, Double ocrConfidence) {
             this(prompt, mode, snapshot, strokeIds, ocrConfidence, strokeIds != null, null);
         }
@@ -45,6 +58,8 @@ public final class RoleProtocol {
                     && (!Double.isFinite(ocrConfidence) || ocrConfidence < 0 || ocrConfidence > 1))) {
                 throw new PipelineFailure(Reason.INVALID_INPUT);
             }
+            strokeLocations = validateLocations(strokeLocationsStatus, strokeLocations, strokeIds,
+                    writingMetadataKnown, snapshot.images().size());
         }
 
         @Override
@@ -53,13 +68,46 @@ public final class RoleProtocol {
         }
     }
 
+    /** 公共记录保证有限正边界；此处再次验证完整性和实际送入模型的位置列表字节预算。 */
+    private static List<StrokeLocation> validateLocations(StrokeLocationsStatus status,
+            List<StrokeLocation> locations, Set<String> strokeIds, boolean writingMetadataKnown, int images) {
+        if (status == null || locations == null) {
+            throw new PipelineFailure(Reason.INVALID_INPUT);
+        }
+        if (status != StrokeLocationsStatus.COMPLETE) {
+            if (!locations.isEmpty()) {
+                throw new PipelineFailure(Reason.INVALID_INPUT);
+            }
+            return List.of();
+        }
+        if (!writingMetadataKnown || locations.size() > MAX_STROKE_LOCATIONS) {
+            throw new PipelineFailure(Reason.INVALID_INPUT);
+        }
+        Set<String> locatedIds = new HashSet<>();
+        for (StrokeLocation location : locations) {
+            if (location == null || !locatedIds.add(location.strokeId())
+                    || location.imageOrdinals().stream().anyMatch(ordinal -> ordinal >= images)) {
+                throw new PipelineFailure(Reason.INVALID_INPUT);
+            }
+        }
+        if (!locatedIds.equals(strokeIds)
+                || RoleOutputValidator.JSON.writeValueAsBytes(locations).length > MAX_STROKE_LOCATIONS_JSON_BYTES) {
+            throw new PipelineFailure(Reason.INVALID_INPUT);
+        }
+        // manifest顺序不代表语义；只规范位置表和其序号，不重排实际图片。
+        return locations.stream().sorted(Comparator.comparing(StrokeLocation::strokeId))
+                .map(location -> new StrokeLocation(location.strokeId(), location.worldBounds(),
+                        location.imageOrdinals().stream().sorted().toList())).toList();
+    }
+
     /** sequence在单个run内从1递增；runtime以runId+sequence保存输入摘要和已确认结果。 */
     public record Call(int sequence, Role role, String systemPrompt, String inputJson, FrozenAnswer snapshot) {
         public String inputDigest() {
             try {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                List<List<String>> images = snapshot.images().stream().map(image -> List.of(image.mediaType(),
-                        image.position(), HexFormat.of().formatHex(digest.digest(image.bytes())))).toList();
+                List<List<String>> images = java.util.stream.IntStream.range(0, snapshot.images().size())
+                        .mapToObj(index -> List.of(snapshot.images().get(index).mediaType(), imageCaption(index),
+                        HexFormat.of().formatHex(digest.digest(snapshot.images().get(index).bytes())))).toList();
                 return TutoringPipeline.sha256(RoleOutputValidator.JSON.writeValueAsString(List.of(
                         PROMPT_VERSION, role.name(), systemPrompt, inputJson, snapshot.fileRef(), images)));
             } catch (NoSuchAlgorithmException exception) {
@@ -70,6 +118,11 @@ public final class RoleProtocol {
         @Override
         public String toString() {
             return "RoleCall[sequence=" + sequence + ", role=" + role + "]";
+        }
+
+        public String imageCaption(int imageOrdinal) {
+            return "完整冻结图块 imageOrdinal=" + imageOrdinal + "（0基，" + (imageOrdinal + 1) + "/"
+                    + snapshot.images().size() + "）；世界位置与实际尺寸：" + snapshot.images().get(imageOrdinal).position();
         }
     }
 

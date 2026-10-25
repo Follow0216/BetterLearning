@@ -33,6 +33,9 @@ import com.betterlearning.server.multiagent.MultiAgentModels.Source;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceContent;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceType;
 import com.betterlearning.server.multiagent.MultiAgentModels.SourceVersion;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocation;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
+import com.betterlearning.server.multiagent.MultiAgentModels.WorldBounds;
 import com.betterlearning.server.multiagent.MultiAgentModels.StepInvocation;
 import com.betterlearning.server.multiagent.MultiAgentModels.StepOutput;
 import com.betterlearning.server.multiagent.SourceStore;
@@ -75,7 +78,7 @@ class DefaultRolePipelineTests {
 
         assertThat(first.verified()).isTrue();
         assertThat(replay).isEqualTo(first);
-        assertThat(first.bodyMarkdown()).contains("请确认你希望检查的笔迹步骤")
+        assertThat(first.bodyMarkdown()).contains("请说明希望检查的那一步")
                 .doesNotContain("x=7");
         assertThat(first.evidenceIds()).isEmpty();
         assertThat(steps.actionCalls).isZero();
@@ -127,7 +130,7 @@ class DefaultRolePipelineTests {
         when(sources.get(42L, SOURCE, 1L)).thenReturn(sourceContent("DELETED", 1, "READY"));
         ReplaySteps steps = historySteps(markerTeach());
 
-        var result = pipeline.execute(context(execution), steps);
+        var result = pipeline.execute(knownEmptyContext(execution), steps);
 
         assertThat(result.verified()).isFalse();
         assertThat(steps.invocations).extracting(StepInvocation::role)
@@ -143,7 +146,7 @@ class DefaultRolePipelineTests {
         when(sources.get(42L, SOURCE, 1L)).thenReturn(sourceContent("ACTIVE", 1, "READY"));
         ReplaySteps steps = historySteps(markerTeach());
 
-        var result = pipeline.execute(context(execution), steps);
+        var result = pipeline.execute(knownEmptyContext(execution), steps);
 
         assertThat(result.verified()).isTrue();
         assertThat(result.evidenceIds()).containsExactly(EVIDENCE);
@@ -165,7 +168,7 @@ class DefaultRolePipelineTests {
                 "\"evidenceIds\":[\"" + EVIDENCE + "\"]");
         ReplaySteps steps = historySteps(noMarker);
 
-        var result = pipeline.execute(context(execution), steps);
+        var result = pipeline.execute(knownEmptyContext(execution), steps);
 
         assertThat(result.verified()).isFalse();
         assertThat(result.reason()).isEqualTo("REVIEW_REJECTED");
@@ -183,7 +186,7 @@ class DefaultRolePipelineTests {
                 sourceContent("ACTIVE", 1, "READY"), sourceContent("DELETED", 1, "READY"));
         ReplaySteps steps = historySteps(markerTeach());
 
-        var result = pipeline.execute(context(execution), steps);
+        var result = pipeline.execute(knownEmptyContext(execution), steps);
 
         assertThat(result.verified()).isFalse();
         assertThat(steps.actionCalls).isZero();
@@ -205,6 +208,55 @@ class DefaultRolePipelineTests {
         assertThat(steps.invocations).extracting(StepInvocation::role).containsExactly(Role.SOLVE);
         assertThat(steps.actionCalls).isZero();
         verifyNoInteractions(retriever, sources);
+    }
+
+    @Test
+    void completeStrokeLocationsReachDiagnosisAndChangeDurableStepDigest() {
+        Execution execution = execution(MultiAgentModels.Status.RUNNING, null);
+        when(ledger.execution(42L, RUN)).thenReturn(execution);
+        var original = context(execution).snapshot();
+        String observed = """
+                {"status":"OBSERVED","summary":"观察到等式变形步骤","observations":[
+                {"kind":"CORRECT","description":"这一步保持等式两边同减3","strokeIds":["s1"]}],
+                "clarification":""}
+                """;
+        var location = new StrokeLocation("s1", new WorldBounds(-30, 20, 16, 12), List.of(0));
+        var complete = new MultiAgentModels.Snapshot(original.fileRef(), original.questionMarkdown(),
+                original.images(), List.of("s1"), true, null, null,
+                StrokeLocationsStatus.COMPLETE, List.of(location));
+        ReplaySteps completeSteps = emptyHistorySteps().reply(Role.DIAGNOSE, observed)
+                .reply(Role.TEACH, TutoringPipelineTests.TEACH);
+
+        var completeResult = pipeline.execute(new PipelineContext(execution, complete, List.of()), completeSteps);
+
+        assertThat(completeResult.verified()).isTrue();
+        assertThat(completeResult.bodyMarkdown()).contains("先考虑怎样消去常数项")
+                .doesNotContain("不能可靠对应", "请确认");
+        assertThat(completeSteps.actionCalls).isZero();
+        assertThat(completeSteps.invocations).extracting(StepInvocation::role).containsExactly(
+                Role.SOLVE, Role.DIAGNOSE, Role.RETRIEVE, Role.TEACH, Role.REVIEW);
+        String completeDigest = completeSteps.invocations.get(0).inputDigest();
+
+        var moved = new MultiAgentModels.Snapshot(original.fileRef(), original.questionMarkdown(),
+                original.images(), List.of("s1"), true, null, null,
+                StrokeLocationsStatus.COMPLETE, List.of(new StrokeLocation("s1",
+                        new WorldBounds(-20, 20, 16, 12), List.of(0))));
+        ReplaySteps movedSteps = emptyHistorySteps().reply(Role.DIAGNOSE, observed)
+                .reply(Role.TEACH, TutoringPipelineTests.TEACH);
+        assertThat(pipeline.execute(new PipelineContext(execution, moved, List.of()), movedSteps).verified()).isTrue();
+        assertThat(movedSteps.invocations.get(0).inputDigest()).isNotEqualTo(completeDigest);
+
+        // 旧七参构造保持 UNAVAILABLE；不能把只有 strokeId 的快照当作可定位笔迹。
+        var legacy = new MultiAgentModels.Snapshot(original.fileRef(), original.questionMarkdown(),
+                original.images(), List.of("s1"), true, null, null);
+        assertThat(legacy.strokeLocationsStatus()).isEqualTo(StrokeLocationsStatus.UNAVAILABLE);
+        ReplaySteps legacySteps = emptyHistorySteps().reply(Role.DIAGNOSE, observed)
+                .reply(Role.TEACH, TutoringPipelineTests.TEACH);
+        var legacyResult = pipeline.execute(new PipelineContext(execution, legacy, List.of()), legacySteps);
+        assertThat(legacyResult.verified()).isTrue();
+        assertThat(legacyResult.bodyMarkdown()).contains("请说明希望检查的那一步")
+                .doesNotContain("先考虑怎样消去常数项");
+        assertThat(legacySteps.invocations.get(0).inputDigest()).isNotEqualTo(completeDigest);
     }
 
     @Test
@@ -240,7 +292,7 @@ class DefaultRolePipelineTests {
         Evidence forged = new Evidence(EVIDENCE, RUN, "step-retrieve", "HISTORY", SOURCE, 1L, ANCHOR,
                 "伪造的权威答案x=99", null);
         ReplaySteps steps = historySteps(markerTeach()).retrieval(List.of(forged));
-        var result = pipeline.execute(context(execution), steps);
+        var result = pipeline.execute(knownEmptyContext(execution), steps);
         assertThat(result.verified()).isFalse();
         assertThat(steps.invocations).extracting(StepInvocation::role)
                 .containsExactly(Role.SOLVE, Role.DIAGNOSE, Role.RETRIEVE);
@@ -279,6 +331,13 @@ class DefaultRolePipelineTests {
                         "x=-40,y=0,width=800,height=300"))), List.of());
     }
 
+    private static PipelineContext knownEmptyContext(Execution execution) {
+        var original = context(execution).snapshot();
+        var snapshot = new MultiAgentModels.Snapshot(original.fileRef(), original.questionMarkdown(),
+                original.images(), List.of(), false, null, null);
+        return new PipelineContext(execution, snapshot, List.of());
+    }
+
     @SuppressWarnings("unchecked")
     private static <T> ObjectProvider<T> provider(T value) {
         ObjectProvider<T> result = mock(ObjectProvider.class);
@@ -301,7 +360,7 @@ class DefaultRolePipelineTests {
 
     private static ReplaySteps historySteps(String teach) {
         return new ReplaySteps().reply(Role.SOLVE, TutoringPipelineTests.SOLVE)
-                .reply(Role.DIAGNOSE, UNCERTAIN_DIAGNOSIS)
+                .reply(Role.DIAGNOSE, TutoringPipelineTests.EMPTY_DIAGNOSIS)
                 .retrieval(List.of(historyEvidence()))
                 .reply(Role.TEACH, teach)
                 .reply(Role.REVIEW, TutoringPipelineTests.REVIEW);

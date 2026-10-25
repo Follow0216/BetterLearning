@@ -48,7 +48,18 @@ class LangChain4jRoleModelTests {
             var json = RoleOutputValidator.JSON.readTree(body.get());
             assertThat(json.path("response_format").path("type").asString()).isEqualTo("json_object");
             assertThat(json.path("max_completion_tokens").asInt()).isEqualTo(4096);
-            assertThat(body.get()).contains("x=-600", "viewport=outside", "data:image/png;base64,AQI=", "data:image/png;base64,AwQ=");
+            assertThat(body.get()).contains("x=-600", "viewport=outside");
+            var content = json.path("messages").get(1).path("content");
+            assertThat(content.size()).isEqualTo(5);
+            assertThat(content.get(0).path("text").asString()).isEqualTo("{}");
+            assertThat(content.get(1).path("text").asString()).isEqualTo(
+                    "完整冻结图块 imageOrdinal=0（0基，1/2）；世界位置与实际尺寸：x=0,y=0,width=512,height=512");
+            assertThat(content.get(2).path("image_url").path("url").asString())
+                    .isEqualTo("data:image/png;base64,AQI=");
+            assertThat(content.get(3).path("text").asString()).isEqualTo(
+                    "完整冻结图块 imageOrdinal=1（0基，2/2）；世界位置与实际尺寸：x=-600,y=1000,viewport=outside");
+            assertThat(content.get(4).path("image_url").path("url").asString())
+                    .isEqualTo("data:image/png;base64,AwQ=");
             assertThat(reply.toString()).doesNotContain("\"ok\"", "unit-secret");
         } finally {
             server.stop(0);

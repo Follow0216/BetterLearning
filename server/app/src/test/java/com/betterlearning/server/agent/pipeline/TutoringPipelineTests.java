@@ -20,6 +20,9 @@ import com.betterlearning.server.agent.pipeline.RoleProtocol.Reason;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Reply;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Role;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Usage;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocation;
+import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
+import com.betterlearning.server.multiagent.MultiAgentModels.WorldBounds;
 
 import org.junit.jupiter.api.Test;
 
@@ -171,7 +174,7 @@ class TutoringPipelineTests {
                 "strokeIds":["s1"]}],"clarification":"确认？"}
                 """;
         assertReason(() -> RoleOutputValidator.parse(Role.DIAGNOSE, hallucination,
-                input(null, Set.of("s1"), 0.4)), Reason.INVALID_OUTPUT);
+                locatedInput(0.4)), Reason.INVALID_OUTPUT);
     }
 
     @Test
@@ -181,7 +184,7 @@ class TutoringPipelineTests {
                 "strokeIds":["missing"]}],"clarification":""}
                 """;
         assertReason(() -> RoleOutputValidator.parse(Role.DIAGNOSE, diagnosis,
-                input(null, Set.of("s1"), null)), Reason.INVALID_OUTPUT);
+                locatedInput(null)), Reason.INVALID_OUTPUT);
         assertReason(() -> RoleOutputValidator.parse(Role.DIAGNOSE, diagnosis,
                 input(null, Set.of(), null)), Reason.INVALID_OUTPUT);
     }
@@ -360,6 +363,13 @@ class TutoringPipelineTests {
         assertThat(candidate.diagnosis().get("status").asString()).isEqualTo("UNCERTAIN");
         assertThat(candidate.diagnosis().get("observations")).isEmpty();
         assertThat(candidate.bodyMarkdown()).contains("不能可靠对应").doesNotContain("算错", "有错", "s1");
+    }
+
+    private static Input locatedInput(Double confidence) {
+        Input legacy = input(null, Set.of("s1"), confidence);
+        return new Input(legacy.prompt(), legacy.mode(), legacy.snapshot(), legacy.strokeIds(), confidence,
+                true, null, StrokeLocationsStatus.COMPLETE,
+                List.of(new StrokeLocation("s1", new WorldBounds(10, 20, 30, 40), List.of(0))));
     }
 
     static Input input(String mode, Set<String> strokes, Double confidence) {

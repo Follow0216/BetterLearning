@@ -76,7 +76,8 @@ public final class DefaultRolePipeline implements RolePipeline {
             Set<String> strokeIds = snapshot.strokeIds() == null ? Set.of() : Set.copyOf(snapshot.strokeIds());
             Input input = new Input(execution.prompt(), execution.mode() == null ? "HINT" : execution.mode().name(),
                     new FrozenAnswer(snapshot.fileRef(), snapshot.questionMarkdown(), images), strokeIds,
-                    snapshot.ocrConfidence(), known, snapshot.ocrText());
+                    snapshot.ocrConfidence(), known, snapshot.ocrText(),
+                    snapshot.strokeLocationsStatus(), snapshot.strokeLocations());
             LangChain4jRoleModel model = new LangChain4jRoleModel(properties.getTutoring());
             RuntimeBoundary boundary = new RuntimeBoundary(context, steps, ledger, model, input);
             var candidate = new TutoringPipeline().run(input, boundary);

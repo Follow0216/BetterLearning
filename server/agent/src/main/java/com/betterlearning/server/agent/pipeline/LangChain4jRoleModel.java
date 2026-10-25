@@ -46,8 +46,7 @@ public final class LangChain4jRoleModel {
                     || (!"image/png".equals(image.mediaType()) && !"image/jpeg".equals(image.mediaType()))) {
                 throw new PipelineFailure(Reason.INVALID_INPUT);
             }
-            content.add(TextContent.from("完整冻结图块 " + (index + 1) + "/" + call.snapshot().images().size()
-                    + "；世界位置与实际尺寸：" + image.position()));
+            content.add(TextContent.from(call.imageCaption(index)));
             content.add(ImageContent.from(Base64.getEncoder().encodeToString(image.bytes()),
                     image.mediaType(), ImageContent.DetailLevel.HIGH));
         }
