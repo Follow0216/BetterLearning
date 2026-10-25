@@ -219,8 +219,10 @@ public class MybatisRetrievalIndexStore implements RetrievalIndexStore {
     @Transactional(readOnly = true)
     public List<Candidate> candidates(long accountId, Set<String> terms, Set<String> methodTags,
             double[] queryVector, String model, int dimensions) {
+        Map<String, Set<String>> aliases = ChineseMathTerms.aliasesForMethods(methodTags);
         Map<String, Object> query = Map.of("accountId", accountId, "terms", json.writeValueAsString(terms),
-                "methodAliases", json.writeValueAsString(ChineseMathTerms.aliasesForMethods(methodTags)),
+                "methodAliases", json.writeValueAsString(aliases),
+                "literalPatterns", json.writeValueAsString(ChineseMathTerms.literalPatternsForMethods(aliases.keySet())),
                 "vector", vector(queryVector, dimensions),
                 "model", model, "dimensions", dimensions);
         return mapper.candidates(query).stream().map(row -> new Candidate(text(row, "source_id"),

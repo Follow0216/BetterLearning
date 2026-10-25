@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -133,6 +134,174 @@ class HybridRankerTests {
                 List.of(difference), HybridRanker.Limits.defaults(), 0.1).evidence().isEmpty());
         assertTrue(ranker.rank(new HybridRanker.Query("导数不讨论复合函数求导", Set.of()),
                 List.of(chain), HybridRanker.Limits.defaults(), 0.1).evidence().isEmpty());
+    }
+
+    @Test
+    void longTailAliasesAreLiteralAndFixedSynonymsRemainAvailableToSql() {
+        Map<String, Set<String>> aliases = ChineseMathTerms.queryAliases(
+                List.of("配方", "柯西施瓦茨不等式", "洛必达法则"));
+        assertEquals(Set.of("配方", "配方法"), aliases.get("配方法"));
+        assertEquals(Set.of("柯西施瓦茨不等式"), aliases.get("柯西施瓦茨不等式"));
+        assertEquals(Set.of("洛必达法则"), aliases.get("洛必达法则"));
+        assertEquals(aliases, ChineseMathTerms.aliasesForMethods(
+                Set.of("配方", "柯西施瓦茨不等式", "洛必达法则")));
+    }
+
+    @Test
+    void longTailMethodNeedsPositiveFullTextMentionAndIgnoresUnknownMetadata() {
+        HybridRanker.Query query = new HybridRanker.Query("证明不等式",
+                Set.of("柯西施瓦茨不等式"));
+        HybridRanker.Candidate correct = candidate("correct", "q1",
+                "柯西施瓦茨不等式用于估计平方和。", Set.of(), 0.1, 0.0);
+        HybridRanker.Candidate partial = candidate("partial", "q2",
+                "柯西不等式用于估计平方和。", Set.of(), 0.99, 0.99);
+        HybridRanker.Candidate metadataOnly = candidate("metadata", "q3",
+                "估计平方和的一般说明。", Set.of("柯西施瓦茨不等式"), 0.98, 0.98);
+        HybridRanker.Candidate unrelated = candidate("unrelated", "q4",
+                "证明不等式可用配方法。", Set.of("配方法"), 1.0, 1.0);
+        HybridRanker.Ranking result = ranker.rank(query,
+                List.of(unrelated, partial, metadataOnly, correct),
+                HybridRanker.Limits.defaults(), 0.0);
+        assertEquals(List.of("correct"), result.evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+        assertEquals(Set.of("柯西施瓦茨不等式"), result.evidence().get(0).matchedMethods());
+    }
+
+    @Test
+    void longTailRequiresCompleteMethodBoundaryBeforeRankingHighScoringExtensions() {
+        Map<String, Map<String, String>> patterns = ChineseMathTerms.literalPatternsForMethods(
+                Set.of("切比雪夫不等式", "配方法"));
+        assertEquals(Set.of("切比雪夫不等式"), patterns.keySet());
+        assertEquals(Set.of("positive", "negative"), patterns.get("切比雪夫不等式").keySet());
+        HybridRanker.Query query = new HybridRanker.Query("证明不等式", Set.of("切比雪夫不等式"));
+        HybridRanker.Candidate prefixed = candidate("prefixed", "q1",
+                "广义切比雪夫不等式适用。", Set.of("切比雪夫不等式"), 1.0, 1.0);
+        HybridRanker.Candidate suffixed = candidate("suffixed", "q2",
+                "切比雪夫不等式推广版适用。", Set.of("切比雪夫不等式"), 0.99, 0.99);
+        HybridRanker.Candidate improved = candidate("improved", "q3",
+                "改进切比雪夫不等式的证明。", Set.of(), 0.98, 0.98);
+        HybridRanker.Candidate correct = candidate("correct", "q4",
+                "切比雪夫不等式的证明。", Set.of(), 0.1, 0.1);
+        assertEquals(List.of("correct"), ranker.rank(query,
+                List.of(prefixed, suffixed, improved, correct),
+                HybridRanker.Limits.defaults(), 0.0).evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void longTailNegatedPrefixAndSuffixDoNotBecomeEvidence() {
+        HybridRanker.Query query = new HybridRanker.Query("求极限", Set.of("洛必达法则"));
+        HybridRanker.Candidate prefix = candidate("prefix", "q1",
+                "此处不使用洛必达法则，应先代入。", Set.of("洛必达法则"), 0.99, 0.99);
+        HybridRanker.Candidate suffix = candidate("suffix", "q2",
+                "本题洛必达法则不适用。", Set.of("洛必达法则"), 0.98, 0.98);
+        HybridRanker.Candidate positive = candidate("positive", "q3",
+                "洛必达法则可用于该极限。", Set.of(), 0.1, 0.1);
+        assertEquals(List.of("positive"), ranker.rank(query, List.of(prefix, suffix, positive),
+                HybridRanker.Limits.defaults(), null).evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void longTailNegativeMentionDominatesLaterPositiveMentionInSameBlock() {
+        HybridRanker.Query query = new HybridRanker.Query("极限方法", Set.of("洛必达法则"));
+        HybridRanker.Candidate mixed = candidate("mixed", "q1",
+                "此处不使用洛必达法则；洛必达法则只在另一条件下可用。",
+                Set.of("洛必达法则"), 0.99, 0.99);
+        HybridRanker.Candidate positive = candidate("positive", "q2",
+                "洛必达法则适用于本题的未定式。", Set.of(), 0.1, 0.1);
+        assertEquals(List.of("positive"), ranker.rank(query, List.of(mixed, positive),
+                HybridRanker.Limits.defaults(), null).evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void longTailNegationRecognizesQuotesMarkdownAndDirectPhrases() {
+        HybridRanker.Query query = new HybridRanker.Query("极限方法", Set.of("洛必达法则"));
+        List<String> negativeTexts = List.of(
+                "不使用“洛必达法则”。",
+                "**洛必达法则**不适用。",
+                "不能使用洛必达法则。",
+                "别用洛必达法则。",
+                "别使用“洛必达法则”。",
+                "这不是洛必达法则。",
+                "此题并非洛必达法则。",
+                "本题未使用洛必达法则。",
+                "这题没有使用洛必达法则。",
+                "不建议使用**洛必达法则**。",
+                "这里不推荐使用洛必达法则。",
+                "禁止使用‘洛必达法则’。",
+                "洛必达法则不建议使用。");
+        for (String text : negativeTexts) {
+            HybridRanker.Candidate candidate = candidate("negative", "q1", text,
+                    Set.of("洛必达法则"), 0.99, 0.99);
+            assertTrue(ranker.rank(query, List.of(candidate), HybridRanker.Limits.defaults(), null)
+                    .evidence().isEmpty(), text);
+        }
+        HybridRanker.Candidate positive = candidate("positive", "q2",
+                "“洛必达法则”可用于该未定式。", Set.of(), 0.1, 0.1);
+        assertEquals(List.of("positive"), ranker.rank(query, List.of(positive),
+                HybridRanker.Limits.defaults(), null).evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void mixedFixedAndLongTailLabelsKeepBothMethodsAndDeduplicateQuestion() {
+        HybridRanker.Query query = new HybridRanker.Query("方法参考",
+                Set.of("配方", "柯西施瓦茨不等式"));
+        HybridRanker.Candidate longTail = candidate("long-tail", "same-question",
+                "柯西施瓦茨不等式的等号条件。", Set.of(), 0.9, 0.9);
+        HybridRanker.Candidate sameQuestion = candidate("same-question", "same-question",
+                "配方法完成平方。", Set.of("配方法"), 0.8, 0.8);
+        HybridRanker.Candidate another = candidate("another", "other-question",
+                "配方法处理二次项。", Set.of(), 0.7, 0.7);
+        HybridRanker.Ranking result = ranker.rank(query,
+                List.of(longTail, sameQuestion, another), HybridRanker.Limits.defaults(), null);
+        assertEquals(List.of("long-tail", "another"), result.evidence().stream()
+                .map(item -> item.candidate().sourceId()).toList());
+    }
+
+    @Test
+    void longTailInputBoundsAndNoiseAreConservative() {
+        String label80 = "柯".repeat(80);
+        assertEquals(Set.of(label80), ChineseMathTerms.queryAliases(List.of(label80)).keySet());
+        assertEquals(8, ChineseMathTerms.queryAliases(List.of("甲乙丙", "甲乙丁", "甲乙戊", "甲乙己",
+                "甲乙庚", "甲乙辛", "甲乙壬", "甲乙癸")).size());
+        assertThrows(IllegalArgumentException.class, () -> ChineseMathTerms.queryAliases(
+                List.of("柯西施瓦茨不等式", "柯西施瓦茨不等式", "柯西施瓦茨不等式",
+                "柯西施瓦茨不等式", "柯西施瓦茨不等式", "柯西施瓦茨不等式",
+                "柯西施瓦茨不等式", "柯西施瓦茨不等式", "柯西施瓦茨不等式")));
+        assertThrows(IllegalArgumentException.class, () -> ChineseMathTerms.queryAliases(
+                List.of("柯".repeat(81))));
+        assertThrows(IllegalArgumentException.class, () -> ChineseMathTerms.queryAliases(
+                List.of("㍿".repeat(27))));
+        assertThrows(IllegalArgumentException.class, () -> ChineseMathTerms.queryAliases(
+                List.of("柯西\n不等式")));
+        for (String rejected : List.of(" ", "!!!", "12345", "柯西", "未知方法", "其他方法",
+                "解题方法", "不使用洛必达法则", "别用洛必达法则",
+                "别使用洛必达法则", "非洛必达法则", "不是洛必达法则",
+                "并非洛必达法则", "未使用洛必达法则", "没有使用洛必达法则",
+                "不推荐使用洛必达法则",
+                "洛必达法则不适用")) {
+            assertTrue(ChineseMathTerms.queryAliases(List.of(rejected)).isEmpty(), rejected);
+        }
+    }
+
+    @Test
+    void negatedLongTailLabelAndMatchingBodyCannotBecomeEvidence() {
+        for (String negated : List.of("别用洛必达法则", "非洛必达法则")) {
+            HybridRanker.Query query = new HybridRanker.Query(negated, Set.of(negated));
+            HybridRanker.Candidate sameText = candidate("same", "q1", negated,
+                    Set.of(negated), 1.0, 1.0);
+            assertTrue(ChineseMathTerms.queryAliases(List.of(negated)).isEmpty());
+            assertTrue(ranker.rank(query, List.of(sameText), HybridRanker.Limits.defaults(), 0.0)
+                    .evidence().isEmpty(), negated);
+        }
+        HybridRanker.Query standard = new HybridRanker.Query("求极限", Set.of("洛必达法则"));
+        HybridRanker.Candidate denied = candidate("denied", "q2", "别用洛必达法则。",
+                Set.of("洛必达法则"), 1.0, 1.0);
+        assertTrue(ranker.rank(standard, List.of(denied), HybridRanker.Limits.defaults(), 0.0)
+                .evidence().isEmpty());
     }
 
     @Test

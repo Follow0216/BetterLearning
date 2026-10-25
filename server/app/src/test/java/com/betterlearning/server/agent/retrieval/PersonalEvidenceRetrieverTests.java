@@ -93,7 +93,7 @@ class PersonalEvidenceRetrieverTests {
     }
 
     @Test
-    void explicitUnknownMethodReturnsEmptyDespiteMatchingSurfaceAndHighVectorScore() {
+    void unseenMethodCannotUseSurfaceSimilarityOrHighVectorWithoutLiteralEvidence() {
         when(store.candidates(eq(7L), anySet(), anySet(), any(), eq("test-embedding"), eq(2)))
                 .thenReturn(List.of(candidate("surface", SourceType.NOTE, "q1", 0.99,
                 "二次函数配方法")));
@@ -102,6 +102,45 @@ class PersonalEvidenceRetrieverTests {
                 "二次函数与概率积分，不讨论配方法", List.of("概率积分"), 5));
 
         assertThat(evidence).isEmpty();
+        verify(store).beginQueryEmbedding(any());
+        verify(embedding).embedWithStats(any());
+    }
+
+    @Test
+    void unseenMethodRequiresPositiveLiteralInRawTextRatherThanMetadata() {
+        String label = "柯西施瓦茨不等式";
+        String positive = "柯西施瓦茨不等式：把两组数分别看成向量。";
+        Candidate correct = new Candidate("literal", 1, "literal-anchor", SourceType.NOTE,
+                "q1", positive, Set.of(), 0.6, 3.0);
+        Candidate metadataOnly = new Candidate("metadata-only", 1, "metadata-anchor", SourceType.NOTE,
+                "q2", "这里只说明链式法则的求导步骤。", Set.of(label), 0.999, 3.0);
+        Candidate negative = new Candidate("negative", 1, "negative-anchor", SourceType.NOTE,
+                "q3", "不要使用柯西施瓦茨不等式，这里应使用配方法。", Set.of(), 0.99, 3.0);
+        when(store.candidates(eq(7L), anySet(), anySet(), any(), eq("test-embedding"), eq(2)))
+                .thenReturn(List.of(metadataOnly, negative, correct));
+
+        var evidence = retriever.retrieve(query("证明当前不等式", List.of(" 柯西 施瓦茨 不等式 "), 5));
+
+        assertThat(evidence).extracting(item -> item.claim()).containsExactly(positive);
+        verify(store).candidates(eq(7L), anySet(), eq(Set.of(label)), any(), eq("test-embedding"), eq(2));
+        verify(embedding).embedWithStats(List.of("证明当前不等式"));
+    }
+
+    @Test
+    void labelCountAndLengthBoundsApplyBeforeDeduplicationAndPaidIntent() {
+        List<String> repeated = java.util.Collections.nCopies(9, "柯西施瓦茨不等式");
+        assertThatThrownBy(() -> retriever.retrieve(query("证明不等式", repeated, 5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> retriever.retrieve(query("证明不等式", List.of("证".repeat(81)), 5)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(store, never()).beginQueryEmbedding(any());
+        verify(embedding, never()).embedWithStats(any());
+    }
+
+    @Test
+    void genericOrNegatedLabelsDoNotStartQueryEmbedding() {
+        assertThat(retriever.retrieve(query("请给提示", List.of("未知方法", "不要使用洛必达法则"), 5)))
+                .isEmpty();
         verify(store, never()).beginQueryEmbedding(any());
         verify(embedding, never()).embedWithStats(any());
     }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -20,8 +21,10 @@ public final class HybridRanker {
             throw new IllegalArgumentException("calibratedVectorThreshold must be finite");
         }
         boolean explicitMethods = !query.methodTags().isEmpty();
+        Map<String, Set<String>> queryAliases = explicitMethods
+                ? ChineseMathTerms.queryAliases(query.methodTags()) : Map.of();
         Set<String> queryMethods = explicitMethods
-                ? ChineseMathTerms.explicitMethods(query.methodTags())
+                ? queryAliases.keySet()
                 : ChineseMathTerms.methodsInText(query.text());
         if (explicitMethods && queryMethods.isEmpty()) {
             return new Ranking(List.of(), List.of());
@@ -36,8 +39,12 @@ public final class HybridRanker {
             if (!candidate.type().retrievable()) {
                 continue;
             }
-            Set<String> candidateMethods = ChineseMathTerms.methods(candidate.text(),
-                    candidate.methodTags());
+            Set<String> candidateMethods = new HashSet<>(ChineseMathTerms.methods(candidate.text(),
+                    candidate.methodTags()));
+            if (explicitMethods) {
+                candidateMethods.addAll(ChineseMathTerms.literalMethodsInText(
+                        candidate.text(), queryAliases));
+            }
             Set<String> methods = intersection(queryMethods, candidateMethods);
             if (!explicitMethods && methods.isEmpty()
                     && !intersection(negatedMethods, candidateMethods).isEmpty()) {
