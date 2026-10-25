@@ -11,8 +11,12 @@ public interface SourceStore {
     SourceContent get(long accountId, String sourceId, long version);
     Optional<SourceContent> findOrigin(long accountId, SourceType type, String originId);
     List<Source> list(long accountId, SourceType type, int limit);
+    SourcePage page(long accountId, SourceType type, int limit, String cursor);
     void addAnchors(long accountId, String sourceId, long version, List<Anchor> anchors);
+    /** 兼容首次索引；重建消费者必须使用带 expectedIndexRevision 的重载。 */
     boolean markIndex(long accountId, String sourceId, long version, String status);
+    boolean markIndex(long accountId, String sourceId, long version, long expectedIndexRevision, String status);
+    SourceVersion reindex(long accountId, String sourceId, long version, long expectedIndexRevision);
     void withdraw(long accountId, String sourceId);
     boolean fileReferenced(String fileRef);
 }

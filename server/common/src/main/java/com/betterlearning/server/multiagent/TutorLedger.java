@@ -22,6 +22,7 @@ public interface TutorLedger {
     Attempt beginAttempt(long accountId, String runId, Role role, int sequence, String inputDigest);
     boolean callIntent(long accountId, String runId, String attemptId, long fence);
     boolean confirm(long accountId, String runId, String attemptId, long fence, String output, String outputDigest);
+    /** 同事务将attempt置UNKNOWN、run置FAILED/OUTCOME_UNKNOWN并释放交互槽，禁止自动重发。 */
     boolean unknown(long accountId, String runId, String attemptId, long fence);
     boolean fail(long accountId, String runId, long expectedRevision, String reason);
     boolean publish(long accountId, String runId, long expectedRevision, ResultDraft result);
