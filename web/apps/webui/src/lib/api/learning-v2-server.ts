@@ -245,7 +245,7 @@ export async function handleLearningRequest(
       typeof payload === "object" && payload !== null && !Array.isArray(payload)
         ? (payload as Record<string, unknown>)
         : {};
-    const status = [400, 401, 403, 404, 409, 412, 415, 429].includes(backend.status)
+    const status = [400, 401, 403, 404, 409, 412, 413, 415, 422, 429].includes(backend.status)
       ? backend.status
       : 502;
     const code =

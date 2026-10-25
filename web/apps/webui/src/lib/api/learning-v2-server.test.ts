@@ -137,6 +137,30 @@ describe("learning BFF route allowlist", () => {
     },
   );
 
+  it.each([413, 422] as const)(
+    "preserves backend %s for an authenticated valid note create",
+    async (status) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ code: "A0400", message: "笔记正文不符合要求", traceId: "trace-1" }),
+            { status, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      const response = await handleLearningRequest(
+        mutation("notes", "POST", { "Idempotency-Key": id }),
+        ["notes"],
+        "POST",
+      );
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(response.status).toBe(status);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect((await response.json()).traceId).toBe("trace-1");
+    },
+  );
+
   it("never fetches an unknown route even with an authenticated cookie", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

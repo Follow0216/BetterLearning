@@ -43,6 +43,188 @@ afterEach(() => {
 });
 
 describe("NotesWorkspace", () => {
+  it.each([400, 422])(
+    "uses a new key and revised payload after a definite first-create %i rejection",
+    async (status) => {
+      const creates: Array<{ key: string; body: string }> = [];
+      learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "sources?limit=20" || path === "notes?limit=20")
+          return Promise.resolve(page([]));
+        if (path === "notes" && options?.method === "POST") {
+          creates.push({
+            key: (options.headers as Record<string, string>)["Idempotency-Key"],
+            body: options.body as string,
+          });
+          return creates.length === 1
+            ? Promise.reject(new LearningApiError(status, "A0400", "创建请求无效", "trace-1"))
+            : Promise.resolve({
+                data: { ...note("修订稿"), bodyMarkdown: "修订正文" },
+                etag: null,
+              });
+        }
+        if (path === `notes/${id}`)
+          return Promise.resolve({
+            data: { ...note("修订稿"), bodyMarkdown: "修订正文" },
+            etag: '"v1"',
+          });
+        throw new Error(`unexpected request: ${path}`);
+      });
+
+      render(<NotesWorkspace />);
+      fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      const title = screen.getByLabelText("标题") as HTMLInputElement;
+      const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+      fireEvent.change(title, { target: { value: "原稿" } });
+      fireEvent.change(body, { target: { value: "原正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      await screen.findByText("创建请求无效");
+      expect(screen.queryByRole("button", { name: "确认上次创建并保存改稿" })).toBeNull();
+      expect(title.value).toBe("原稿");
+      expect(body.value).toBe("原正文");
+      fireEvent.change(title, { target: { value: "修订稿" } });
+      fireEvent.change(body, { target: { value: "修订正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
+      expect(creates).toHaveLength(2);
+      expect(creates[0]).toEqual({
+        key: expect.any(String),
+        body: JSON.stringify({ title: "原稿", bodyMarkdown: "原正文" }),
+      });
+      expect(creates[1]).toEqual({
+        key: expect.any(String),
+        body: JSON.stringify({ title: "修订稿", bodyMarkdown: "修订正文" }),
+      });
+      expect(creates[1].key).not.toBe(creates[0].key);
+    },
+  );
+
+  it.each([0, 503])(
+    "keeps the original key and payload after an uncertain first-create %i failure",
+    async (status) => {
+      const creates: Array<{ key: string; body: string }> = [];
+      learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "sources?limit=20" || path === "notes?limit=20")
+          return Promise.resolve(page([]));
+        if (path === "notes" && options?.method === "POST") {
+          creates.push({
+            key: (options.headers as Record<string, string>)["Idempotency-Key"],
+            body: options.body as string,
+          });
+          return creates.length === 1
+            ? Promise.reject(new LearningApiError(status, "W0001", "创建结果未知", "trace-1"))
+            : Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+        }
+        if (path === `notes/${id}` && options?.method === "PUT")
+          return Promise.resolve({
+            data: { ...note("改稿", 2), bodyMarkdown: "改正文" },
+            etag: '"v2"',
+          });
+        if (path === `notes/${id}`)
+          return Promise.resolve({
+            data: { ...note("原稿"), bodyMarkdown: "原正文" },
+            etag: '"v1"',
+          });
+        throw new Error(`unexpected request: ${path}`);
+      });
+
+      render(<NotesWorkspace />);
+      fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      const title = screen.getByLabelText("标题") as HTMLInputElement;
+      const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+      fireEvent.change(title, { target: { value: "原稿" } });
+      fireEvent.change(body, { target: { value: "原正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
+      fireEvent.change(title, { target: { value: "改稿" } });
+      fireEvent.change(body, { target: { value: "改正文" } });
+      fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+      await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
+      expect(creates).toHaveLength(2);
+      expect(creates[1]).toEqual(creates[0]);
+    },
+  );
+
+  it("does not release the original key when a replay is rejected with 400", async () => {
+    const creates: Array<{ key: string; body: string }> = [];
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST") {
+        creates.push({
+          key: (options.headers as Record<string, string>)["Idempotency-Key"],
+          body: options.body as string,
+        });
+        if (creates.length === 1) return Promise.reject(new Error("response lost"));
+        if (creates.length === 2)
+          return Promise.reject(new LearningApiError(400, "A0400", "重放请求被拒绝", "trace-2"));
+        return Promise.resolve({ data: { ...note("原稿"), bodyMarkdown: "原正文" }, etag: null });
+      }
+      if (path === `notes/${id}` && options?.method === "PUT")
+        return Promise.resolve({
+          data: { ...note("改稿", 2), bodyMarkdown: "改正文" },
+          etag: '"v2"',
+        });
+      if (path === `notes/${id}`)
+        return Promise.resolve({
+          data: { ...note("原稿"), bodyMarkdown: "原正文" },
+          etag: '"v1"',
+        });
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
+    fireEvent.change(title, { target: { value: "改稿" } });
+    fireEvent.change(body, { target: { value: "改正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+    await screen.findByText("重放请求被拒绝");
+    expect(screen.getByRole("button", { name: "确认上次创建并保存改稿" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "确认上次创建并保存改稿" }));
+    await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
+    expect(creates).toHaveLength(3);
+    expect(creates[1]).toEqual(creates[0]);
+    expect(creates[2]).toEqual(creates[0]);
+  });
+
+  it.each([
+    [409, "创建请求冲突"],
+    [401, "登录状态已变化"],
+  ])("blocks creation on %i without discarding the local draft", async (status, alertText) => {
+    const creates: RequestInit[] = [];
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "sources?limit=20" || path === "notes?limit=20")
+        return Promise.resolve(page([]));
+      if (path === "notes" && options?.method === "POST") {
+        creates.push(options);
+        return Promise.reject(new LearningApiError(status, "A0409", "请求已阻断", "trace-1"));
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+
+    render(<NotesWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    const title = screen.getByLabelText("标题") as HTMLInputElement;
+    const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
+    fireEvent.change(title, { target: { value: "原稿" } });
+    fireEvent.change(body, { target: { value: "原正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    await screen.findByText(new RegExp(alertText));
+    expect(screen.queryByRole("button", { name: "确认上次创建并保存改稿" })).toBeNull();
+    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(title.value).toBe("原稿");
+    expect(body.value).toBe("原正文");
+    fireEvent.change(title, { target: { value: "仍保留的改稿" } });
+    expect(title.value).toBe("仍保留的改稿");
+    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    expect(creates).toHaveLength(1);
+  });
+
   it("retries an uncertain creation with its original key and body, then saves later edits with ETag", async () => {
     const createCalls: Array<{ key: string; body: string }> = [];
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {

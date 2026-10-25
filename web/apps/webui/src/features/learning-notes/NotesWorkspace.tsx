@@ -16,6 +16,9 @@ import {
 } from "./learning-utils";
 import styles from "./learning.module.css";
 
+const DEFINITE_CREATE_REJECTIONS = new Set([400, 413, 415, 422]);
+type CreateBlock = "conflict" | "session" | "rejected";
+
 function NoteEditor({
   noteId,
   onSaved,
@@ -39,6 +42,8 @@ function NoteEditor({
   const [reload, setReload] = useState(0);
   const requestKey = useRef<{ payload: string; key: string } | null>(null);
   const [createUncertain, setCreateUncertain] = useState(false);
+  const [createBlocked, setCreateBlocked] = useState<CreateBlock | null>(null);
+  const createNeedsReview = createUncertain || createBlocked === "conflict";
   const lifetime = useRef<AbortController | null>(null);
   const bytes = noteByteLength(body);
   const dirty = title !== (note?.title ?? "") || body !== (note?.bodyMarkdown ?? "");
@@ -68,7 +73,7 @@ function NoteEditor({
   }, [noteId, reload]);
 
   useEffect(() => {
-    if (!dirty && !createUncertain) return;
+    if (!dirty && !createNeedsReview) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
@@ -77,8 +82,8 @@ function NoteEditor({
       if (
         link &&
         !window.confirm(
-          createUncertain
-            ? "上次新建结果尚未确认，服务器可能已有这篇笔记。离开将放弃确认，确定离开？"
+          createNeedsReview
+            ? "上次新建尚未确认或存在冲突，服务器可能已有这篇笔记。离开将放弃核对，确定离开？"
             : "有尚未保存的笔记编辑，确定离开？",
         )
       ) {
@@ -92,10 +97,18 @@ function NoteEditor({
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", navigate, true);
     };
-  }, [dirty, createUncertain]);
+  }, [dirty, createNeedsReview]);
 
   async function save() {
-    if (pending || bytes > MAX_NOTE_BYTES || !title.trim() || !body.trim() || conflict) return;
+    if (
+      pending ||
+      bytes > MAX_NOTE_BYTES ||
+      !title.trim() ||
+      !body.trim() ||
+      conflict ||
+      createBlocked
+    )
+      return;
     setPending(true);
     setMessage("");
     const payload = JSON.stringify({ title, bodyMarkdown: body.replace(/\r\n/g, "\n") });
@@ -127,6 +140,7 @@ function NoteEditor({
         setNote(result.data);
         requestKey.current = null;
         setCreateUncertain(false);
+        setCreateBlocked(null);
         const loaded = await learningRequest<Note>(`notes/${result.data.noteId}`, {
           signal: lifetime.current?.signal,
         });
@@ -164,8 +178,33 @@ function NoteEditor({
       onSaved();
     } catch (error) {
       if (lifetime.current?.signal.aborted) return;
-      if (!note && requestKey.current) setCreateUncertain(true);
-      if (error instanceof LearningApiError && error.status === 412) setConflict(true);
+      const awaitingCreate = !note && requestKey.current !== null;
+      if (awaitingCreate) {
+        const status = error instanceof LearningApiError ? error.status : 0;
+        if (status === 401) {
+          requestKey.current = null;
+          setCreateUncertain(false);
+          setCreateBlocked("session");
+        } else if (status === 409 || status === 412) {
+          // 冲突不是结果未知，也不能靠换键绕过。先返回列表核对已有笔记。
+          setCreateUncertain(false);
+          setCreateBlocked("conflict");
+        } else if (DEFINITE_CREATE_REJECTIONS.has(status) && !createUncertain) {
+          // 首次明确拒绝确认未创建；保留编辑，修正后用新键提交新请求体。
+          requestKey.current = null;
+          setCreateUncertain(false);
+          setCreateBlocked(null);
+        } else if (createUncertain || status === 0 || status >= 500 || status === 429) {
+          // 先前已有未知结果时，后续校验失败不能证明原操作没有提交。
+          setCreateUncertain(true);
+        } else {
+          requestKey.current = null;
+          setCreateUncertain(false);
+          setCreateBlocked("rejected");
+        }
+      } else if (error instanceof LearningApiError && error.status === 412) {
+        setConflict(true);
+      }
       setMessage(errorMessage(error));
     } finally {
       setPending(false);
@@ -249,10 +288,10 @@ function NoteEditor({
           disabled={pending}
           onClick={() => {
             if (
-              (!dirty && !createUncertain) ||
+              (!dirty && !createNeedsReview) ||
               window.confirm(
-                createUncertain
-                  ? "上次新建结果尚未确认，服务器可能已有这篇笔记。放弃确认并返回列表？"
+                createNeedsReview
+                  ? "上次新建尚未确认或存在冲突，服务器可能已有这篇笔记。放弃核对并返回列表？"
                   : "放弃尚未保存的编辑？",
               )
             )
@@ -278,6 +317,7 @@ function NoteEditor({
             !body.trim() ||
             bytes > MAX_NOTE_BYTES ||
             conflict ||
+            createBlocked !== null ||
             (!!note && !etag)
           }
           onClick={() => void save()}
@@ -327,6 +367,15 @@ function NoteEditor({
       {message && (
         <p role="status" className={styles.error}>
           {message}
+        </p>
+      )}
+      {createBlocked && (
+        <p role="alert" className={styles.error}>
+          {createBlocked === "conflict"
+            ? "创建请求冲突，已停止重复提交。请返回列表核对已有笔记；明确放弃核对后才能重新新建。"
+            : createBlocked === "session"
+              ? "登录状态已变化，当前创建操作已结束。请重新登录后打开笔记。"
+              : "创建请求已被拒绝，当前操作已停止。请返回列表核对服务和访问权限。"}
         </p>
       )}
       {createUncertain && (
