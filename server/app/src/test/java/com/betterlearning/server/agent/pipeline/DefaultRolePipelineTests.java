@@ -15,8 +15,14 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.betterlearning.server.agent.config.AgentProperties;
+import com.betterlearning.server.agent.model.ModelImage;
+import com.betterlearning.server.agent.model.TutorModels.FrozenAnswer;
+import com.betterlearning.server.agent.pipeline.RoleProtocol.Call;
+import com.betterlearning.server.agent.pipeline.RoleProtocol.Input;
+import com.betterlearning.server.agent.pipeline.RoleProtocol.Reply;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.PipelineFailure;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Reason;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Usage;
@@ -45,6 +51,8 @@ import com.betterlearning.server.multiagent.TutorLedger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+
+import tools.jackson.databind.JsonNode;
 
 /** 公共端口适配测试：CONFIRMED替身直接返回安全JSON，绝不请求真实供应商。 */
 class DefaultRolePipelineTests {
@@ -158,6 +166,122 @@ class DefaultRolePipelineTests {
         verify(sources, atLeast(2)).get(42L, SOURCE, 1L);
         verify(ledger).recordEvidence(eq(42L), eq(RUN), eq(List.of(historyEvidence())));
     }
+
+    @Test
+    void authorizedAnswerStateIsProjectedSeparatelyWithoutChangingHistoricalClaim() {
+        Execution execution = execution(MultiAgentModels.Status.RUNNING, null);
+        when(ledger.execution(42L, RUN)).thenReturn(execution);
+        for (var scenario : List.of(new AnswerStateScenario(SourceType.SAVED_ANSWER, "DRAFT"),
+                new AnswerStateScenario(SourceType.SAVED_ANSWER, "COMPLETED"),
+                new AnswerStateScenario(SourceType.NOTE, null))) {
+            when(sources.get(42L, SOURCE, 1L)).thenReturn(
+                    sourceContent(scenario.sourceType(), scenario.answerState()));
+            PipelineContext context = knownEmptyContext(execution);
+            ReplaySteps steps = historySteps(markerTeach());
+
+            var result = pipeline.execute(context, steps);
+
+            assertThat(result.verified()).isTrue();
+            assertThat(result.evidenceIds()).containsExactly(EVIDENCE);
+            assertThat(result.bodyMarkdown()).contains("[[evidence:" + EVIDENCE + "]]");
+            assertThat(steps.actionCalls).isZero();
+            Map<RoleProtocol.Role, Call> expectedCalls = expectedCallsWithAnswerState(
+                    execution, context.snapshot(), scenario);
+            for (RoleProtocol.Role role : List.of(RoleProtocol.Role.TEACH, RoleProtocol.Role.REVIEW)) {
+                String adapterDigest = steps.invocations.stream()
+                        .filter(invocation -> invocation.role().name().equals(role.name()))
+                        .findFirst().orElseThrow().inputDigest();
+                Call expected = expectedCalls.get(role);
+                assertThat(adapterDigest).as("%s %s projected input", scenario.answerState(), role)
+                        .isEqualTo(expected.inputDigest());
+                JsonNode projected = RoleOutputValidator.JSON.readTree(expected.inputJson())
+                        .path("context").path("allowedEvidence").get(0);
+                assertThat(projected.path("claim").asString()).isEqualTo(historyEvidence().claim());
+                assertThat(projected.path("sourceType").asString())
+                        .isEqualTo(scenario.sourceType().name());
+                assertThat(projected.path("textOrigin").asString()).isEqualTo(
+                        scenario.sourceType() == SourceType.SAVED_ANSWER ? "OCR_DERIVED" : "SOURCE_TEXT");
+                assertThat(expected.systemPrompt()).contains("DRAFT", "COMPLETED", "草稿", "非权威");
+                if (scenario.answerState() == null) {
+                    assertThat(projected.get("answerState").isNull()).isTrue();
+                } else {
+                    assertThat(projected.path("answerState").asString())
+                            .isEqualTo(scenario.answerState());
+                }
+            }
+        }
+    }
+
+    @Test
+    void invalidSavedAnswerStateNeverReachesTeachingAndNonAnswerStateStaysNull() {
+        Execution execution = execution(MultiAgentModels.Status.RUNNING, null);
+        when(ledger.execution(42L, RUN)).thenReturn(execution);
+        when(sources.get(42L, SOURCE, 1L)).thenReturn(sourceContent(SourceType.SAVED_ANSWER, "UNTRUSTED"));
+        ReplaySteps invalid = historySteps(markerTeach());
+        assertThat(pipeline.execute(knownEmptyContext(execution), invalid).verified()).isFalse();
+        assertThat(invalid.invocations).extracting(StepInvocation::role)
+                .containsExactly(Role.SOLVE, Role.DIAGNOSE, Role.RETRIEVE);
+        verify(ledger, never()).recordEvidence(eq(42L), eq(RUN), anyList());
+
+        when(sources.get(42L, SOURCE, 1L)).thenReturn(sourceContent(SourceType.NOTE, "COMPLETED"));
+        PipelineContext context = knownEmptyContext(execution);
+        ReplaySteps note = historySteps(markerTeach());
+        assertThat(pipeline.execute(context, note).verified()).isTrue();
+        var expected = expectedCallsWithAnswerState(execution, context.snapshot(),
+                new AnswerStateScenario(SourceType.NOTE, null));
+        for (RoleProtocol.Role role : List.of(RoleProtocol.Role.TEACH, RoleProtocol.Role.REVIEW)) {
+            assertThat(note.invocations.stream().filter(item -> item.role().name().equals(role.name()))
+                    .findFirst().orElseThrow().inputDigest()).isEqualTo(expected.get(role).inputDigest());
+        }
+    }
+
+    private static Map<RoleProtocol.Role, Call> expectedCallsWithAnswerState(Execution execution,
+            MultiAgentModels.Snapshot snapshot, AnswerStateScenario scenario) {
+        var imageData = snapshot.images().stream()
+                .map(image -> new ModelImage(image.mediaType(), image.bytes(), image.position())).toList();
+        Input input = new Input(execution.prompt(), execution.mode().name(),
+                new FrozenAnswer(snapshot.fileRef(), snapshot.questionMarkdown(), imageData),
+                Set.of(), null, true, null, StrokeLocationsStatus.UNAVAILABLE, List.of());
+        var projected = (tools.jackson.databind.node.ObjectNode) RoleOutputValidator.JSON.valueToTree(historyEvidence());
+        projected.put("sourceType", scenario.sourceType().name());
+        projected.put("textOrigin", scenario.sourceType() == SourceType.SAVED_ANSWER ? "OCR_DERIVED" : "SOURCE_TEXT");
+        if (scenario.answerState() == null) {
+            projected.putNull("answerState");
+        } else {
+            projected.put("answerState", scenario.answerState());
+        }
+        Map<RoleProtocol.Role, Call> calls = new EnumMap<>(RoleProtocol.Role.class);
+        new TutoringPipeline().run(input, new GenerationBoundary() {
+            @Override
+            public Reply generate(Call call) {
+                calls.put(call.role(), call);
+                String output = switch (call.role()) {
+                    case SOLVE -> TutoringPipelineTests.SOLVE;
+                    case DIAGNOSE -> TutoringPipelineTests.EMPTY_DIAGNOSIS;
+                    case TEACH -> markerTeach();
+                    case REVIEW -> TutoringPipelineTests.REVIEW;
+                };
+                return new Reply(output, "expected-fixture", new Usage(15, 10, 1, false));
+            }
+
+            @Override
+            public void checkActive() {
+            }
+
+            @Override
+            public List<JsonNode> retrieve(List<String> methodTags) {
+                return List.of(projected);
+            }
+
+            @Override
+            public boolean authorizeEvidence(Set<String> ids) {
+                return ids.isEmpty() || ids.equals(Set.of(EVIDENCE));
+            }
+        });
+        return calls;
+    }
+
+    private record AnswerStateScenario(SourceType sourceType, String answerState) { }
 
     @Test
     void evidenceIdWithoutBodyMarkerIsWithheldEvenWhenReviewSaysApproved() {
@@ -308,6 +432,16 @@ class DefaultRolePipelineTests {
     private static Evidence historyEvidence() {
         return new Evidence(EVIDENCE, RUN, "step-retrieve", "HISTORY", SOURCE, 1L, ANCHOR,
                 "同类题先核对等式两边的运算。", null);
+    }
+
+    private static SourceContent sourceContent(SourceType type, String answerState) {
+        Instant time = Instant.parse("2026-10-25T00:00:00Z");
+        return new SourceContent(new Source(SOURCE, 42L, type, "origin", "笔记", "ACTIVE", 1L, time),
+                new SourceVersion(SOURCE, 1L, "hash", "READY", answerState, null,
+                        historyEvidence().claim(), time),
+                List.of(new Anchor(ANCHOR, SOURCE, 1L,
+                        type == SourceType.SAVED_ANSWER ? "HANDWRITING_STEP" : "MARKDOWN_BLOCK", 0, "hash", "{}",
+                        historyEvidence().claim())));
     }
 
     private static SourceContent sourceContent(String status, long currentVersion, String indexStatus) {

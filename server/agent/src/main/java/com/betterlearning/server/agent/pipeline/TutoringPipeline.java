@@ -45,11 +45,11 @@ public final class TutoringPipeline {
         }
         boundary.checkActive();
         // 只投影模型需要的字段；不把URL、账号或任意工具元数据放进提示词。
-        List<Map<String, String>> allowedEvidence = evidence.stream().map(node -> Map.of(
-                "evidenceId", node.get("evidenceId").asString(),
-                "claim", node.get("claim").asString(),
-                "sourceType", node.path("sourceType").asString("HISTORY"),
-                "textOrigin", node.path("textOrigin").asString("UNVERIFIED_TEXT"))).toList();
+        List<TeachingEvidence> allowedEvidence = evidence.stream().map(node -> new TeachingEvidence(
+                node.get("evidenceId").asString(), node.get("claim").asString(),
+                node.path("sourceType").asString("HISTORY"),
+                node.path("textOrigin").asString("UNVERIFIED_TEXT"),
+                node.path("answerState").isString() ? node.get("answerState").asString() : null)).toList();
         JsonNode teach = session.call(Role.TEACH, context(solve, diagnosis, allowedEvidence));
         List<String> violations = inspect(input, solve, diagnosis, teach, allowedEvidence);
         JsonNode review = session.call(Role.REVIEW, reviewContext(solve, diagnosis, teach, allowedEvidence, violations));
@@ -58,14 +58,16 @@ public final class TutoringPipeline {
             Map<String, Object> repair = new LinkedHashMap<>();
             repair.put("reviewIssues", review.get("issues"));
             repair.put("programViolations", violations);
+            // REVIEW已见历史；独立角色不得接收其自由文本code/detail，以免返工时泄漏历史。
+            Map<String, Object> independentRepair = Map.of("reason", "INDEPENDENT_RECHECK_REQUIRED");
             if (target == Role.SOLVE) {
                 // SOLVE返工仍不接收历史内容，也不复用可能被污染的最终答复。
-                solve = session.call(Role.SOLVE, Map.of("repair", repair));
+                solve = session.call(Role.SOLVE, Map.of("repair", independentRepair));
                 // 解法已改变时旧方法召回不再可靠；一次检索上限内安全降为无历史辅导。
                 allowedEvidence = List.of();
             }
             if (target == Role.SOLVE || target == Role.DIAGNOSE) {
-                diagnosis = session.call(Role.DIAGNOSE, Map.of("solve", solve, "repair", repair));
+                diagnosis = session.call(Role.DIAGNOSE, Map.of("solve", solve, "repair", independentRepair));
             }
             Map<String, Object> teaching = context(solve, diagnosis, allowedEvidence);
             teaching.put("repair", repair);
@@ -119,7 +121,7 @@ public final class TutoringPipeline {
     }
 
     private static List<String> inspect(Input input, JsonNode solve, JsonNode diagnosis, JsonNode teach,
-            List<Map<String, String>> evidence) {
+            List<TeachingEvidence> evidence) {
         List<String> violations = new ArrayList<>();
         String body = body(teach);
         if (body.isBlank()) {
@@ -143,12 +145,12 @@ public final class TutoringPipeline {
             violations.add("UNTRUSTED_LINK_OR_CITATION_MARKER");
         }
         Set<String> allowed = new LinkedHashSet<>();
-        for (Map<String, String> item : evidence) {
-            allowed.add(item.get("evidenceId"));
-            if (contradictoryHistoricalBinding(body, item.get("claim"), solve.get("answer").asString())) {
+        for (TeachingEvidence item : evidence) {
+            allowed.add(item.evidenceId());
+            if (contradictoryHistoricalBinding(body, item.claim(), solve.get("answer").asString())) {
                 violations.add("CONTRADICTORY_HISTORY_CONCLUSION");
             }
-            if (item.get("claim").length() >= 24 && body.contains(item.get("claim"))) {
+            if (item.claim().length() >= 24 && body.contains(item.claim())) {
                 violations.add("HISTORY_VERBATIM_COPY");
             }
         }
@@ -163,6 +165,11 @@ public final class TutoringPipeline {
             violations.add("UNKNOWN_EVIDENCE_ID");
         }
         return List.copyOf(violations);
+    }
+
+    /** 已授权证据的模型投影；作答状态与原文分开，null不暗示已完成。 */
+    private record TeachingEvidence(String evidenceId, String claim, String sourceType,
+            String textOrigin, String answerState) {
     }
 
     private static Role target(JsonNode review) {

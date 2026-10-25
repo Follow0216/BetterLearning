@@ -117,6 +117,7 @@ public final class DefaultRolePipeline implements RolePipeline {
         private final Map<String, Evidence> evidenceById = new LinkedHashMap<>();
         private final Map<String, String> sourceTypes = new LinkedHashMap<>();
         private final Map<String, String> textOrigins = new LinkedHashMap<>();
+        private final Map<String, String> answerStates = new LinkedHashMap<>();
 
         private RuntimeBoundary(PipelineContext context, StepExecutor steps, TutorLedger ledger,
                 LangChain4jRoleModel model, Input input) {
@@ -216,6 +217,7 @@ public final class DefaultRolePipeline implements RolePipeline {
                 String id = node.get("evidenceId").asString();
                 object.put("sourceType", sourceTypes.get(id));
                 object.put("textOrigin", textOrigins.get(id));
+                object.put("answerState", answerStates.get(id));
             }
             ledger.recordEvidence(execution.accountId(), execution.runId(), List.copyOf(items));
             return projected;
@@ -257,7 +259,13 @@ public final class DefaultRolePipeline implements RolePipeline {
                         && anchor.text() != null && anchor.text().equals(evidence.claim()))) {
                     return false;
                 }
+                String answerState = content.source().type() == MultiAgentModels.SourceType.SAVED_ANSWER
+                        ? content.version().answerState() : null;
+                if (answerState != null && !Set.of("DRAFT", "COMPLETED").contains(answerState)) {
+                    return false;
+                }
                 sourceTypes.put(id, content.source().type().name());
+                answerStates.put(id, answerState);
                 content.anchors().stream().filter(anchor -> anchor.anchorId().equals(evidence.anchorId()))
                         .findFirst().ifPresent(anchor -> textOrigins.put(id, anchor.textOrigin()));
             }
