@@ -4,6 +4,7 @@ import { ToastStore } from './ToastStore';
 
 @Component
 struct ToastBubble {
+  @Prop maxWidth: number = 420;
   @Prop item: ToastItem = {
     id: 0, revision: 0, key: '', type: 'info', message: '', description: '', durationMs: 3000
   };
@@ -74,7 +75,7 @@ struct ToastBubble {
         .onClick(() => this.onDismiss())
     }
     .width('100%')
-    .constraintSize({ minHeight: 56 })
+    .constraintSize({ minHeight: 56, maxWidth: this.maxWidth })
     .padding({ left: 14, right: 4, top: 6, bottom: 6 })
     .backgroundColor(Color.White)
     .border({ width: 1, color: '#DDE7F8' })
@@ -121,11 +122,11 @@ export struct ToastHost {
     Column({ space: 8 }) {
       ForEach(this.items, (item: ToastItem) => {
         ToastBubble({
+          maxWidth: this.maxWidth,
           item: item,
           onDismiss: () => this.store.dismissItem(item.id, item.revision),
           onDisplayed: () => this.store.markDisplayed(this.hostId, item.id, item.revision)
         })
-          .constraintSize({ maxWidth: this.maxWidth })
       }, (item: ToastItem) => item.id.toString() + ':' + item.revision.toString())
     }
     .width('100%')
