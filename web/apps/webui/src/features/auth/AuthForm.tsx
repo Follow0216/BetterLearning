@@ -212,8 +212,6 @@ function TextField({
 
 export function AuthForm() {
   const toast = useToast();
-  const [formErrorAnnounced, setFormErrorAnnounced] = useState(false);
-  const [profileErrorAnnounced, setProfileErrorAnnounced] = useState(false);
   const [stage, setStage] = useState<Stage>("checking");
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
@@ -366,7 +364,6 @@ export function AuthForm() {
   };
 
   const applyFailure = (failure: ApiFailure, scope: number) => {
-    setFormErrorAnnounced(failure.status >= 500);
     if (failure.status >= 500) {
       toast.show(
         { key: "auth:submit", type: "error", message: "服务暂时不可用", description: "请稍后重试" },
@@ -400,7 +397,6 @@ export function AuthForm() {
     const nextErrors = validateLoginForm(username, password);
     setErrors(nextErrors);
     setFormError("");
-    setFormErrorAnnounced(false);
     setFormNotice("");
     if (Object.keys(nextErrors).length > 0) {
       focusFirstError(nextErrors);
@@ -437,7 +433,6 @@ export function AuthForm() {
         return;
       }
       setFormError("网络连接异常，请稍后重试");
-      setFormErrorAnnounced(true);
       toast.show(
         { key: "auth:submit", type: "error", message: "网络连接异常", description: "请稍后重试" },
         scope,
@@ -456,7 +451,6 @@ export function AuthForm() {
     const nextErrors = validateRegisterForm(username, password, confirmPassword);
     setErrors(nextErrors);
     setFormError("");
-    setFormErrorAnnounced(false);
     setFormNotice("");
     if (Object.keys(nextErrors).length > 0) {
       focusFirstError(nextErrors);
@@ -491,7 +485,6 @@ export function AuthForm() {
       setPasswordVisible(false);
       setErrors({});
       setFormError("");
-      setFormErrorAnnounced(false);
       setFormNotice("");
       setSubmitting(false);
       toast.show(
@@ -503,7 +496,6 @@ export function AuthForm() {
         return;
       }
       setFormError("网络连接异常，请稍后重试");
-      setFormErrorAnnounced(true);
       toast.show(
         { key: "auth:submit", type: "error", message: "网络连接异常", description: "请稍后重试" },
         scope,
@@ -523,7 +515,6 @@ export function AuthForm() {
     const { sequence, signal, scope } = beginRequest();
     setRefreshing(true);
     setProfileError("");
-    setProfileErrorAnnounced(false);
     try {
       const response = await fetch("/api/auth/session", {
         method: "GET",
@@ -550,7 +541,6 @@ export function AuthForm() {
           failure.status === 503 ? "服务暂时不可用，请稍后重试" : failure.message || "加载资料失败",
         );
         if (failure.status >= 500) {
-          setProfileErrorAnnounced(true);
           toast.show(
             {
               key: "auth:refresh",
@@ -574,11 +564,9 @@ export function AuthForm() {
       toast.onScopeChange(`auth:profile:${user.accountId}`);
       setProfile(user);
       setProfileError("");
-      setProfileErrorAnnounced(false);
     } catch {
       if (isCurrent(sequence)) {
         setProfileError("网络连接异常，请稍后重试");
-        setProfileErrorAnnounced(true);
         toast.show(
           {
             key: "auth:refresh",
@@ -601,7 +589,6 @@ export function AuthForm() {
     const { sequence, signal, scope } = beginRequest();
     setLoggingOut(true);
     setProfileError("");
-    setProfileErrorAnnounced(false);
     try {
       const response = await fetch("/api/auth/logout", {
         method: "DELETE",
@@ -622,7 +609,6 @@ export function AuthForm() {
         setPasswordVisible(false);
         setErrors({});
         setFormError("");
-        setFormErrorAnnounced(false);
         setFormNotice("");
         setLoggingOut(false);
         toast.show(
@@ -632,7 +618,6 @@ export function AuthForm() {
         return;
       }
       setProfileError("无法确认退出结果，请重试");
-      setProfileErrorAnnounced(true);
       toast.show(
         { key: "auth:logout", type: "error", message: "退出未完成", description: "请稍后重试" },
         scope,
@@ -640,7 +625,6 @@ export function AuthForm() {
     } catch {
       if (isCurrent(sequence)) {
         setProfileError("无法确认退出结果，请重试");
-        setProfileErrorAnnounced(true);
         toast.show(
           { key: "auth:logout", type: "error", message: "退出未完成", description: "请稍后重试" },
           scope,
@@ -666,7 +650,6 @@ export function AuthForm() {
     setPasswordVisible(false);
     setErrors({});
     setFormError("");
-    setFormErrorAnnounced(false);
     setFormNotice("");
   };
 
@@ -727,10 +710,7 @@ export function AuthForm() {
           </div>
         </dl>
         {profileError ? (
-          <p
-            role={profileErrorAnnounced ? undefined : "alert"}
-            className="mt-4 text-[13px] leading-5 text-[var(--auth-danger)]"
-          >
+          <p role="alert" className="mt-4 text-[13px] leading-5 text-[var(--auth-danger)]">
             {profileError}
           </p>
         ) : null}
@@ -842,10 +822,7 @@ export function AuthForm() {
         ) : null}
 
         {formError ? (
-          <p
-            role={formErrorAnnounced ? undefined : "alert"}
-            className="text-[13px] leading-5 text-[var(--auth-danger)]"
-          >
+          <p role="alert" className="text-[13px] leading-5 text-[var(--auth-danger)]">
             {formError}
           </p>
         ) : null}

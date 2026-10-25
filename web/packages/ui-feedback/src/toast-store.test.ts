@@ -265,3 +265,24 @@ test("Provider StrictMode reattach survives; real root unmount disposes captured
   assert.deepEqual(t.keys(), []);
   assert.equal(t.timers.size, 0);
 });
+
+test("a new error stays queued behind two paused cards and only starts when shown", () => {
+  const t = setup();
+  t.store.attachHost();
+  t.show("a");
+  t.show("b");
+  t.present();
+  t.store.setPaused("a", "hover", true);
+  t.store.setPaused("b", "focus", true);
+  t.show("error", "error");
+  t.advance(12000);
+  assert.deepEqual(t.keys(), ["a", "b"]);
+  assert.equal(t.timers.size, 0);
+  t.store.dismiss("a");
+  assert.deepEqual(t.keys(), ["b", "error"]);
+  t.present();
+  t.advance(5999);
+  assert.deepEqual(t.keys(), ["b", "error"]);
+  t.advance(1);
+  assert.deepEqual(t.keys(), ["b"]);
+});
