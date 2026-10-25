@@ -143,6 +143,7 @@ public class SourceAnchorValidator {
         }
         AnswerModels.StoredManifest stored = files.manifest(fileRef);
         AnswerManifestValidator.validate(stored.source(), stored.questionSnapshot().bodyMarkdown());
+        AnswerModels.Canvas canvas = stored.source().canvas();
         List<AnswerModels.Block> composite = stored.source().blocks();
         List<AnswerModels.Block> raster = stored.source().document().questionLayout().rasterBlocks();
         Set<String> existingStrokes = stored.source().document().strokes().stream()
@@ -153,7 +154,10 @@ public class SourceAnchorValidator {
                 throw invalid();
             }
             AnswerModels.Block block = blocks.get(segment.blockIndex());
-            WorldBounds expected = new WorldBounds(block.x(), block.y(), block.width(), block.height());
+            // 合成块为画布内偏移；题面栅格已使用世界坐标，不能再次叠加原点。
+            double worldX = segment.questionRaster() ? block.x() : canvas.originX() + block.x();
+            double worldY = segment.questionRaster() ? block.y() : canvas.originY() + block.y();
+            WorldBounds expected = new WorldBounds(worldX, worldY, block.width(), block.height());
             if (block.index() != segment.blockIndex() || !expected.equals(segment.blockWorldBounds())
                     || block.pixelWidth() != segment.pixelWidth() || block.pixelHeight() != segment.pixelHeight()) {
                 throw invalid();
