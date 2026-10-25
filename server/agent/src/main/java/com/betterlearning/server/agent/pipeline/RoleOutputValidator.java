@@ -42,6 +42,20 @@ public final class RoleOutputValidator {
             }
             boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8
                     && !input.strokeIds().isEmpty();
+            // 当前公共快照没有strokeId到世界位置的完整映射；ID存在不等于可定位。
+            boolean unlocatedWriting = !input.strokeIds().isEmpty();
+            if (unlocatedWriting && !uncertainOcr && role == Role.DIAGNOSE) {
+                return JSON.readTree("""
+                        {"status":"UNCERTAIN","summary":"当前缺少笔划到图像位置的可核对映射，不能可靠定位具体步骤。",
+                        "observations":[],"clarification":"目前还不能可靠对应你写的具体步骤，请说明希望检查的那一步或补充清晰作答图片。"}
+                        """);
+            }
+            if (unlocatedWriting && !uncertainOcr && role == Role.TEACH) {
+                return JSON.readTree("""
+                        {"hint":"","nextStep":"","clarification":"目前还不能可靠对应你写的具体步骤，请说明希望检查的那一步或补充清晰作答图片。",
+                        "fullSolution":null,"evidenceIds":[]}
+                        """);
+            }
             if (uncertainOcr && role == Role.DIAGNOSE) {
                 return JSON.readTree("""
                         {"status":"UNCERTAIN","summary":"当前笔迹识别不可靠，尚不能判断是否有误。",

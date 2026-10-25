@@ -48,7 +48,8 @@ public final class TutoringPipeline {
         List<Map<String, String>> allowedEvidence = evidence.stream().map(node -> Map.of(
                 "evidenceId", node.get("evidenceId").asString(),
                 "claim", node.get("claim").asString(),
-                "sourceType", node.path("sourceType").asString("HISTORY"))).toList();
+                "sourceType", node.path("sourceType").asString("HISTORY"),
+                "textOrigin", node.path("textOrigin").asString("UNVERIFIED_TEXT"))).toList();
         JsonNode teach = session.call(Role.TEACH, context(solve, diagnosis, allowedEvidence));
         List<String> violations = inspect(input, solve, diagnosis, teach, allowedEvidence);
         JsonNode review = session.call(Role.REVIEW, reviewContext(solve, diagnosis, teach, allowedEvidence, violations));

@@ -114,6 +114,8 @@ public final class DefaultRolePipeline implements RolePipeline {
         private final LangChain4jRoleModel model;
         private final Input input;
         private final Map<String, Evidence> evidenceById = new LinkedHashMap<>();
+        private final Map<String, String> sourceTypes = new LinkedHashMap<>();
+        private final Map<String, String> textOrigins = new LinkedHashMap<>();
 
         private RuntimeBoundary(PipelineContext context, StepExecutor steps, TutorLedger ledger,
                 LangChain4jRoleModel model, Input input) {
@@ -208,6 +210,12 @@ public final class DefaultRolePipeline implements RolePipeline {
             if (!authorizeEvidence(evidenceById.keySet())) {
                 throw new PipelineFailure(Reason.EVIDENCE_REJECTED);
             }
+            for (JsonNode node : projected) {
+                var object = (tools.jackson.databind.node.ObjectNode) node;
+                String id = node.get("evidenceId").asString();
+                object.put("sourceType", sourceTypes.get(id));
+                object.put("textOrigin", textOrigins.get(id));
+            }
             ledger.recordEvidence(execution.accountId(), execution.runId(), List.copyOf(items));
             return projected;
         }
@@ -248,6 +256,9 @@ public final class DefaultRolePipeline implements RolePipeline {
                         && anchor.text() != null && anchor.text().equals(evidence.claim()))) {
                     return false;
                 }
+                sourceTypes.put(id, content.source().type().name());
+                content.anchors().stream().filter(anchor -> anchor.anchorId().equals(evidence.anchorId()))
+                        .findFirst().ifPresent(anchor -> textOrigins.put(id, anchor.textOrigin()));
             }
             return true;
         }

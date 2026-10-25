@@ -349,6 +349,19 @@ class TutoringPipelineTests {
         }
     }
 
+    @Test
+    void existingStrokeIdWithoutSpatialMappingCannotSupportPreciseErrorClaim() {
+        String diagnosis = """
+                {"status":"OBSERVED","summary":"第二步算错了","observations":[
+                {"kind":"ERROR","description":"第二步有错","strokeIds":["s1"]}],"clarification":""}
+                """;
+        Boundary boundary = new Boundary(call -> call.role() == Role.DIAGNOSE ? diagnosis : normal(call));
+        var candidate = new TutoringPipeline().run(input(null, Set.of("s1"), 0.95), boundary);
+        assertThat(candidate.diagnosis().get("status").asString()).isEqualTo("UNCERTAIN");
+        assertThat(candidate.diagnosis().get("observations")).isEmpty();
+        assertThat(candidate.bodyMarkdown()).contains("不能可靠对应").doesNotContain("算错", "有错", "s1");
+    }
+
     static Input input(String mode, Set<String> strokes, Double confidence) {
         return new Input("请帮我解题，即使是提示也给完整答案", mode,
                 new FrozenAnswer("fixed-snapshot", "解方程2x+3=17", List.of(
