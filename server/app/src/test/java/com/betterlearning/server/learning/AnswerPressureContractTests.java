@@ -30,7 +30,7 @@ class AnswerPressureContractTests {
         assertThatCode(() -> AnswerManifestValidator.validate(restored, AnswerTestData.BODY)).doesNotThrowAnyException();
         AnswerModels.Stroke explicitNull = mapper.readValue(
                 "{\"strokeId\":\"s\",\"color\":\"#152744\",\"width\":2,\"penKind\":null,"
-                        + "\"points\":[{\"x\":0,\"y\":0,\"pressure\":null}]}", AnswerModels.Stroke.class);
+                + "\"points\":[{\"x\":0,\"y\":0,\"pressure\":null}]}", AnswerModels.Stroke.class);
         assertThat(explicitNull.penKind()).isNull();
         assertThat(explicitNull.points().get(0).pressure()).isNull();
         assertThat(mapper.writeValueAsString(explicitNull)).doesNotContain("pressure", "penKind");
