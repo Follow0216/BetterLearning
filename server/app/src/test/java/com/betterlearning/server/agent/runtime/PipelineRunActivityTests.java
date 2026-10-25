@@ -21,6 +21,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -121,14 +124,42 @@ class PipelineRunActivityTests {
         verify(retry, never()).publish(anyLong(), any(), anyLong(), any());
     }
 
-    @Test
-    void reviewFailureFailsLatestRevisionWithoutPublishing() {
+    @ParameterizedTest
+    @ValueSource(strings = {"MODEL_UNAVAILABLE", "OUTCOME_UNKNOWN", "RUN_TIMEOUT", "BUDGET_EXCEEDED",
+            "REVIEW_REJECTED", "INPUT_TIMEOUT", "QUEUE_TIMEOUT"})
+    void fixedPipelineFailureProtocolPreservesReasonAtLatestRevision(String reason) {
         TutorLedger ledger = readyLedger();
         SnapshotPort snapshots = readySnapshots();
         RolePipeline pipeline = mock(RolePipeline.class);
         StepExecutorFactory executors = readyExecutors();
         when(pipeline.execute(any(), any())).thenReturn(
-                new PipelineResult(false, null, List.of(), "REVIEW_REJECTED"));
+                new PipelineResult(false, null, List.of(), reason));
+        try (ProviderCallDeadline deadline = new ProviderCallDeadline(1)) {
+            activity(ledger, snapshots, pipeline, executors, deadline).executeStep(ACCOUNT, RUN, RUN, 50);
+        }
+        verify(ledger).fail(ACCOUNT, RUN, 4, reason);
+        verify(ledger, never()).publish(anyLong(), any(), anyLong(), any());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"secret-provider-response", "model_unavailable", " RUN_TIMEOUT ",
+            "REVIEW_REJECTED\nsecret-provider-response"})
+    void unrecognizedPipelineFailureReasonIsReplacedWithFixedSafeReason(String reason) {
+        assertSafeFallback(new PipelineResult(false, "unverified sensitive output", List.of(), reason));
+    }
+
+    @Test
+    void missingPipelineResultFailsWithFixedSafeReason() {
+        assertSafeFallback(null);
+    }
+
+    private void assertSafeFallback(PipelineResult result) {
+        TutorLedger ledger = readyLedger();
+        SnapshotPort snapshots = readySnapshots();
+        RolePipeline pipeline = mock(RolePipeline.class);
+        StepExecutorFactory executors = readyExecutors();
+        when(pipeline.execute(any(), any())).thenReturn(result);
         try (ProviderCallDeadline deadline = new ProviderCallDeadline(1)) {
             activity(ledger, snapshots, pipeline, executors, deadline).executeStep(ACCOUNT, RUN, RUN, 50);
         }
