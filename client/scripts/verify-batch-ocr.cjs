@@ -86,3 +86,6 @@ const files=['client/common/src/main/ets/features/tutor/BatchOcrModels.ets','cli
 for(const relative of files){const sf=ts.createSourceFile(relative,fs.readFileSync(path.join(root,relative),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.ETS,parserOptions);
 assert.equal(sf.parseDiagnostics.length,0,relative+': '+sf.parseDiagnostics.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' ')).join('; '));}
 console.log(JSON.stringify({result:'PASS',checks:'real DTO/provenance parser; terminal import/edit preservation; unchecked defaults; conservative image retention; failed/UNKNOWN partial manual recovery; released-source late callback guard; token isolation; eligible select-all; edit acknowledgement reset; original numbering; bounded summaries; Chinese pipeline stages; manual retry eligibility; bounded ETS syntax',boundary:'No ArkUI lowering, project type checking, device or model validation'}));
+
+Promise.all([require('./checks/batch-camera-check.cjs')(), require('./checks/batch-api-lifecycle-check.cjs')()])
+  .catch(error => { console.error(error); process.exitCode = 1; });

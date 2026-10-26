@@ -8,7 +8,7 @@ import {
 } from 'common';
 import { BatchQuestionDraft, BatchReviewDraft, batchDraftSession, batch_draft_can_add,
   batch_question_label, batch_question_summary, batch_ocr_stage_label, batch_start_can_retry_manually } from '../features/ocr/BatchOcrDrafts';
-import { batchImageDisplayUri, copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
+import { BatchCameraCapture, batchImageDisplayUri, copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
 import {
   PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_DANGER, PHONE_COLOR_DANGER_SOFT,
   PHONE_COLOR_MUTED, PHONE_COLOR_PRIMARY, PHONE_COLOR_PRIMARY_DEEP, PHONE_COLOR_SOFT,
@@ -19,6 +19,7 @@ import {
 @Component
 export struct BatchOcrReview {
   toast?: ToastStore;
+  cameraCapture: BatchCameraCapture | null = null;
   onUnauthorized: (token: string) => void = () => {};
   onSaved: () => void = () => {};
   backController: PhoneBackController = new PhoneBackController();
@@ -49,6 +50,7 @@ export struct BatchOcrReview {
     batchDraftSession.bind(token);
     this.sync();
     this.schedule();
+    this.accept_camera();
   }
   aboutToDisappear(): void { this.alive = false; this.backController.handleBack = (): boolean => false; this.pause(); }
   active_changed(): void {
@@ -57,11 +59,15 @@ export struct BatchOcrReview {
       if (token === null) { this.viewerImage = null; this.onUnauthorized(''); return; }
       if (!batchDraftSession.owns(token)) { this.viewerImage = null; }
       batchDraftSession.bind(token);
-      this.sync(); this.schedule();
+      this.sync(); this.schedule(); this.accept_camera();
     } else { this.pause(); }
   }
   private pause(): void {
     this.generation++;
+    if (this.cameraCapture !== null) {
+      try { this.cameraCapture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
+    }
+    this.prepareStage = '';
     this.viewerImage = null;
     this.choosing = false;
     if (this.timer >= 0) { clearTimeout(this.timer); this.timer = -1; }
@@ -185,6 +191,42 @@ export struct BatchOcrReview {
     keys[index - 1] = keys[index]; keys[index] = key;
     batch.images = images; batch.imageKeys = keys; this.sync();
   }
+  /** 只消费本次相机交接；任何恢复入口仍沿用原批次查询。 */
+  private async accept_camera(): Promise<void> {
+    const capture: BatchCameraCapture | null = this.cameraCapture;
+    if (capture === null || !this.alive || !this.active || this.choosing) { return; }
+    const token: string | null = this.token();
+    if (token === null || !capture.isCurrent(token)) {
+      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
+      return;
+    }
+    const uri: string | undefined = capture.claim(token);
+    if (uri === undefined) { return; }
+    const generation: number = this.generation;
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    let loaded: BatchOcrImage | null = null;
+    this.choosing = true; this.prepareStage = '正在准备与校验相机原图…离开将取消本次照片导入，已有批次保留。'; this.notice = '';
+    try {
+      loaded = await copyBatchImage(context, uri, () => this.current(token, generation) && capture.isCurrent(token));
+      if (!this.current(token, generation) || !capture.isCurrent(token)) { return; }
+      // 先完成原字节复制再释放相机临时文件，不能调用会消费原图的 loadPreview。
+      capture.releasePhoto();
+      const batch: BatchReviewDraft = new BatchReviewDraft([loaded]);
+      // 新照片优先展示进度和题卡；原批次及其稳定身份继续保留。
+      batchDraftSession.batches.unshift(batch);
+      loaded = null;
+      this.choosing = false; this.prepareStage = ''; this.sync();
+      await this.start(batch);
+    } catch (error) {
+      if (this.current(token, generation) && capture.isCurrent(token)) {
+        this.notice = (error as Error).message || '照片校验失败，请拍摄符合限制的PNG/JPEG原图';
+      }
+    } finally {
+      if (loaded !== null) { try { discardBatchImage(loaded.path); } catch (error) {} }
+      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
+      if (this.current(token, generation)) { this.choosing = false; this.prepareStage = ''; }
+    }
+  }
   private async choose(maximum: number): Promise<void> {
     if (this.choosing || !this.active) { return; }
     const token: string | null = this.token(); if (token === null) { return; }
@@ -220,7 +262,7 @@ export struct BatchOcrReview {
       completedTiles: batch.job === null ? 0 : batch.job.completedTiles, totalTiles: batch.job === null ? 0 : batch.job.totalTiles };
   }
   private async start(batch: BatchReviewDraft): Promise<void> {
-    if (batch.posted || batch.busy) { return; }
+    if (!this.alive || !this.active || batch.posted || batch.busy) { return; }
     const token: string | null = this.token(); if (token === null || !batchDraftSession.batches.includes(batch)) { return; }
     const generation: number = this.generation;
     batch.posted = true; batch.busy = true; batch.clientStage = 'PREPARING'; this.unknown(batch);
@@ -229,7 +271,7 @@ export struct BatchOcrReview {
     try {
       const result: AuthResult<BatchOcrJob> = await this.api.start(token, batch.requestId, batch.images.slice(), (stage: string) => {
         if (this.current(token, generation)) { batch.clientStage = stage; }
-      });
+      }, () => this.current(token, generation) && batchDraftSession.batches.includes(batch));
       if (!this.current(token, generation)) { return; }
       if (!result.isSuccess && result.error !== null &&
         batch_start_can_retry_manually('POST', result.error.httpStatus, result.error.serverCode)) {

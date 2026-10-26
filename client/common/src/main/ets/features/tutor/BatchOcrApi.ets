@@ -13,14 +13,15 @@ export class BatchOcrApi {
   constructor(baseUrl: string = DEFAULT_DEV_BASE_URL) { this.transport = new AuthApi(baseUrl); }
   static create_default(): BatchOcrApi { return new BatchOcrApi(); }
 
-  async start(token: string, requestId: string, images: BatchOcrImage[], onStage: (stage: string) => void = () => {}): Promise<AuthResult<BatchOcrJob>> {
-    if (!batch_ocr_uuid(requestId) || images.length < 1 || images.length > 4) { return this.invalid(); }
+  async start(token: string, requestId: string, images: BatchOcrImage[], onStage: (stage: string) => void = () => {},
+    isCurrent: () => boolean = () => true): Promise<AuthResult<BatchOcrJob>> {
+    if (!isCurrent() || !authSession.matches_access_token(token) || !batch_ocr_uuid(requestId) || images.length < 1 || images.length > 4) { return this.invalid(); }
     onStage('PREPARING');
     const parts: http.MultiFormData[] = [];
     let total: number = 0;
     try {
       for (let i: number = 0; i < images.length; i++) {
-        if (!authSession.matches_access_token(token)) { return this.invalid(); }
+        if (!isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
         const input: BatchOcrImage = images[i];
         if (!input.path.startsWith('/') || input.path.includes('/../')) { return this.invalid(); }
         const bytes: Uint8Array = canvas_read(input.path);
@@ -34,20 +35,21 @@ export class BatchOcrApi {
         const source: image.ImageSource = image.createImageSource(data);
         try {
           const info: image.ImageInfo = await source.getImageInfo();
-          if (!authSession.matches_access_token(token)) { return this.invalid(); }
+          if (!isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
           if (info.size.width !== input.width || info.size.height !== input.height || input.width <= 0 || input.height <= 0 ||
             input.width > 16000 || input.height > 16000 || input.width * input.height > 16000000) { return this.invalid(); }
           const map: image.PixelMap = await source.createPixelMap();
-          const stillCurrent: boolean = authSession.matches_access_token(token);
+          const stillCurrent: boolean = isCurrent() && authSession.matches_access_token(token);
           await map.release();
-          if (!stillCurrent || !authSession.matches_access_token(token)) { return this.invalid(); }
+          if (!stillCurrent || !isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
         } finally { await source.release(); }
-        if (!authSession.matches_access_token(token)) { return this.invalid(); }
+        if (!isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
         parts.push({ name: 'image' + i.toString(), contentType: input.contentType,
           remoteFileName: 'image' + i.toString() + (png ? '.png' : '.jpg'), data: data });
       }
-      if (!authSession.matches_access_token(token)) { return this.invalid(); }
+      if (!isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
       onStage('UPLOADING');
+      if (!isCurrent() || !authSession.matches_access_token(token)) { return this.invalid(); }
       return this.parse(await this.transport.request_multipart(PATH + requestId, token, parts, 30000,
         '识别提交响应未知，请查询原批次进度；不会自动重新识别'), requestId);
     } catch (error) { return this.invalid(); }

@@ -2,6 +2,7 @@ import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BatchOcrImage, canvas_write } from 'common';
+import { discardPendingPhoto } from './QuestionImageSource';
 
 const ownedImages: Map<string, string> = new Map<string, string>();
 /** ArkUI Image须接收沙箱文件URI；上传与清理继续保留原始绝对path。 */
@@ -83,4 +84,26 @@ export function discardBatchImage(path: string): void {
   if (directory === undefined) { return; }
   if (fileIo.accessSync(directory)) { fileIo.rmdirSync(directory); }
   ownedImages.delete(path);
+}
+
+/** 相机到批量页的一次性交接；挂载重播、暂离或换号均不能再次消费。 */
+export class BatchCameraCapture {
+  private uri: string;
+  private ownerToken: string;
+  private claimed: boolean = false;
+  private cancelled: boolean = false;
+
+  constructor(uri: string, token: string) { this.uri = uri; this.ownerToken = token; }
+  isCurrent(token: string): boolean { return !this.cancelled && token.length > 0 && this.ownerToken === token; }
+  claim(token: string): string | undefined {
+    if (!this.isCurrent(token) || this.claimed) { return undefined; }
+    this.claimed = true;
+    return this.uri;
+  }
+  releasePhoto(): void {
+    if (this.uri.length === 0) { return; }
+    discardPendingPhoto(this.uri);
+    this.uri = '';
+  }
+  discard(): void { this.cancelled = true; this.releasePhoto(); }
 }

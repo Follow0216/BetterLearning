@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { BatchOcrReview } from './BatchOcrReview';
 import { batchDraftSession } from '../features/ocr/BatchOcrDrafts';
+import { BatchCameraCapture } from '../features/ocr/BatchQuestionImageSource';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import {
@@ -37,7 +38,7 @@ enum EntryReviewMode {
 /**
  * 本次登录会话中的录题覆盖层。父级常驻组件并用 active/visibility 切换。
  * 未保存内容仅保留在本组件内存；确认/明确丢弃/销毁时清理临时题图。
- * 新选图先进入候选裁剪，成功后才替换旧图。识别只是输入辅助，不自动保存。
+ * 相册选图保留候选裁剪；相机整图交给批量校对。识别只是输入辅助，不自动保存。
  * 保存失败保留同一 ManualQuestionInput，正文或学科变化才重建 requestId。
  */
 @Component
@@ -85,6 +86,7 @@ export struct ManualEntry {
   private cropInFlight: image.PixelMap | null = null;
   private cropPath: string = '';
   private imageGeneration: number = 0;
+  private cameraCapture: BatchCameraCapture | null = null;
   private alive: boolean = true;
   private keyboardModeOwned: boolean = false;
   private previousKeyboardMode: KeyboardAvoidMode = KeyboardAvoidMode.OFFSET;
@@ -117,6 +119,7 @@ export struct ManualEntry {
     this.restore_keyboard_mode();
     this.sourcePicker = false;
     this.discardPrompt = false;
+    this.discard_camera_capture();
     // 暂离只使等待中的图片响应失效，不丢弃本次草稿、旧图或候选裁剪图。
     this.imageGeneration++;
     this.imageLoading = false;
@@ -143,7 +146,7 @@ export struct ManualEntry {
         } else if (this.screen === EntryScreen.CROP) {
           this.crop_screen()
         } else if (this.screen === EntryScreen.BATCH) {
-          BatchOcrReview({ toast: this.toast, active: this.active, backController: this.batchBackController, onSaved: () => { this.onBatchSaved(); }, onUnauthorized: (token: string) => { this.handle_unauthorized(token); } })
+          BatchOcrReview({ toast: this.toast, active: this.active, cameraCapture: this.cameraCapture, backController: this.batchBackController, onSaved: () => { this.onBatchSaved(); }, onUnauthorized: (token: string) => { this.handle_unauthorized(token); } })
         } else {
           this.review_screen()
         }
@@ -189,12 +192,12 @@ export struct ManualEntry {
   source_screen() {
     Scroll() {
       Column({ space: 16 }) {
-        Text('录入一道题，开始学习。')
+        Text('录入题目，开始学习。')
           .fontSize(16).fontColor(PHONE_COLOR_MUTED).width('100%')
         Column({ space: 12 }) {
           Image($r('app.media.entry_camera')).width(62).height(62)
-          Text('拍下一道题').fontSize(23).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
-          Text('拍清题干、公式和全部条件').fontSize(14).fontColor(PHONE_COLOR_MUTED)
+          Text('拍下整页题目').fontSize(23).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
+          Text('无需裁剪，自动识别整图题目，勾选后添加').fontSize(14).fontColor(PHONE_COLOR_MUTED)
           Button(this.imageLoading ? '正在打开…' : '打开相机')
             .width('100%').height(48).fontSize(17).fontColor(PHONE_COLOR_WHITE)
             .backgroundColor(PHONE_COLOR_PRIMARY).borderRadius(24).enabled(!this.save_blocked())
@@ -513,7 +516,7 @@ export struct ManualEntry {
         .onClick(() => { this.sourcePicker = false; })
       Column({ space: 12 }) {
         Text('重新选择题图').fontSize(19).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE)
-        Text('取消选择会保留本次题图和文字。').fontSize(13).fontColor(PHONE_COLOR_MUTED)
+        Text('拍照将整图识别为批量草稿；原题图和文字继续保留。').fontSize(13).fontColor(PHONE_COLOR_MUTED)
         Button('拍照').width('100%').height(48).fontColor(PHONE_COLOR_WHITE).backgroundColor(PHONE_COLOR_PRIMARY)
           .onClick(() => { this.sourcePicker = false; this.start_capture(true); })
         Button('从相册选择').width('100%').height(48).fontColor(PHONE_COLOR_PRIMARY).backgroundColor(PHONE_COLOR_SOFT)
@@ -577,7 +580,7 @@ export struct ManualEntry {
     if (this.cropBusy || this.submitting || this.imageLoading) { return; }
     if (this.recognizing) { this.cancel_recognition(); }
     if (this.screen === EntryScreen.SOURCE) { this.onBack(); }
-    else { this.screen = EntryScreen.SOURCE; }
+    else { this.discard_camera_capture(); this.screen = EntryScreen.SOURCE; }
   }
 
   private show_preview(): void {
@@ -634,8 +637,17 @@ export struct ManualEntry {
     if (map !== this.preview && map !== this.cropInFlight) { this.release_map(map); }
   }
 
+  private discard_camera_capture(): void {
+    const capture: BatchCameraCapture | null = this.cameraCapture;
+    this.cameraCapture = null;
+    if (capture !== null) {
+      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存，交系统回收失败项。 */ }
+    }
+  }
+
   /** 仅确认保存、显式丢弃、会话销毁调用；暂离页面不调用。 */
   private abandon_capture(): void {
+    this.discard_camera_capture();
     this.imageGeneration++;
     this.imageLoading = false;
     this.recognizing = false;
@@ -670,11 +682,17 @@ export struct ManualEntry {
     this.imageError = '';
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     let loaded: image.PixelMap | null = null;
+    let cameraUri: string = '';
     try {
       const uri: string | undefined = from_camera ? await takePhoto(context) : await selectImage(context);
       if (uri === undefined) { return; }
-      if (this.image_stale(generation, token)) {
-        if (from_camera) { discardPendingPhoto(uri); }
+      if (from_camera) { cameraUri = uri; }
+      if (this.image_stale(generation, token)) { return; }
+      if (from_camera) {
+        this.discard_camera_capture();
+        this.cameraCapture = new BatchCameraCapture(uri, token);
+        cameraUri = '';
+        this.screen = EntryScreen.BATCH;
         return;
       }
       loaded = await loadPreview(uri);
@@ -701,6 +719,9 @@ export struct ManualEntry {
         this.toast?.show({ key: 'phone-entry-image', type: 'error', message: '暂时无法读取图片', description: '原来的内容已保留，请重试' }, toast_scope);
       }
     } finally {
+      if (cameraUri.length > 0) {
+        try { discardPendingPhoto(cameraUri); } catch (error) { /* 仅清相机自有缓存。 */ }
+      }
       await this.release_map(loaded);
       if (generation === this.imageGeneration) { this.imageLoading = false; }
     }
