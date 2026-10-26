@@ -9,7 +9,7 @@ if [[ ! -f "$TASK_WORKER_JAR" ]]; then
     exit 1
 fi
 
-for required in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD APP_FILES_ROOT; do
+for required in SPRING_DATASOURCE_URL SPRING_DATASOURCE_USERNAME SPRING_DATASOURCE_PASSWORD APP_FILES_ROOT APP_AGENT_RETENTION_DELETE_LOG_ROOT; do
     if [[ -z "${!required:-}" ]]; then
         echo "缺少 worker 必需环境变量：$required" >&2
         exit 1
