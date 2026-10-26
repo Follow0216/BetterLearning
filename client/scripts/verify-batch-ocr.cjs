@@ -73,7 +73,8 @@ for(const stage of ['PREPARING','UPLOADING','QUEUED','VALIDATING','OCR','ASSEMBL
 assert.match(drafts.batch_ocr_stage_label('REPAIR'),/接缝/);
 assert.match(drafts.batch_ocr_stage_label('ASSEMBLE'),/整理题目/,'production engine ASSEMBLE stage must be meaningful');
 assert.equal(drafts.batch_start_can_retry_manually('POST',409,'A0455'),true,'known pre-insert active-batch conflict allows a manual start');
-for(const [method,status,code] of [['POST',409,'A0445'],['POST',0,''],['POST',503,'C0001'],['GET',404,'A0606'],['GET',409,'A0455']]) {
+assert.equal(drafts.batch_start_can_retry_manually('POST',429,'A0502'),true,'known pre-insert queue-full response allows a manual start');
+for(const [method,status,code] of [['POST',409,'A0445'],['POST',429,''],['POST',429,'A0501'],['POST',0,''],['POST',503,'C0001'],['GET',404,'A0606'],['GET',409,'A0455'],['GET',429,'A0502']]) {
   assert.equal(drafts.batch_start_can_retry_manually(method,status,code),false,`${method} ${status}/${code} must preserve request identity`);
 }
 const unresolved=new drafts.BatchReviewDraft([{path:'/owned/unresolved.jpg'}]);store.batches.push(unresolved);

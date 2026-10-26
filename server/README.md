@@ -250,6 +250,7 @@ java -jar app/target/server.jar
 | `409` | `A0155` | `EMAIL_ALREADY_BOUND` | 邮箱已绑定其他账号 |
 | `409` | `A0444` | `PASSWORD_CHANGE_CONFLICT` | 密码已被其他请求修改，本次改密未生效 |
 | `429` | `A0501` | `RATE_LIMITED` | 注册或登录触发限流 |
+| `429` | `A0502` | `OCR_BATCH_BUSY` | 批量 OCR 队满且本批尚未受理，可保留原图稍后手动开始 |
 | `503` | `C0001` | `SERVICE_UNAVAILABLE` | 数据库或 Redis 不可用；请求结果可能不确定，应先查询状态确认，勿盲目重试 |
 | `500` | `B0001` | `INTERNAL_ERROR` | 服务器内部错误 |
 

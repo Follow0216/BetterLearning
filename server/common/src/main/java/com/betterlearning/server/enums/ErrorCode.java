@@ -81,6 +81,9 @@ public enum ErrorCode {
     /** A0501：请求次数超出限制（沿用《Java 开发手册》附 3）。 */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "A0501", "请求过于频繁"),
 
+    /** A0502：批量 OCR 队满且本次请求尚未受理；仅用于创建批次之前。 */
+    OCR_BATCH_BUSY(HttpStatus.TOO_MANY_REQUESTS, "A0502", "识别队列已满，本批尚未受理，请稍后手动开始"),
+
     /** C0001：调用第三方服务出错（沿用《Java 开发手册》附 3），用于数据库或 Redis 不可用。 */
     SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "C0001", "服务暂时不可用"),
 

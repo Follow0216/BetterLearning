@@ -148,7 +148,8 @@ export function batch_ocr_stage_label(stage: string): string {
   return '正在处理题图…';
 }
 
-/** 仅首次POST的账号活动批次冲突明确发生于insert前；其它错误仍保留原受理身份查询。 */
+/** 仅首次POST明确未受理的账号活动批次冲突或队满可手动开始；其它错误仍保留原受理身份查询。 */
 export function batch_start_can_retry_manually(method: string, httpStatus: number, serverCode: string): boolean {
-  return method === 'POST' && httpStatus === 409 && serverCode === 'A0455';
+  return method === 'POST' && ((httpStatus === 409 && serverCode === 'A0455') ||
+    (httpStatus === 429 && serverCode === 'A0502'));
 }

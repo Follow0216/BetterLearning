@@ -234,7 +234,9 @@ export struct BatchOcrReview {
       if (!result.isSuccess && result.error !== null &&
         batch_start_can_retry_manually('POST', result.error.httpStatus, result.error.serverCode)) {
         batch.posted = false; batch.job = null; batch.noticeIsError = true;
-        batch.notice = '本批尚未开始：另一批题图正在处理。原图已保留，待其它批次完成后，请手动点击“开始本批识别”。';
+        batch.notice = result.error.serverCode === 'A0502'
+          ? '本批尚未受理：识别队列已满。原图已保留，稍后请手动点击“开始本批识别”。'
+          : '本批尚未开始：另一批题图正在处理。原图已保留，待其它批次完成后，请手动点击“开始本批识别”。';
         return;
       }
       this.accept_result(batch, result, token);

@@ -42,13 +42,14 @@ class ErrorCodeContractTests {
                 entry("CONVERSATION_CONTEXT_TOO_LARGE", "A0431", HttpStatus.PAYLOAD_TOO_LARGE),
                 entry("MODEL_UNAVAILABLE", "C0002", HttpStatus.SERVICE_UNAVAILABLE),
                 entry("RATE_LIMITED", "A0501", HttpStatus.TOO_MANY_REQUESTS),
+                entry("OCR_BATCH_BUSY", "A0502", HttpStatus.TOO_MANY_REQUESTS),
                 entry("SERVICE_UNAVAILABLE", "C0001", HttpStatus.SERVICE_UNAVAILABLE),
                 entry("INTERNAL_ERROR", "B0001", HttpStatus.INTERNAL_SERVER_ERROR));
 
         Map<String, ExpectedCode> actual = Arrays.stream(ErrorCode.values())
                 .collect(Collectors.toMap(ErrorCode::name, code -> new ExpectedCode(code.getCode(), code.getStatus())));
 
-        assertThat(ErrorCode.values()).hasSize(26);
+        assertThat(ErrorCode.values()).hasSize(27);
         assertThat(actual).isEqualTo(expected);
     }
 
@@ -58,7 +59,7 @@ class ErrorCodeContractTests {
                 .map(ErrorCode::getCode)
                 .toList();
 
-        assertThat(codes).doesNotHaveDuplicates().hasSize(26);
+        assertThat(codes).doesNotHaveDuplicates().hasSize(27);
         assertThat(codes).allMatch(code -> CODE_PATTERN.matcher(code).matches());
         assertThat(codes).allMatch(code -> code.length() == 5);
 

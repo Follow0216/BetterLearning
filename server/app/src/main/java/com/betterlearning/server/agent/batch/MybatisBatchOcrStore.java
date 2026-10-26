@@ -49,7 +49,7 @@ public class MybatisBatchOcrStore implements BatchOcrStore {
                 throw new BusinessException(ErrorCode.TUTOR_TURN_CONFLICT, "该账号已有一个识别批次正在处理");
             }
             if (mapper.activeCount(null, false) >= 2) {
-                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "识别队列已满，请稍后再提交");
+                throw new BusinessException(ErrorCode.OCR_BATCH_BUSY);
             }
             mapper.insert(accountId, requestId, fingerprint, owner);
             return new Created(snapshot(mapper.find(accountId, requestId)), true);

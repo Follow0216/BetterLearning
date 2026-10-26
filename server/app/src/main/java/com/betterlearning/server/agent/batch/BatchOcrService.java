@@ -72,7 +72,7 @@ public class BatchOcrService {
             return replay(existing, fingerprint);
         }
         if (!inputSlots.tryAcquire()) {
-            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "识别队列已满，请稍后再提交");
+            throw new BusinessException(ErrorCode.OCR_BATCH_BUSY);
         }
         boolean handedOff = false;
         try {

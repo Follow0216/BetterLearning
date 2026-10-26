@@ -88,6 +88,9 @@ public class BatchOcrController {
     @ApiResponse(responseCode = "200", description = "返回已创建或已存在的批次与当前可校对内容",
             content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = BatchOcrService.Response.class)))
+    @ApiResponse(responseCode = "429", description = "A0502 识别队列已满，本批尚未受理；保留原图，稍后手动开始",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+            schema = @Schema(implementation = ApiErrorVO.class)))
     public ResponseEntity<BatchOcrService.Response> submit(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @Parameter(description = "客户端生成并在恢复时保持不变的标准 UUID",

@@ -1,6 +1,7 @@
 package com.betterlearning.server.agent.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -26,12 +27,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.imageio.ImageIO;
 
 import com.betterlearning.server.agent.model.AgentModelException.Failure;
+import com.betterlearning.server.agent.model.BatchOcrModels.InputImage;
 import com.betterlearning.server.agent.model.BatchOcrModels.Question;
 import com.betterlearning.server.agent.model.BatchOcrModels.Result;
 import com.betterlearning.server.agent.model.BatchOcrModels.Source;
 import com.betterlearning.server.agent.model.BatchOcrModels.Tile;
 import com.betterlearning.server.agent.model.BatchOcrProcessingException;
 import com.betterlearning.server.agent.service.BatchOcrEngine;
+import com.betterlearning.server.enums.ErrorCode;
+import com.betterlearning.server.exception.BusinessException;
 import com.betterlearning.server.support.IntegrationContainers;
 import com.betterlearning.server.support.IntegrationProperties;
 import com.betterlearning.server.support.TestData;
@@ -94,6 +98,9 @@ class BatchOcrHttpIntegrationTests {
 
     @Autowired
     private JsonMapper json;
+
+    @Autowired
+    private BatchOcrStore store;
 
     @MockitoBean
     private BatchOcrEngine engine;
@@ -160,6 +167,60 @@ class BatchOcrHttpIntegrationTests {
             assertThat(calls.get()).isEqualTo(1);
         } finally {
             release.countDown();
+        }
+    }
+
+    @Test
+    void fullLocalAndGlobalQueuesRejectBeforeCreationAndAllowExplicitSameIdStart() throws Exception {
+        String alice = account("batch_alice");
+        String bob = account("batch_bob");
+        String charlie = account("batch_charlie");
+        long charlieId = jdbc.queryForObject("SELECT account_id FROM app_user WHERE username=?",
+                Long.class, "batch_charlie");
+        String aliceRequest = UUID.randomUUID().toString();
+        String bobRequest = UUID.randomUUID().toString();
+        String rejectedRequest = UUID.randomUUID().toString();
+        byte[] image = png(16);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(engine.process(anyList(), any())).thenAnswer(invocation -> {
+            calls.incrementAndGet();
+            entered.countDown();
+            if (!release.await(15, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Test model was not released");
+            }
+            return new Result(List.of(), List.of(), List.of(), List.of(), false);
+        });
+        // 独立服务实例拥有空闲本地槽，仍须受真实数据库全局队列门限约束。
+        BatchOcrService secondInstance = new BatchOcrService(store, engine);
+        try {
+            assertThat(upload(aliceRequest, alice, image).statusCode()).isEqualTo(200);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(http.jsonBody(upload(bobRequest, bob, image))).containsEntry("status", "QUEUED");
+            http.assertErrorEnvelope(upload(rejectedRequest, charlie, image), 429, "A0502");
+            BatchOcrService.ImageLoader images = () -> List.of(new InputImage("image-0", 0, "image/png", image));
+            BusinessException globalFull = assertThrows(BusinessException.class,
+                    () -> secondInstance.submit(charlieId, rejectedRequest, "b".repeat(64), images));
+            assertThat(globalFull.getErrorCode()).isEqualTo(ErrorCode.OCR_BATCH_BUSY);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM ocr_batch WHERE request_id=?",
+                    Integer.class, rejectedRequest)).isZero();
+            http.assertErrorEnvelope(http.get(ROOT + rejectedRequest, charlie), 404, "A0606");
+            assertThat(http.jsonBody(upload(aliceRequest, alice, image))).containsEntry("status", "RUNNING");
+            assertThat(calls.get()).isEqualTo(1);
+            release.countDown();
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
+                    http.jsonBody(http.get(ROOT + bobRequest, bob))).containsEntry("status", "EMPTY"));
+            http.assertErrorEnvelope(http.get(ROOT + rejectedRequest, charlie), 404, "A0606");
+            assertThat(calls.get()).isEqualTo(2);
+            // 模拟用户明确再次点击；没有在拒绝/查询恢复中自动重发。
+            assertThat(upload(rejectedRequest, charlie, image).statusCode()).isEqualTo(200);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(
+                    http.jsonBody(http.get(ROOT + rejectedRequest, charlie))).containsEntry("status", "EMPTY"));
+            assertThat(calls.get()).isEqualTo(3);
+        } finally {
+            release.countDown();
+            secondInstance.close();
         }
     }
 
