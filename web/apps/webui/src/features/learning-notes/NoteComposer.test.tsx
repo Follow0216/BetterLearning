@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Note, Notebook } from "@/lib/api/learning-v2-contract";
 import { createNoteDraft, readNoteDrafts, removeNoteDraft, storeNoteDraft } from "./note-drafts";
@@ -382,8 +382,17 @@ describe("NoteComposer durable local protection", () => {
       revision: 1,
     };
     storeNoteDraft("7", original);
-    render(<NoteComposer accountId="7" noteId={null} {...callbacks()} />);
+    const onLeaveGuardChange = vi.fn();
+    render(
+      <NoteComposer
+        accountId="7"
+        noteId={null}
+        {...callbacks()}
+        onLeaveGuardChange={onLeaveGuardChange}
+      />,
+    );
     await screen.findByDisplayValue(original.title);
+    await waitFor(() => expect(onLeaveGuardChange).toHaveBeenCalledWith(expect.any(Function)));
     removeNoteDraft("7", original.draftId, 1);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
