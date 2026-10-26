@@ -1,3 +1,4 @@
+import { batchImageDisplayUri } from '../features/ocr/BatchQuestionImageSource';
 import { AnswerViewTransform, fitAnswerView, zoomAnswerViewAt } from '../model/AnswerTileGeometry';
 import {
   PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_DANGER, PHONE_COLOR_MUTED,
@@ -43,7 +44,7 @@ export struct BatchOcrSourceViewer {
       Stack({ alignContent: Alignment.TopStart }) {
         if (this.loadError.length === 0) {
           ForEach([this.loadKey], (key: number) => {
-            Image(this.sourcePath).width(this.sourceWidth * this.viewScale).height(this.sourceHeight * this.viewScale)
+            Image(batchImageDisplayUri(this.sourcePath)).width(this.sourceWidth * this.viewScale).height(this.sourceHeight * this.viewScale)
               .position({ x: this.offsetX, y: this.offsetY }).objectFit(ImageFit.Fill).draggable(false)
               .opacity(this.loaded ? 1 : 0).accessibilityText(this.title + '，可放大并横向、纵向移动核对')
               .onComplete((event) => {

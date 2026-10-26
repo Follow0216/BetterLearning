@@ -1,9 +1,14 @@
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { BatchOcrImage, canvas_write } from 'common';
 
 const ownedImages: Map<string, string> = new Map<string, string>();
+/** ArkUI Image须接收沙箱文件URI；上传与清理继续保留原始绝对path。 */
+export function batchImageDisplayUri(path: string): string {
+  return fileUri.getUriFromPath(path);
+}
+
 /** 相册URI只读；用户选择顺序即上传顺序，批量入口不复用会销毁原图的单题裁剪helper。 */
 export async function selectBatchImages(context: Context, maximum: number): Promise<string[]> {
   if (!context || maximum < 1 || maximum > 4) { throw new Error('图片选择数量无效'); }

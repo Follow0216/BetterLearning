@@ -8,7 +8,7 @@ import {
 } from 'common';
 import { BatchQuestionDraft, BatchReviewDraft, batchDraftSession, batch_draft_can_add,
   batch_question_label, batch_question_summary, batch_ocr_stage_label, batch_start_can_retry_manually } from '../features/ocr/BatchOcrDrafts';
-import { copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
+import { batchImageDisplayUri, copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
 import {
   PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_DANGER, PHONE_COLOR_DANGER_SOFT,
   PHONE_COLOR_MUTED, PHONE_COLOR_PRIMARY, PHONE_COLOR_PRIMARY_DEEP, PHONE_COLOR_SOFT,
@@ -414,7 +414,7 @@ struct BatchOcrBatchCard {
         Row({ space: 8 }) {
           if (!this.batch.releasedSourceIds.includes('image-' + index.toString())) {
             Button({ type: ButtonType.Normal }) {
-              Image(input.path).width(50).height(62).objectFit(ImageFit.Contain).borderRadius(6)
+              Image(batchImageDisplayUri(input.path)).width(50).height(62).objectFit(ImageFit.Contain).borderRadius(6)
             }.width(58).height(70).padding(4).backgroundColor(PHONE_COLOR_SOFT).borderRadius(8)
             .accessibilityText('放大查看来源图 ' + (index + 1).toString()).onClick(() => { this.onView(index); })
           }
@@ -445,7 +445,7 @@ struct BatchOcrBatchCard {
             Text('原图 image-' + index.toString() + '（点击下方按钮放大核对细小公式）').fontSize(11).fontColor(PHONE_COLOR_MUTED)
             Button('放大查看来源图 ' + (index + 1).toString()).width('100%').height(44).fontSize(13)
               .fontColor(PHONE_COLOR_PRIMARY_DEEP).backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.onView(index); })
-            Image(input.path).width('100%').aspectRatio(input.width / input.height).objectFit(ImageFit.Contain)
+            Image(batchImageDisplayUri(input.path)).width('100%').aspectRatio(input.width / input.height).objectFit(ImageFit.Contain)
               .accessibilityText('来源图 ' + (index + 1).toString() + ' 的完整原图')
           }
         }, (input: BatchOcrImage, index: number) => this.batch.imageKeys[index] + '-full')
