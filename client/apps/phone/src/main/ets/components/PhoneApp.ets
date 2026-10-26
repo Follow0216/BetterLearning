@@ -215,6 +215,7 @@ export struct PhoneApp {
             }
           },
           onSaved: (detail: QuestionDetail, scope?: number) => { this.handle_question_saved(detail, scope); },
+          onBatchSaved: () => { this.libraryRefreshToken = this.libraryRefreshToken + 1; },
           onUnauthorized: (token: string) => { this.handle_signed_out(token); }
         })
           .visibility(this.entryVisible ? Visibility.Visible : Visibility.None)

@@ -112,3 +112,9 @@ export { CitationFocusController, citationFocusController } from './src/main/ets
 export { ToastType, ToastOptions, ToastItem } from './src/main/ets/components/feedback/ToastModels';
 export { ToastStore } from './src/main/ets/components/feedback/ToastStore';
 export { ToastHost } from './src/main/ets/components/feedback/ToastHost';
+
+export { BatchOcrApi } from './src/main/ets/features/tutor/BatchOcrApi';
+export {
+  BatchOcrStatus, BatchOcrImage, BatchOcrQuestion, BatchOcrSource, BatchOcrTile, BatchOcrResult,
+  BatchOcrJob, batch_ocr_is_active, batch_ocr_uuid, parse_batch_ocr_job
+} from './src/main/ets/features/tutor/BatchOcrModels';

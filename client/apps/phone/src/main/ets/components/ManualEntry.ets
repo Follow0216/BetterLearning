@@ -1,4 +1,6 @@
 import { common } from '@kit.AbilityKit';
+import { BatchOcrReview } from './BatchOcrReview';
+import { batchDraftSession } from '../features/ocr/BatchOcrDrafts';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import {
@@ -23,7 +25,8 @@ import {
 enum EntryScreen {
   SOURCE = 'SOURCE',
   CROP = 'CROP',
-  REVIEW = 'REVIEW'
+  REVIEW = 'REVIEW',
+  BATCH = 'BATCH'
 }
 
 enum EntryReviewMode {
@@ -42,10 +45,12 @@ export struct ManualEntry {
   toast?: ToastStore;
   onContextChanged: (context: string) => void = () => {};
   onSaved: (detail: QuestionDetail, scope?: number) => void = () => {};
+  onBatchSaved: () => void = () => {};
   onUnauthorized: (token: string) => void = () => {};
   onBack: () => void = () => {};
   onNavigationVisibilityChanged: (visible: boolean) => void = () => {};
   backController: PhoneBackController = new PhoneBackController();
+  private batchBackController: PhoneBackController = new PhoneBackController();
   @Prop @Watch('on_active_changed') active: boolean = true;
 
   @State subject: LearningSubject = LearningSubject.HIGHER_MATHEMATICS;
@@ -86,6 +91,7 @@ export struct ManualEntry {
 
   aboutToAppear(): void {
     this.alive = true;
+    batchDraftSession.bind(authSession.read_access_token() ?? '');
     this.backController.handleBack = (): boolean => { this.go_back(); return true; };
     if (this.active) { this.claim_keyboard_mode(); this.report_navigation_visibility(); }
   }
@@ -97,6 +103,7 @@ export struct ManualEntry {
     this.editorController.stopEditing();
     this.restore_keyboard_mode();
     this.abandon_capture();
+    if (authSession.read_access_token() === null) { batchDraftSession.bind(''); }
   }
 
   on_active_changed(): void {
@@ -135,6 +142,8 @@ export struct ManualEntry {
           this.source_screen()
         } else if (this.screen === EntryScreen.CROP) {
           this.crop_screen()
+        } else if (this.screen === EntryScreen.BATCH) {
+          BatchOcrReview({ toast: this.toast, active: this.active, backController: this.batchBackController, onSaved: () => { this.onBatchSaved(); }, onUnauthorized: (token: string) => { this.handle_unauthorized(token); } })
         } else {
           this.review_screen()
         }
@@ -161,9 +170,9 @@ export struct ManualEntry {
       .enabled(!this.cropBusy && !this.submitting)
       .onClick(() => { this.go_back(); })
       Text(this.screen === EntryScreen.SOURCE ? '录题' :
-        this.screen === EntryScreen.CROP ? '裁剪题目' : '校对题目')
+        this.screen === EntryScreen.CROP ? '裁剪题目' : this.screen === EntryScreen.BATCH ? '批量录题' : '校对题目')
         .fontSize(22).fontWeight(FontWeight.Bold).fontColor(PHONE_COLOR_TITLE).layoutWeight(1)
-      if (this.screen !== EntryScreen.SOURCE) {
+      if (this.screen !== EntryScreen.SOURCE && this.screen !== EntryScreen.BATCH) {
         Button(this.editorFocused ? '完成' : '重选图片')
           .height(40).fontSize(14).fontColor(PHONE_COLOR_PRIMARY)
           .backgroundColor(PHONE_COLOR_SOFT).borderRadius(20)
@@ -197,6 +206,14 @@ export struct ManualEntry {
           this.source_card('手动输入', $r('app.media.entry_edit'), true)
         }
         .width('100%')
+        Column({ space: 8 }) {
+          Text('一张大图 / 长图，或多张题图').fontSize(16).fontWeight(FontWeight.Medium).fontColor(PHONE_COLOR_TITLE)
+          Text('识别多道题，逐题校对、勾选后保存；本批内容独立保留。').fontSize(12).lineHeight(18).fontColor(PHONE_COLOR_MUTED)
+          Button('批量识别与校对').width('100%').height(46).fontSize(15).fontColor(PHONE_COLOR_PRIMARY)
+            .backgroundColor(PHONE_COLOR_SOFT).borderRadius(23).enabled(!this.save_blocked())
+            .onClick(() => { this.screen = EntryScreen.BATCH; })
+        }.width('100%').padding(16).backgroundColor(PHONE_COLOR_CARD)
+        .border({ width: 1, color: PHONE_COLOR_BORDER }).borderRadius(PHONE_RADIUS_CARD)
         if (this.has_draft()) {
           Column({ space: 10 }) {
             Row({ space: 10 }) {
@@ -548,6 +565,7 @@ export struct ManualEntry {
   }
 
   private go_back(): void {
+    if (this.screen === EntryScreen.BATCH && this.batchBackController.handleBack()) { return; }
     // 所有返回入口共用顺序；忙时消费返回，避免未知保存结果跳转。
     if (this.sourcePicker) { this.sourcePicker = false; return; }
     if (this.discardPrompt) { this.discardPrompt = false; return; }
