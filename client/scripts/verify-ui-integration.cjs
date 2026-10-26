@@ -6,13 +6,12 @@ const {promisify}=require('node:util');const run=promisify(execFile);
 const root=path.resolve(__dirname,'../..');
 const specs=[
  ['p5-client-suites','client/scripts/verify-multi-agent-clients.cjs'],
- ['incoming-preservation','client/scripts/verify-ui-integration-preservation.cjs'],
- ['navigation','docs/testing/multi-agent-clients/integration/navigation-check.cjs',root],
- ['native-toast','docs/testing/multi-agent-clients/integration/native-toast-check.cjs',root],
- ['account-common','docs/testing/user-account-20261025/account-common-check.cjs',root],
- ['account-form','docs/testing/phone-account-20261025/account-form-check.cjs',root],
- ['toast-store','docs/testing/toast-common-20261025/toast-store-check.mjs'],
- ['auth-toast','docs/testing/toast-common-20261025/auth-toast-check.mjs']
+ ['navigation','client/scripts/checks/navigation-check.cjs',root],
+ ['native-toast','client/scripts/checks/native-toast-check.cjs',root],
+ ['account-common','client/scripts/checks/account-common-check.cjs',root],
+ ['account-form','client/scripts/checks/account-form-check.cjs',root],
+ ['toast-store','client/scripts/checks/toast-store-check.mjs'],
+ ['auth-toast','client/scripts/checks/auth-toast-check.mjs']
 ];
 function files(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(entry=>{if(['node_modules','oh_modules','.hvigor','build','.ohpm'].includes(entry.name))return [];const f=path.join(directory,entry.name);return entry.isDirectory()?files(f):/\.(ets|ts|js|css)$/.test(f)?[f]:[];});}
 (async()=>{

@@ -23,7 +23,7 @@ QuestionMarkdownView({
 
 ## 本地资源与精确版本
 
-用户已通过统筹明确批准 `docs/testing/mvp-m1/dependency-candidates.md` 的精确 10 包清单。
+用户已通过统筹明确批准 `docs/dependencies/m1-renderer-approved.md` 的精确 10 包清单。
 本提交只接入批准发行包中的浏览器文件及许可证，不修改 common 的 oh-package 依赖，
 不引入其他包。Web 的 package/catalog/lock 由 C4 在独立 TEST 树维护。
 

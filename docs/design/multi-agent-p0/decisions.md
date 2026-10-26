@@ -1,6 +1,6 @@
 # P0 技术决策记录
 
-状态：架构建议已获总体通过；具体契约与技术验证结果提交 P0 审核。日期：2026-10-25。依赖版本以验证目录实际记录为准，不以网页“最新版本”作为自动升级理由。
+状态：P0 架构决策。依赖版本以锁定的项目配置为准，不以网页“最新版本”作为自动升级理由。
 
 ## ADR-001：Temporal Java 负责可靠执行
 
@@ -8,7 +8,7 @@
 
 原因：首版最重要的难点是客户端抬笔/断线、进程重启、重复投递、取消与收费调用，而非动态图语法。Temporal 不能替代业务幂等账本，也不能保证模型供应商“只计费一次”。参见官方 [Activity 定义](https://docs.temporal.io/activity-definition)、[Workflow 定义](https://docs.temporal.io/workflow-definition) 和 [Java 取消](https://docs.temporal.io/develop/java/workflows/cancellation)。
 
-试验使用 SDK `1.39.0`，Boot `4.0.8`，LangChain4j `1.22.0`。仅在隔离验证 POM 中引入，不改 server POM。SDK TestWorkflowEnvironment 的内存历史重放不等于真实 Temporal Server 进程宕机恢复；详细范围见 [实测](../../testing/multi-agent-p0/temporal-spike/temporal-report.md)。生产 Server 版本与 SDK 组合需在部署验收时固定 digest 并重测，不能从 SDK 版本号推导。
+技术验证使用 SDK `1.39.0`、Boot `4.0.8`、LangChain4j `1.22.0`。SDK TestWorkflowEnvironment 的内存历史重放不等于真实 Temporal Server 进程宕机恢复。生产 Server 版本与 SDK 组合需在部署验收时固定 digest 并重测，不能从 SDK 版本号推导。
 
 首版可保持同一代码仓库，以独立 worker 进程部署 agent 执行器，避免 HTTP 进程重启阻断任务。API 与 worker 共同使用业务库并通过端口访问资料；模型密钥仅配置给需要执行模型的服务进程。
 
@@ -20,11 +20,11 @@ LangGraph 提供图状态、检查点和中断恢复，并非没有恢复能力�
 
 ## ADR-003：PostgreSQL + pgvector，原始资料仍为事实源
 
-选择在现有 PostgreSQL 旁增加 pgvector 扩展，避免首版维护独立向量数据库。来源权限、版本和向量可在同一数据库查询中连接过滤。验证镜像固定版本与 digest；实际见 [pgvector 实测](../../testing/multi-agent-p0/pgvector-report.md)。
+选择在现有 PostgreSQL 旁增加 pgvector 扩展，避免首版维护独立向量数据库。来源权限、版本和向量可在同一数据库查询中连接过滤。部署镜像须固定版本与 digest。
 
 先用账号过滤后的精确向量检索验证质量与基线性能；数据量增长且实测需要时再建 HNSW。近似索引与过滤可能影响召回数量，不能把有索引视作性能/质量通过。全文和向量融合遵循 [pgvector 官方混合检索说明](https://github.com/pgvector/pgvector#hybrid-search)。不引入 Elasticsearch/Milvus/Qdrant 等额外服务。
 
-中文检索需要词项处理与方法标签。合成向量只能验证向量运算、隔离和融合排序，不能证明 embedding 能理解“同解法不同题面”。方法词表、模型与重排策略由 [评测方案](evaluation.md) 的真实案例决定。
+中文检索需要词项处理与方法标签。合成向量只能验证向量运算、隔离和融合排序，不能证明 embedding 能理解“同解法不同题面”。方法词表、模型与重排策略须根据真实案例评测确定。
 
 ## ADR-004：模型适配与质量门禁
 

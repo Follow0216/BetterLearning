@@ -57,7 +57,7 @@ cp .env.example .env.local
 | `SPRING_DATA_REDIS_USERNAME` | 空 | 否 | Redis 用户名 |
 | `SPRING_DATA_REDIS_PASSWORD` | 空 | 否 | Redis 密码 |
 | `APP_FILES_ROOT` | 无 | **是** | 可写绝对持久目录，保存当前作答和快照文件；API 与 Worker 使用同一数据目录 |
-| `APP_AGENT_RETENTION_DELETE_LOG_ROOT` | 无 | **是** | 独立持久删除日志目录，不得与 `APP_FILES_ROOT` 相互包含；初始化和恢复见 [删除日志说明](../docs/testing/multi-agent-operations/deletion-journal.md) |
+| `APP_AGENT_RETENTION_DELETE_LOG_ROOT` | 无 | **是** | 独立持久删除日志目录，不得与 `APP_FILES_ROOT` 相互包含；初始化和恢复见 [删除日志说明](../docs/operations/deletion-journal.md) |
 | `APP_JWT_SECRET_BASE64` | 无 | **是** | Base64 编码的 HMAC 密钥，解码后至少 32 字节 |
 | `APP_JWT_ISSUER` | 无 | **是** | JWT 签发者 |
 | `APP_JWT_AUDIENCE` | 无 | **是** | JWT 受众 |
@@ -148,7 +148,7 @@ Mapper 扫描仍固定为 `com.betterlearning.server.mapper`，XML 通过 `class
 
 `--check` 只检查 JDK 17 与必填环境变量是否存在，**不验证**数据库/Redis 连接、JWT 格式或 Spring 配置；真正启动时由 Spring Boot 完成全部配置校验。
 
-脚本会先用 Maven reactor 打包 app 及其依赖，再以 JDK 17 启动 app jar；打包使用 `-DskipTests`，不代表测试或功能验收已通过。`--check` 不执行打包。所有发布模式均需配置独立的删除日志目录；环境变量存在性检查不验证目录初始化状态。首次部署按[删除日志说明](../docs/testing/multi-agent-operations/deletion-journal.md)初始化，已有环境不得盲目初始化或清除日志。
+脚本会先用 Maven reactor 打包 app 及其依赖，再以 JDK 17 启动 app jar；打包使用 `-DskipTests`，不代表测试或功能验收已通过。`--check` 不执行打包。所有发布模式均需配置独立的删除日志目录；环境变量存在性检查不验证目录初始化状态。首次部署按[删除日志说明](../docs/operations/deletion-journal.md)初始化，已有环境不得盲目初始化或清除日志。
 
 也可以手工导出环境变量后打包启动：
 
@@ -333,7 +333,7 @@ V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动�
 
 ## 10. M2 当前完整作答
 
-契约位于 `docs/design/mvp-m2-contract.md`，接收与验证说明见 `server/M2-ANSWER-HANDOFF.md`。
+契约位于 `docs/design/mvp-m2-contract.md`，具体字段与限制以该契约为准。
 
 - GET/POST `/api/v1/learning/questions/{questionId}/answer` 读取／multipart 保存最新作答。JSON part 为 manifest，完整合成 PNG 为 chunk_0000 等，干净题面 PNG 为 question_0000 等；全部文件校验并落盘、数据库提交后才返回 fileRef。
 - PATCH `/api/v1/learning/questions/{questionId}/answer-state` 使用当前 fileRef 标记 COMPLETED 或继续 IN_PROGRESS。必须先保存才能完成；已完成须先继续才能保存新内容。
@@ -348,7 +348,7 @@ V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动�
 
 ## 11. M3 跨端辅导与 M4 OCR
 
-接收版本和验证边界见 `M3-STORAGE-HANDOFF.md`，HTTP字段依C3 `agent/M3-M4-CONTRACT.md`。发问 POST `/api/v1/learning/questions/{questionId}/tutor-turns`，创建/重复统一200；同账号跨题最多一个等待/生成轮次。Tablet仅轮询当前题pending，抬笔后冻结全量文档并POST `/{turnId}/answer`，独立保存，后续普通作答或新轮次不会替换该轮文件。GET同路径直接返回ReadManifest，retry/cancel POST使用空JSON。模型失败原轮保留文件，手工retry，无自动重试/队列。
+HTTP字段依 `agent/M3-M4-CONTRACT.md`。发问 POST `/api/v1/learning/questions/{questionId}/tutor-turns`，创建/重复统一200；同账号跨题最多一个等待/生成轮次。Tablet仅轮询当前题pending，抬笔后冻结全量文档并POST `/{turnId}/answer`，独立保存，后续普通作答或新轮次不会替换该轮文件。GET同路径直接返回ReadManifest，retry/cancel POST使用空JSON。模型失败原轮保留文件，手工retry，无自动重试/队列。
 
 OCR POST `/api/v1/learning/ocr`只接受名为image的单个PNG/JPEG part（16MiB上限），返回待校对bodyMarkdown，不创建正式题目。用户校对后才调用既有M1确认接口。源图不持久化，模型密钥不进响应和日志。
 
