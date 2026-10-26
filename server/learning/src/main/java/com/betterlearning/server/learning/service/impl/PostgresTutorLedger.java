@@ -23,6 +23,7 @@ import com.betterlearning.server.learning.model.dataobject.MultiAgentRows.*;
 import com.betterlearning.server.multiagent.MultiAgentModels.*;
 import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.multiagent.CitationMarkers;
+import com.betterlearning.server.multiagent.ConversationContexts;
 import com.betterlearning.server.multiagent.TutorLedger;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -71,13 +72,20 @@ public class PostgresTutorLedger implements TutorLedger {
         } else if (!"NEW_CAPTURE".equals(input.kind()) || input.sourceRequestId() != null) {
             throw invalid();
         }
+        if (command.contextParentRequestId() != null) {
+            uuid(command.contextParentRequestId());
+            if (key.equals(command.contextParentRequestId())) {
+                throw invalid();
+            }
+        }
         lock(accountId);
         expire(accountId, Instant.now());
         RequestRow existing = db.request(accountId, key);
         if (existing != null) {
             if (existing.questionId() != question || !existing.prompt().equals(command.prompt())
                     || !existing.mode().equals(mode.name()) || !existing.snapshotKind().equals(input.kind())
-                    || !Objects.equals(existing.sourceRequestId(), input.sourceRequestId())) {
+                    || !Objects.equals(existing.sourceRequestId(), input.sourceRequestId())
+                    || !Objects.equals(existing.contextParentRequestId(), command.contextParentRequestId())) {
                 throw conflict();
             }
             return view(existing);
@@ -94,9 +102,11 @@ public class PostgresTutorLedger implements TutorLedger {
             }
             source(origin);
         }
+        ConversationContext context = freezeContext(accountId, question, command.contextParentRequestId());
         db.insertRequest(new RequestRow(key, accountId, question, command.prompt(), mode.name(), input.kind(),
                 input.sourceRequestId(), null, null, null, null, null, null, "WAITING_INPUT", 0,
-                Instant.now().plusSeconds(300), null, null));
+                Instant.now().plusSeconds(300), null, null, command.contextParentRequestId(),
+                context.parentRequestId() == null ? null : ConversationContexts.encode(context)));
         if (origin != null) {
             db.bind(accountId, key, origin.snapshotOriginRequestId(), origin.snapshotFileRef(), origin.snapshotSha256(),
                     origin.snapshotSourceId(), origin.snapshotVersion());
@@ -253,6 +263,7 @@ public class PostgresTutorLedger implements TutorLedger {
             throw conflict();
         }
         source(row);
+        frozenContext(row);
         vacant(accountId);
         String run = newRun(row, targetRunId);
         db.insertRetry(new RetryRow(accountId, key, requestId, targetRunId, run));
@@ -547,6 +558,23 @@ public class PostgresTutorLedger implements TutorLedger {
     private int expire(long account, Instant now) {
         int changed = 0;
         for (RequestRow request : db.active(account)) {
+            if (request.contextParentRequestId() != null && request.conversationContextJson() == null) {
+                // 来源撤回只清理副本；状态变化复用既有取消/fence/outbox路径，不从触发器改run终态。
+                if (request.currentRunId() == null) {
+                    db.project(account, request.requestId(), null, "CANCELLED");
+                    changed++;
+                } else if (!"CANCELLING".equals(request.status())) {
+                    RunRow invalidated = requireRun(account, request.currentRunId());
+                    transition(invalidated, "CANCELLING", null);
+                    db.fence(invalidated.runId());
+                    db.closeSteps(invalidated.runId());
+                    event(account, "RUN", invalidated.runId(), invalidated.revision() + 1, "RUN_CANCEL");
+                    changed++;
+                }
+                if (!"CANCELLING".equals(request.status())) {
+                    continue;
+                }
+            }
             if (request.currentRunId() == null) {
                 if (!request.inputDeadlineAt().isAfter(now)) {
                     db.project(account, request.requestId(), null, "TIMED_OUT");
@@ -635,13 +663,62 @@ public class PostgresTutorLedger implements TutorLedger {
         return new Execution(request.accountId(), request.requestId(), Long.toString(request.questionId()), run.runId(),
                 Mode.valueOf(request.mode()), request.prompt(), request.snapshotFileRef(), request.snapshotSourceId(),
                 request.snapshotVersion(), Status.valueOf(run.status()), run.revision(), run.queueDeadlineAt(),
-                run.runDeadlineAt(), run.cancelRequestedAt(), run.modelCalls());
+                run.runDeadlineAt(), run.cancelRequestedAt(), run.modelCalls(),
+                request.conversationContextJson() == null ? ConversationContexts.empty() : frozenContext(request));
     }
 
     private static Request view(RequestRow row) {
         return new Request(row.requestId(), Long.toString(row.questionId()), row.prompt(), Mode.valueOf(row.mode()),
                 new SnapshotInput(row.snapshotKind(), row.sourceRequestId()), row.snapshotOriginRequestId(),
-                row.snapshotFileRef(), row.currentRunId(), Status.valueOf(row.status()), row.revision(), row.createdAt(), row.updatedAt());
+                row.snapshotFileRef(), row.currentRunId(), Status.valueOf(row.status()), row.revision(), row.createdAt(), row.updatedAt(),
+                row.contextParentRequestId());
+    }
+
+    private ConversationContext freezeContext(long account, long question, String parentId) {
+        if (parentId == null) {
+            return ConversationContexts.empty();
+        }
+        RequestRow parent = db.request(account, parentId);
+        if (parent == null || parent.questionId() != question) {
+            throw missing();
+        }
+        RunRow parentRun = parent.currentRunId() == null ? null : db.run(account, parent.currentRunId());
+        ResultRow reply = parent.currentRunId() == null ? null : db.result(parent.currentRunId());
+        if (!"SUCCEEDED".equals(parent.status()) || parentRun == null || !"SUCCEEDED".equals(parentRun.status())
+                || !parent.requestId().equals(parentRun.requestId()) || reply == null || !"VERIFIED".equals(reply.status())
+                || parent.snapshotFileRef() == null || reply.bodyMarkdown() == null || reply.bodyMarkdown().isBlank()) {
+            throw contextUnavailable();
+        }
+        SourceContent published = sources.findOrigin(account, SourceType.TUTOR_REPLY, reply.resultId())
+                .orElseThrow(PostgresTutorLedger::contextUnavailable);
+        if (!"ACTIVE".equals(published.source().status()) || "WITHDRAWN".equals(published.version().status())
+                || !Objects.equals(reply.bodyMarkdown(), published.version().bodyMarkdown())) {
+            throw contextUnavailable();
+        }
+        try {
+            return ConversationContexts.append(frozenContext(parent), new ConversationTurn(parent.requestId(),
+                    reply.runId(), reply.resultId(), Mode.valueOf(parent.mode()), parent.prompt(), reply.bodyMarkdown(),
+                    parent.snapshotFileRef(), published.source().sourceId(), published.version().version()));
+        } catch (ConversationContexts.ContextTooLargeException exception) {
+            throw new BusinessException(ErrorCode.CONVERSATION_CONTEXT_TOO_LARGE);
+        } catch (IllegalArgumentException exception) {
+            throw contextUnavailable();
+        }
+    }
+
+    private static ConversationContext frozenContext(RequestRow request) {
+        if (request.contextParentRequestId() == null && request.conversationContextJson() == null) {
+            return ConversationContexts.empty();
+        }
+        try {
+            return ConversationContexts.decode(request.conversationContextJson(), request.contextParentRequestId());
+        } catch (RuntimeException exception) {
+            throw contextUnavailable();
+        }
+    }
+
+    private static BusinessException contextUnavailable() {
+        return new BusinessException(ErrorCode.CONTEXT_PARENT_UNAVAILABLE);
     }
 
     /** 有来源的证据只引用已保存的锚点原文；推断必须使用不绑定来源的DERIVATION。 */

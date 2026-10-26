@@ -206,7 +206,8 @@ class V07DumpRestoreUpgradeIntegrationTests {
             assertThat(history(fresh, version).get("success")).isEqualTo(true);
         }
         assertThat(Flyway.configure().dataSource(dataSource(TARGET))
-                .locations("classpath:db/migration").load().migrate().migrationsExecuted).isZero();
+                .locations("classpath:db/migration").target(MigrationVersion.fromVersion("2026102510"))
+                .load().migrate().migrationsExecuted).isZero();
         Map<String, Object> evidence = new LinkedHashMap<>(processEvidence);
         evidence.put("containers", containers);
         evidence.put("sourceV07History", oldHistory);

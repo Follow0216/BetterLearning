@@ -70,6 +70,11 @@ public enum ErrorCode {
     /** A0455：辅导轮次活动或状态冲突；本项目扩展。 */
     TUTOR_TURN_CONFLICT(HttpStatus.CONFLICT, "A0455", "当前辅导轮次状态冲突，请刷新后重试"),
 
+    /** 连续问答父轮失效，须同步后明确重选。 */
+    CONTEXT_PARENT_UNAVAILABLE(HttpStatus.CONFLICT, "A0456", "上一轮问答已不可用，请同步后重新选择"),
+    /** 明确父轮不能完整纳入上下文，不静默截断。 */
+    CONVERSATION_CONTEXT_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "A0431", "上一轮回答超出连续问答范围，请选择较短回答或独立提问"),
+
     /** C0002：模型接入不可用；本项目扩展，供应商原始错误不对外暴露。 */
     MODEL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "C0002", "模型服务暂时不可用"),
 

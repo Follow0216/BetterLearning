@@ -24,8 +24,11 @@ function componentCode(file, name, exclude) {
   const source = parse(file);
   const component = source.statements.find((node) => node.name?.text === name);
   assert.ok(component, name + ' missing');
-  return 'class ' + name + ' {\n' + component.members
-    .filter((node) => !exclude.includes(node.name?.getText(source)))
+  const supporting = source.statements.filter((node) => ts.isClassDeclaration(node))
+    .map((node) => node.getText(source)).join('\n');
+  return supporting + '\nclass ' + name + ' {\n' + component.members
+    .filter((node) => !exclude.includes(node.name?.getText(source)) &&
+      !node.getText(source).trimStart().startsWith('@Builder'))
     .map((node) => ts.isPropertyDeclaration(node) ?
       node.name.getText(source) + (node.initializer ? ' = ' + node.initializer.getText(source) : '') + ';' :
       node.getText(source)).join('\n') + '\n}';
@@ -62,6 +65,10 @@ const sandbox = {
   LearningV2Api: { create_default: () => api },
   LearningApi: { create_default: () => ({ getQuestion: async () => ({ isSuccess: false }) }) },
   TextAreaController: class { stopEditing() { stoppedEditors++; } },
+  ListScroller: class { getItemRect() { return { y: 0, height: 0 }; } isAtEnd() { return false; }
+    scrollToIndex() {} },
+  LengthMetrics: { vp: (value) => value }, ScrollAlign: { START: 0 },
+  setTimeout: () => 1, clearTimeout: () => {},
   authSession: {
     has_valid_session: () => token.length > 0,
     read_access_token: () => token,
