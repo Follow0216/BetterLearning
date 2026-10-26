@@ -56,6 +56,8 @@ cp .env.example .env.local
 | `SPRING_DATA_REDIS_DATABASE` | `0` | 否 | Redis 库编号 |
 | `SPRING_DATA_REDIS_USERNAME` | 空 | 否 | Redis 用户名 |
 | `SPRING_DATA_REDIS_PASSWORD` | 空 | 否 | Redis 密码 |
+| `APP_FILES_ROOT` | 无 | **是** | 可写绝对持久目录，保存当前作答和快照文件；API 与 Worker 使用同一数据目录 |
+| `APP_AGENT_RETENTION_DELETE_LOG_ROOT` | 无 | **是** | 独立持久删除日志目录，不得与 `APP_FILES_ROOT` 相互包含；初始化和恢复见 [删除日志说明](../docs/testing/multi-agent-operations/deletion-journal.md) |
 | `APP_JWT_SECRET_BASE64` | 无 | **是** | Base64 编码的 HMAC 密钥，解码后至少 32 字节 |
 | `APP_JWT_ISSUER` | 无 | **是** | JWT 签发者 |
 | `APP_JWT_AUDIENCE` | 无 | **是** | JWT 受众 |
@@ -146,7 +148,7 @@ Mapper 扫描仍固定为 `com.betterlearning.server.mapper`，XML 通过 `class
 
 `--check` 只检查 JDK 17 与必填环境变量是否存在，**不验证**数据库/Redis 连接、JWT 格式或 Spring 配置；真正启动时由 Spring Boot 完成全部配置校验。
 
-脚本会先用 Maven reactor 打包 app 及其依赖，再以 JDK 17 启动 app jar；打包使用 `-DskipTests`，不代表测试或功能验收已通过。`--check` 不执行打包。
+脚本会先用 Maven reactor 打包 app 及其依赖，再以 JDK 17 启动 app jar；打包使用 `-DskipTests`，不代表测试或功能验收已通过。`--check` 不执行打包。所有发布模式均需配置独立的删除日志目录；环境变量存在性检查不验证目录初始化状态。首次部署按[删除日志说明](../docs/testing/multi-agent-operations/deletion-journal.md)初始化，已有环境不得盲目初始化或清除日志。
 
 也可以手工导出环境变量后打包启动：
 
@@ -155,6 +157,8 @@ export SPRING_DATASOURCE_PASSWORD='...'
 export APP_JWT_SECRET_BASE64='...'
 export APP_JWT_ISSUER='betterlearning-server'
 export APP_JWT_AUDIENCE='betterlearning-api'
+export APP_FILES_ROOT='/absolute/persistent/answer-files'
+export APP_AGENT_RETENTION_DELETE_LOG_ROOT='/absolute/persistent/deletion-journal'
 cd server
 ./mvnw -pl app -am -DskipTests package
 java -jar app/target/server.jar
