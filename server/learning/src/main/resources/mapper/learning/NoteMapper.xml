@@ -88,4 +88,123 @@
         </if>
         ORDER BY s.created_at DESC,s.source_id DESC LIMIT #{limit}
     </select>
+    <resultMap id="context" type="com.betterlearning.server.learning.mapper.NoteMapper$ContextRow">
+        <constructor>
+            <arg column="notebook_id" javaType="java.lang.String"/>
+            <arg column="question_id" javaType="java.lang.String"/>
+            <arg column="revision" javaType="_long"/>
+            <arg column="result_id" javaType="java.lang.String"/>
+            <arg column="turn_id" javaType="java.lang.String"/>
+            <arg column="request_id" javaType="java.lang.String"/>
+            <arg column="source_id" javaType="java.lang.String"/>
+            <arg column="source_version" javaType="java.lang.Long"/>
+            <arg column="version_hash" javaType="java.lang.String"/>
+            <arg column="excerpt_text" javaType="java.lang.String"/>
+            <arg column="available" javaType="_boolean"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="excerpt" type="com.betterlearning.server.learning.mapper.NoteMapper$ExcerptRow">
+        <constructor>
+            <arg column="request_id" javaType="java.lang.String"/>
+            <arg column="source_id" javaType="java.lang.String"/>
+            <arg column="source_version" javaType="java.lang.Long"/>
+            <arg column="body_markdown" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="notebook" type="com.betterlearning.server.learning.model.note.NoteModels$Notebook">
+        <constructor>
+            <arg column="notebook_id" javaType="java.lang.String"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="revision" javaType="_long"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+    <select id="context" resultMap="context">
+        SELECT c.notebook_id,c.question_id::text AS question_id,c.revision,c.result_id,c.turn_id,c.request_id,
+               c.source_id,c.source_version,c.version_hash,
+               CASE WHEN (c.result_id IS NOT NULL AND s.status='ACTIVE' AND v.status &lt;&gt; 'WITHDRAWN'
+                    AND v.purged_at IS NULL AND v.body_markdown IS NOT NULL)
+                    OR (c.turn_id IS NOT NULL AND t.status='SUCCEEDED'
+                    AND encode(sha256(convert_to(t.answer_markdown,'UTF8')),'hex')=c.version_hash)
+                    THEN c.excerpt_text END AS excerpt_text,
+               ((c.result_id IS NULL AND c.turn_id IS NULL)
+                    OR (c.result_id IS NOT NULL AND s.status='ACTIVE' AND v.status &lt;&gt; 'WITHDRAWN'
+                    AND v.purged_at IS NULL AND v.body_markdown IS NOT NULL)
+                    OR (c.turn_id IS NOT NULL AND t.status='SUCCEEDED'
+                    AND encode(sha256(convert_to(t.answer_markdown,'UTF8')),'hex')=c.version_hash)) AS available
+        FROM ma_note_context c LEFT JOIN ma_source s
+            ON s.source_id=c.source_id AND s.account_id=c.account_id
+        LEFT JOIN ma_source_version v ON v.source_id=c.source_id AND v.version=c.source_version
+        LEFT JOIN tutor_turn t ON t.account_id=c.account_id AND t.turn_id=c.turn_id
+        WHERE c.account_id=#{accountId} AND c.note_id=#{noteId}
+    </select>
+    <insert id="addContext">
+        INSERT INTO ma_note_context(account_id,note_id,notebook_id,question_id,result_id,turn_id,
+            request_id,source_id,source_version,version_hash,excerpt_text)
+        VALUES (#{accountId},#{noteId},#{notebookId},CAST(#{questionId} AS BIGINT),
+            #{excerpt.resultId},#{excerpt.turnId},#{source.requestId},#{source.sourceId},
+            #{source.sourceVersion},#{hash},#{excerpt.text})
+    </insert>
+    <select id="ownedQuestion" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM question WHERE account_id=#{accountId} AND question_id=CAST(#{questionId} AS BIGINT))
+    </select>
+    <select id="resultExcerpt" resultMap="excerpt">
+        SELECT req.request_id,s.source_id,v.version AS source_version,v.body_markdown
+        FROM ma_result result JOIN ma_run run ON run.run_id=result.run_id
+        JOIN ma_request req ON req.account_id=run.account_id AND req.request_id=run.request_id
+        JOIN ma_source s ON s.account_id=req.account_id AND s.type='TUTOR_REPLY' AND s.origin_id=result.result_id
+        JOIN ma_source_version v ON v.source_id=s.source_id AND v.version=s.current_version
+        WHERE req.account_id=#{accountId} AND req.question_id=CAST(#{questionId} AS BIGINT)
+            AND result.result_id=#{resultId} AND result.status='VERIFIED' AND s.status='ACTIVE'
+            AND v.purged_at IS NULL AND v.status &lt;&gt; 'WITHDRAWN'
+    </select>
+    <select id="turnExcerpt" resultMap="excerpt">
+        SELECT request_id,NULL::text AS source_id,NULL::bigint AS source_version,answer_markdown AS body_markdown
+        FROM tutor_turn WHERE account_id=#{accountId} AND question_id=CAST(#{questionId} AS BIGINT)
+            AND turn_id=#{turnId} AND status='SUCCEEDED'
+    </select>
+    <select id="notebooks" resultMap="notebook">
+        SELECT notebook_id,name,revision,updated_at FROM ma_notebook WHERE account_id=#{accountId}
+        ORDER BY updated_at DESC,notebook_id DESC
+    </select>
+    <select id="notebook" resultMap="notebook">
+        SELECT notebook_id,name,revision,updated_at FROM ma_notebook
+        WHERE account_id=#{accountId} AND notebook_id=#{notebookId}
+    </select>
+    <insert id="addNotebook">
+        INSERT INTO ma_notebook(account_id,notebook_id,name) VALUES (#{accountId},#{notebookId},#{name})
+    </insert>
+    <update id="renameNotebook">
+        UPDATE ma_notebook SET name=#{name},revision=revision+1,updated_at=CURRENT_TIMESTAMP
+        WHERE account_id=#{accountId} AND notebook_id=#{notebookId}
+    </update>
+    <update id="unfileNotebook">
+        UPDATE ma_note_context SET notebook_id=NULL,revision=revision+1
+        WHERE account_id=#{accountId} AND notebook_id=#{notebookId}
+    </update>
+    <delete id="removeNotebook">
+        DELETE FROM ma_notebook WHERE account_id=#{accountId} AND notebook_id=#{notebookId}
+    </delete>
+    <update id="fileNote">
+        UPDATE ma_note_context SET notebook_id=#{notebookId},revision=revision+1
+        WHERE account_id=#{accountId} AND note_id=#{noteId}
+    </update>
+    <select id="search" resultMap="note">
+        SELECT s.origin_id AS note_id,s.source_id,v.version,n.title,v.body_markdown,
+            v.status AS index_status,v.created_at AS updated_at,s.status AS source_status
+        FROM ma_source s JOIN ma_source_version v ON v.source_id=s.source_id AND v.version=s.current_version
+        JOIN ma_note_version n ON n.source_id=v.source_id AND n.version=v.version
+        LEFT JOIN ma_note_context c ON c.account_id=s.account_id AND c.note_id=s.origin_id
+        WHERE s.account_id=#{accountId} AND s.type='NOTE' AND s.status='ACTIVE'
+        <if test="query != null">
+            AND (n.title ILIKE #{query} ESCAPE '!' OR v.body_markdown ILIKE #{query} ESCAPE '!')
+        </if>
+        <if test="notebookId != null">AND c.notebook_id=#{notebookId}</if>
+        <if test="unfiled">AND c.notebook_id IS NULL</if>
+        <if test="questionId != null">AND c.question_id=CAST(#{questionId} AS BIGINT)</if>
+        <if test="beforeTime != null">
+            AND (v.created_at,s.origin_id) &lt; (#{beforeTime},#{beforeId})
+        </if>
+        ORDER BY v.created_at DESC,s.origin_id DESC LIMIT #{limit}
+    </select>
 </mapper>

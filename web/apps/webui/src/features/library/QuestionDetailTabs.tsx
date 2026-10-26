@@ -6,8 +6,16 @@ import styles from "./workspace.module.css";
 
 type DetailTab = "answer" | "tutor";
 
-export function QuestionDetailTabs({ answer, tutor }: { answer: ReactNode; tutor: ReactNode }) {
-  const [selected, setSelected] = useState<DetailTab>("answer");
+export function QuestionDetailTabs({
+  answer,
+  tutor,
+  initialTab = "answer",
+}: {
+  answer: ReactNode;
+  tutor: ReactNode;
+  initialTab?: DetailTab;
+}) {
+  const [selected, setSelected] = useState<DetailTab>(initialTab);
   const id = useId();
   const answerRef = useRef<HTMLButtonElement>(null);
   const tutorRef = useRef<HTMLButtonElement>(null);

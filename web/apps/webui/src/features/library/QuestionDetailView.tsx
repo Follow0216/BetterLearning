@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
 import { BlIcon } from "@/components/icons/BlIcon";
+import { QuestionNoteControl } from "@/features/learning-notes/QuestionNoteControl";
 import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
 import { TutorRequestHistory } from "@/features/tutoring/TutorRequestHistory";
@@ -11,6 +12,7 @@ import {
   INBOX_COLLECTION_NAME,
   isValidQuestionId,
 } from "@/lib/api/library-contract";
+import { isUuid } from "@/lib/api/learning-v2-contract";
 import { getCollections, getQuestionDetail, type LibraryFailure } from "@/lib/api/library-server";
 
 import { AnswerStateBadge } from "./AnswerStateBadge";
@@ -103,6 +105,15 @@ export async function QuestionDetailView({
   searchParams: Promise<SearchParamsInput>;
 }) {
   const [{ questionId }, resolvedSearch] = await Promise.all([params, searchParams]);
+  const initialTab = resolvedSearch.tab === "tutor" ? "tutor" : "answer";
+  const initialRequestId =
+    typeof resolvedSearch.requestId === "string" && isUuid(resolvedSearch.requestId)
+      ? resolvedSearch.requestId
+      : undefined;
+  const focusedTurnId =
+    typeof resolvedSearch.turnId === "string" && isUuid(resolvedSearch.turnId)
+      ? resolvedSearch.turnId
+      : undefined;
   const source = parseLibrarySource(resolvedSearch);
   const fromHome = isHomeQuestionSource(resolvedSearch);
   const backHref = fromHome ? "/" : buildLibraryReturnHref(source);
@@ -172,28 +183,31 @@ export async function QuestionDetailView({
               题目 #{question.questionId}
             </p>
           </div>
-          {collectionsResult.ok ? (
-            <details className="max-w-full min-w-0 text-sm">
-              <summary className="flex min-h-9 cursor-pointer list-none items-center justify-center gap-2 rounded-lg border border-[var(--auth-border)] px-3 text-[var(--auth-muted)] hover:bg-[var(--auth-hover)]">
-                移动题目
-                <BlIcon name="chevron_right" size={14} />
-              </summary>
-              <div className="pt-3">
-                <MoveQuestionControl
-                  questionId={question.questionId}
-                  currentCollectionId={question.collectionId}
-                  collections={collections}
-                />
+          <div className="flex flex-wrap items-start gap-2">
+            <QuestionNoteControl questionId={questionId} questionMarkdown={question.bodyMarkdown} />
+            {collectionsResult.ok ? (
+              <details className="max-w-full min-w-0 text-sm">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center justify-center gap-2 rounded-lg border border-[var(--auth-border)] px-3 text-[var(--auth-muted)] hover:bg-[var(--auth-hover)]">
+                  移动题目
+                  <BlIcon name="chevron_right" size={14} />
+                </summary>
+                <div className="pt-3">
+                  <MoveQuestionControl
+                    questionId={question.questionId}
+                    currentCollectionId={question.collectionId}
+                    collections={collections}
+                  />
+                </div>
+              </details>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span role="alert" className="text-xs text-[var(--auth-danger)]">
+                  题集信息加载失败：{collectionsResult.failure.message}
+                </span>
+                <RefreshButton />
               </div>
-            </details>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <span role="alert" className="text-xs text-[var(--auth-danger)]">
-                题集信息加载失败：{collectionsResult.failure.message}
-              </span>
-              <RefreshButton />
-            </div>
-          )}
+            )}
+          </div>
         </header>
         <div className={styles.detailGrid}>
           <section className={styles.questionPane} aria-labelledby="question-body-heading">
@@ -208,10 +222,14 @@ export async function QuestionDetailView({
           <section className={styles.answerPane} aria-label="作答与辅导">
             <QuestionDetailTabs
               key={questionId}
+              initialTab={initialTab}
               answer={<SavedAnswerPanel questionId={questionId} />}
               tutor={
                 <>
-                  <TutorRequestHistory questionId={questionId} />
+                  <TutorRequestHistory
+                    questionId={questionId}
+                    initialRequestId={initialRequestId}
+                  />
                   <Suspense
                     fallback={
                       <p role="status" className="text-sm text-[var(--auth-muted)]">
@@ -219,7 +237,7 @@ export async function QuestionDetailView({
                       </p>
                     }
                   >
-                    <TutorHistoryPanel questionId={questionId} />
+                    <TutorHistoryPanel questionId={questionId} focusedTurnId={focusedTurnId} />
                   </Suspense>
                 </>
               }

@@ -14,6 +14,9 @@ import {
   parseCitationResolution,
   parseCursorPage,
   parseNote,
+  parseNoteContextWrite,
+  parseNotebook,
+  parseNotebooks,
   parseSource,
   parseTutorDetail,
   parseTutorRequest,
@@ -28,7 +31,18 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
-type Kind = "note" | "notes" | "source" | "sources" | "requests" | "request" | "resolve" | "asset";
+type Kind =
+  | "notebook"
+  | "notebooks"
+  | "filing"
+  | "note"
+  | "notes"
+  | "source"
+  | "sources"
+  | "requests"
+  | "request"
+  | "resolve"
+  | "asset";
 interface Match {
   kind: Kind;
   path: string;
@@ -49,6 +63,23 @@ function matchRequest(request: NextRequest, segments: string[], method: Method):
     ["GET", "PUT", "DELETE"].includes(method)
   )
     kind = "note";
+  else if (
+    a === "notes" &&
+    isUuid(b) &&
+    c === "context" &&
+    segments.length === 3 &&
+    method === "PUT"
+  )
+    kind = "filing";
+  else if (a === "notebooks" && segments.length === 1 && ["GET", "POST"].includes(method))
+    kind = "notebooks";
+  else if (
+    a === "notebooks" &&
+    isUuid(b) &&
+    segments.length === 2 &&
+    ["PUT", "DELETE"].includes(method)
+  )
+    kind = "notebook";
   else if (a === "sources" && segments.length === 1 && method === "GET") kind = "sources";
   else if (a === "sources" && segments.length === 2 && isUuid(b) && method === "GET")
     kind = "source";
@@ -92,9 +123,13 @@ function matchRequest(request: NextRequest, segments: string[], method: Method):
   const allowed =
     kind === "sources"
       ? ["type", "cursor", "limit"]
-      : (kind === "notes" && method === "GET") || kind === "requests"
-        ? ["cursor", "limit"]
-        : [];
+      : kind === "notes" && method === "GET"
+        ? ["cursor", "limit", "q", "notebookId", "questionId"]
+        : kind === "requests"
+          ? ["cursor", "limit"]
+          : kind === "notebook" && method === "DELETE"
+            ? ["confirm"]
+            : [];
   if (
     Array.from(input.keys()).some((key) => !allowed.includes(key)) ||
     Array.from(input.keys()).some((key) => input.getAll(key).length !== 1)
@@ -110,6 +145,15 @@ function matchRequest(request: NextRequest, segments: string[], method: Method):
     !["QUESTION", "SAVED_ANSWER", "TUTOR_SNAPSHOT", "TUTOR_REPLY", "NOTE"].includes(
       input.get("type") ?? "",
     )
+  )
+    return null;
+  if (
+    (input.has("q") && (input.get("q")?.length ?? 0) > 200) ||
+    (input.has("notebookId") &&
+      input.get("notebookId") !== "unfiled" &&
+      !isUuid(input.get("notebookId") ?? "")) ||
+    (input.has("questionId") && !QUESTION.test(input.get("questionId") ?? "")) ||
+    (input.has("confirm") && input.get("confirm") !== "true")
   )
     return null;
   return { kind, path: `/api/v2/learning/${segments.join("/")}`, query: input };
@@ -153,7 +197,12 @@ function parsePayload(kind: Kind, value: unknown) {
     case "notes":
       return parseCursorPage(value, parseNote);
     case "note":
+    case "filing":
       return parseNote(value);
+    case "notebooks":
+      return parseNotebooks(value);
+    case "notebook":
+      return parseNotebook(value);
     case "sources":
       return parseCursorPage(value, parseSource);
     case "source":
@@ -196,16 +245,47 @@ export async function handleLearningRequest(
     if (typeof value !== "object" || value === null || Array.isArray(value))
       return safeError(400, "A0400");
     const note = value as Record<string, unknown>;
-    if (
-      Object.keys(note).some((key) => !["title", "bodyMarkdown"].includes(key)) ||
-      typeof note.title !== "string" ||
-      !note.title.trim() ||
-      typeof note.bodyMarkdown !== "string" ||
-      !note.bodyMarkdown.trim() ||
-      new TextEncoder().encode(note.bodyMarkdown).length > 65536
-    )
-      return safeError(400, "A0400");
-    body = JSON.stringify({ title: note.title, bodyMarkdown: note.bodyMarkdown });
+    if (matched.kind === "notebook" || matched.kind === "notebooks") {
+      if (
+        Object.keys(note).some((key) => key !== "name") ||
+        typeof note.name !== "string" ||
+        !note.name.trim() ||
+        note.name.trim().length > 64
+      )
+        return safeError(400, "A0400");
+      body = JSON.stringify({ name: note.name });
+    } else if (matched.kind === "filing") {
+      if (
+        Object.keys(note).length !== 1 ||
+        !("notebookId" in note) ||
+        (note.notebookId !== null &&
+          (typeof note.notebookId !== "string" || !isUuid(note.notebookId)))
+      )
+        return safeError(400, "A0400");
+      body = JSON.stringify({ notebookId: note.notebookId });
+    } else {
+      if (
+        Object.keys(note).some(
+          (key) =>
+            !["title", "bodyMarkdown", ...(method === "POST" ? ["context"] : [])].includes(key),
+        ) ||
+        typeof note.title !== "string" ||
+        !note.title.trim() ||
+        typeof note.bodyMarkdown !== "string" ||
+        !note.bodyMarkdown.trim() ||
+        new TextEncoder().encode(note.bodyMarkdown).length > 65536
+      )
+        return safeError(400, "A0400");
+      try {
+        body = JSON.stringify({
+          title: note.title,
+          bodyMarkdown: note.bodyMarkdown,
+          ...(note.context == null ? {} : { context: parseNoteContextWrite(note.context) }),
+        });
+      } catch {
+        return safeError(400, "A0400");
+      }
+    }
     headers.set("Content-Type", "application/json");
   }
   if (method === "POST") {
@@ -274,12 +354,16 @@ export async function handleLearningRequest(
   let data: unknown;
   try {
     data =
-      matched.kind === "notes" && method === "POST"
-        ? parseNote(await backend.json())
+      (matched.kind === "notes" || matched.kind === "notebooks") && method === "POST"
+        ? matched.kind === "notes"
+          ? parseNote(await backend.json())
+          : parseNotebook(await backend.json())
         : parsePayload(matched.kind, await backend.json());
     // 后端响应必须属于请求的实体/题目；错误身份不可作为当前页面数据展示。
     if (
-      (matched.kind === "note" && (data as Note).noteId !== segments[1]) ||
+      (["note", "filing"].includes(matched.kind) && (data as Note).noteId !== segments[1]) ||
+      (matched.kind === "notebook" &&
+        (data as { notebookId: string }).notebookId !== segments[1]) ||
       (matched.kind === "source" && (data as Source).sourceId !== segments[1]) ||
       (matched.kind === "requests" &&
         (data as CursorPage<TutorRequest>).items.some((item) => item.questionId !== segments[1])) ||

@@ -8,6 +8,7 @@ import {
   tutorStatusLabels,
 } from "@/features/learning-notes/learning-utils";
 import styles from "@/features/learning-notes/learning.module.css";
+import { TutorExcerptControl } from "@/features/learning-notes/QuestionNoteControl";
 import { SessionBoundary } from "@/features/learning-notes/SessionBoundary";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
 import { learningRequest } from "@/lib/api/learning-v2-client";
@@ -109,6 +110,16 @@ function RequestDetail({ questionId, requestId }: { questionId: string; requestI
                   </button>
                 ))}
               </div>
+              <TutorExcerptControl
+                questionId={questionId}
+                resultId={detail.result.resultId}
+                bodyMarkdown={detail.result.bodyMarkdown}
+                citations={detail.result.citations}
+                onCitationClick={(id) => {
+                  const selected = detail.result?.citations.find((item) => item.citationId === id);
+                  if (selected) setCitation(selected);
+                }}
+              />
               {detail.result.citations.length === 0 && (
                 <p className={styles.muted}>本轮没有引用个人历史资料。</p>
               )}
@@ -123,14 +134,20 @@ function RequestDetail({ questionId, requestId }: { questionId: string; requestI
   );
 }
 
-function History({ questionId }: { questionId: string }) {
+function History({
+  questionId,
+  initialRequestId,
+}: {
+  questionId: string;
+  initialRequestId?: string;
+}) {
   const [items, setItems] = useState<TutorRequest[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(true);
   const [revision, setRevision] = useState(0);
   const requests = useRef<AbortController | null>(null);
-  const [opened, setOpened] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(initialRequestId ?? null);
   useEffect(() => {
     const controller = new AbortController();
     requests.current = controller;
@@ -209,6 +226,9 @@ function History({ questionId }: { questionId: string }) {
       {!pending && !error && items.length === 0 && (
         <p className="mt-4 text-sm">暂无多 Agent 辅导记录。</p>
       )}
+      {opened && !pending && !items.some((item) => item.requestId === opened) && (
+        <RequestDetail questionId={questionId} requestId={opened} />
+      )}
       <ol className={styles.list}>
         {items.map((item) => (
           <li key={item.requestId} className={styles.row}>
@@ -242,10 +262,16 @@ function History({ questionId }: { questionId: string }) {
   );
 }
 
-export function TutorRequestHistory({ questionId }: { questionId: string }) {
+export function TutorRequestHistory({
+  questionId,
+  initialRequestId,
+}: {
+  questionId: string;
+  initialRequestId?: string;
+}) {
   return (
     <SessionBoundary>
-      <History key={questionId} questionId={questionId} />
+      <History key={questionId} questionId={questionId} initialRequestId={initialRequestId} />
     </SessionBoundary>
   );
 }

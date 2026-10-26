@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { TutorExcerptControl } from "@/features/learning-notes/QuestionNoteControl";
 import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
 import { getTutorTurns } from "@/lib/api/library-server";
 import { toTutorTurnSummary } from "@/lib/api/tutor-turn-contract";
@@ -7,7 +8,13 @@ import { toTutorTurnSummary } from "@/lib/api/tutor-turn-contract";
 import { RefreshButton } from "./RefreshButton";
 import { TutorTurnItem } from "./TutorTurnItem";
 
-export async function TutorHistoryPanel({ questionId }: { questionId: string }) {
+export async function TutorHistoryPanel({
+  questionId,
+  focusedTurnId,
+}: {
+  questionId: string;
+  focusedTurnId?: string;
+}) {
   const result = await getTutorTurns(questionId);
   if (!result.ok) {
     if (result.failure.kind === "unauthenticated") {
@@ -87,13 +94,21 @@ export async function TutorHistoryPanel({ questionId }: { questionId: string }) 
                   turnNumber={index + 1}
                   isLatest={index === turns.length - 1}
                   hasAnswer={hasAnswer}
+                  focused={turn.turnId === focusedTurnId}
                 >
                   {hasAnswer ? (
-                    <QuestionMarkdown
-                      bodyMarkdown={turn.answerMarkdown ?? ""}
-                      ariaLabel={`第 ${index + 1} 轮辅导回答`}
-                      failureMessage="辅导内容暂时无法显示"
-                    />
+                    <>
+                      <QuestionMarkdown
+                        bodyMarkdown={turn.answerMarkdown ?? ""}
+                        ariaLabel={`第 ${index + 1} 轮辅导回答`}
+                        failureMessage="辅导内容暂时无法显示"
+                      />
+                      <TutorExcerptControl
+                        questionId={questionId}
+                        turnId={turn.turnId}
+                        bodyMarkdown={turn.answerMarkdown ?? ""}
+                      />
+                    </>
                   ) : null}
                 </TutorTurnItem>
               </li>
