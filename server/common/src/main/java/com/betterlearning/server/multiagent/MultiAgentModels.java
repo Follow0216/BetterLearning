@@ -16,6 +16,7 @@ public final class MultiAgentModels {
     public enum Status { WAITING_INPUT, QUEUED, RUNNING, CANCELLING, SUCCEEDED, FAILED, CANCELLED, TIMED_OUT }
     public enum SourceType { QUESTION, SAVED_ANSWER, TUTOR_SNAPSHOT, TUTOR_REPLY, NOTE }
     public enum StrokeLocationsStatus { COMPLETE, UNAVAILABLE, TOO_LARGE }
+    public enum AnswerInputKind { NONE, SNAPSHOT }
 
     public record SnapshotInput(String kind, String sourceRequestId) { }
     public record CreateRequest(String requestId, String prompt, Mode mode, SnapshotInput snapshotInput,
@@ -43,7 +44,13 @@ public final class MultiAgentModels {
     }
     public record Request(String requestId, String questionId, String prompt, Mode mode, SnapshotInput snapshotInput,
             String snapshotOriginRequestId, String snapshotFileRef, String currentRunId, Status status,
-            long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId) {
+            long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId, String inputSelectionReason) {
+        public Request(String requestId, String questionId, String prompt, Mode mode, SnapshotInput snapshotInput,
+                String snapshotOriginRequestId, String snapshotFileRef, String currentRunId, Status status,
+                long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId) {
+            this(requestId, questionId, prompt, mode, snapshotInput, snapshotOriginRequestId, snapshotFileRef,
+                    currentRunId, status, revision, createdAt, updatedAt, contextParentRequestId, null);
+        }
         public Request(String requestId, String questionId, String prompt, Mode mode, SnapshotInput snapshotInput,
                 String snapshotOriginRequestId, String snapshotFileRef, String currentRunId, Status status,
                 long revision, Instant createdAt, Instant updatedAt) {
@@ -61,9 +68,17 @@ public final class MultiAgentModels {
     public record RequestDetail(Request request, Run run, List<Run> runs, Result result) { }
     public record SnapshotBinding(String fileRef, String contentSha256, String sourceId, long version) { }
     public record Execution(long accountId, String requestId, String questionId, String runId, Mode mode,
-            String prompt, String snapshotFileRef, String snapshotSourceId, long snapshotVersion,
+            String prompt, String snapshotFileRef, String snapshotSourceId, Long snapshotVersion,
             Status status, long revision, Instant queueDeadlineAt, Instant runDeadlineAt,
-            Instant cancelRequestedAt, int modelCalls, ConversationContext conversationContext) {
+            Instant cancelRequestedAt, int modelCalls, ConversationContext conversationContext, String frozenQuestionMarkdown) {
+        public Execution(long accountId, String requestId, String questionId, String runId, Mode mode,
+                String prompt, String snapshotFileRef, String snapshotSourceId, long snapshotVersion,
+                Status status, long revision, Instant queueDeadlineAt, Instant runDeadlineAt,
+                Instant cancelRequestedAt, int modelCalls, ConversationContext conversationContext) {
+            this(accountId, requestId, questionId, runId, mode, prompt, snapshotFileRef, snapshotSourceId,
+                    snapshotVersion, status, revision, queueDeadlineAt, runDeadlineAt, cancelRequestedAt,
+                    modelCalls, conversationContext, null);
+        }
         public Execution(long accountId, String requestId, String questionId, String runId, Mode mode,
                 String prompt, String snapshotFileRef, String snapshotSourceId, long snapshotVersion,
                 Status status, long revision, Instant queueDeadlineAt, Instant runDeadlineAt,
@@ -152,15 +167,23 @@ public final class MultiAgentModels {
             }
         }
     }
-    /** hasHandwriting 来自真实manifest；位置不可用或超限时保留完整原图和strokeIds，OCR未执行则为null。 */
+    /** NONE表示未提供作答；SNAPSHOT的hasHandwriting来自真实manifest，零笔仍保留快照身份。 */
     public record Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
             Boolean hasHandwriting, String ocrText, Double ocrConfidence,
-            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations,
+            AnswerInputKind answerInputKind) {
         public Snapshot {
             images = List.copyOf(images);
             strokeIds = List.copyOf(strokeIds);
             strokeLocationsStatus = Objects.requireNonNull(strokeLocationsStatus);
             strokeLocations = List.copyOf(strokeLocations);
+            answerInputKind = Objects.requireNonNull(answerInputKind);
+            if (answerInputKind == AnswerInputKind.NONE && (fileRef != null || questionMarkdown == null
+                    || questionMarkdown.isBlank() || !images.isEmpty() || !strokeIds.isEmpty()
+                    || hasHandwriting != null || ocrText != null || ocrConfidence != null
+                    || strokeLocationsStatus != StrokeLocationsStatus.UNAVAILABLE || !strokeLocations.isEmpty())) {
+                throw new IllegalArgumentException("no-answer input cannot contain snapshot data");
+            }
             if (strokeLocationsStatus == StrokeLocationsStatus.COMPLETE) {
                 Set<String> expected = new HashSet<>(strokeIds);
                 Set<String> actual = new HashSet<>();
@@ -184,6 +207,16 @@ public final class MultiAgentModels {
             } else if (!strokeLocations.isEmpty()) {
                 throw new IllegalArgumentException("unavailable stroke locations must be empty");
             }
+        }
+        public Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
+                Boolean hasHandwriting, String ocrText, Double ocrConfidence,
+                StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+            this(fileRef, questionMarkdown, images, strokeIds, hasHandwriting, ocrText, ocrConfidence,
+                    strokeLocationsStatus, strokeLocations, AnswerInputKind.SNAPSHOT);
+        }
+        public static Snapshot noAnswer(String frozenQuestionMarkdown) {
+            return new Snapshot(null, frozenQuestionMarkdown, List.of(), List.of(), null, null, null,
+                    StrokeLocationsStatus.UNAVAILABLE, List.of(), AnswerInputKind.NONE);
         }
         public Snapshot(String fileRef, String questionMarkdown, List<Image> images, List<String> strokeIds,
                 Boolean hasHandwriting, String ocrText, Double ocrConfidence) {

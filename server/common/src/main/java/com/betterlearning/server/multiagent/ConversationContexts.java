@@ -83,7 +83,7 @@ public final class ConversationContexts {
 
     private static void validateTurn(ConversationTurn turn) {
         if (turn == null || !uuid(turn.requestId()) || !uuid(turn.runId()) || !uuid(turn.resultId())
-                || !uuid(turn.snapshotFileRef()) || !uuid(turn.replySourceId()) || turn.replyVersion() < 1
+                || (turn.snapshotFileRef() != null && !uuid(turn.snapshotFileRef())) || !uuid(turn.replySourceId()) || turn.replyVersion() < 1
                 || turn.mode() == null || turn.prompt() == null || turn.prompt().isBlank()
                 || turn.prompt().length() > 4000 || turn.bodyMarkdown() == null || turn.bodyMarkdown().isBlank()) {
             throw new IllegalArgumentException("invalid conversation turn");

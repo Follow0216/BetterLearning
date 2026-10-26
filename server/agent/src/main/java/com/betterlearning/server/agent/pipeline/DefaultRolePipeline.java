@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -19,6 +20,7 @@ import com.betterlearning.server.agent.pipeline.RoleProtocol.Reply;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Usage;
 import com.betterlearning.server.multiagent.EvidenceRetriever;
 import com.betterlearning.server.multiagent.MultiAgentModels;
+import com.betterlearning.server.multiagent.MultiAgentModels.AnswerInputKind;
 import com.betterlearning.server.multiagent.MultiAgentModels.Evidence;
 import com.betterlearning.server.multiagent.MultiAgentModels.PipelineContext;
 import com.betterlearning.server.multiagent.MultiAgentModels.PipelineResult;
@@ -62,7 +64,11 @@ public final class DefaultRolePipeline implements RolePipeline {
         }
         var execution = context.execution();
         var snapshot = context.snapshot();
-        if (execution.snapshotFileRef() == null || !execution.snapshotFileRef().equals(snapshot.fileRef())) {
+        if (!Objects.equals(execution.snapshotFileRef(), snapshot.fileRef())
+                || (snapshot.answerInputKind() == AnswerInputKind.SNAPSHOT && execution.snapshotFileRef() == null)
+                || (snapshot.answerInputKind() == AnswerInputKind.NONE && (execution.snapshotSourceId() != null
+                || execution.snapshotVersion() != null
+                || !Objects.equals(execution.frozenQuestionMarkdown(), snapshot.questionMarkdown())))) {
             return failure(Reason.INVALID_INPUT);
         }
         try {
@@ -79,7 +85,7 @@ public final class DefaultRolePipeline implements RolePipeline {
             Input input = new Input(execution.prompt(), execution.mode() == null ? "HINT" : execution.mode().name(),
                     new FrozenAnswer(snapshot.fileRef(), snapshot.questionMarkdown(), images), strokeIds,
                     snapshot.ocrConfidence(), known, snapshot.ocrText(),
-                    snapshot.strokeLocationsStatus(), snapshot.strokeLocations(), execution.conversationContext());
+                    snapshot.strokeLocationsStatus(), snapshot.strokeLocations(), execution.conversationContext(), snapshot.answerInputKind());
             LangChain4jRoleModel model = new LangChain4jRoleModel(properties.getTutoring());
             RuntimeBoundary boundary = new RuntimeBoundary(context, steps, ledger, model, input);
             if (input.writingMetadataKnown() && TutoringInputBudget.locationBudgetExceeded(input)

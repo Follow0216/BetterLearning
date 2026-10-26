@@ -30,7 +30,14 @@ public final class TutorRequestModels {
 
     public record Request(String requestId, String questionId, String prompt, String mode,
             SnapshotInput snapshotInput, String snapshotOriginRequestId, String snapshotFileRef,
-            String currentRunId, String status, long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId) {
+            String currentRunId, String status, long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId, String inputSelectionReason) {
+        public Request(String requestId, String questionId, String prompt, String mode,
+                SnapshotInput snapshotInput, String snapshotOriginRequestId, String snapshotFileRef,
+                String currentRunId, String status, long revision, Instant createdAt, Instant updatedAt,
+                String contextParentRequestId) {
+            this(requestId, questionId, prompt, mode, snapshotInput, snapshotOriginRequestId, snapshotFileRef,
+                    currentRunId, status, revision, createdAt, updatedAt, contextParentRequestId, null);
+        }
     }
 
     public record Page(List<Request> items, String nextCursor) {

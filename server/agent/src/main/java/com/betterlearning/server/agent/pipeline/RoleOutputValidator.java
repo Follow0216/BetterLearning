@@ -9,6 +9,7 @@ import com.betterlearning.server.agent.pipeline.RoleProtocol.Input;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.PipelineFailure;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Reason;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Role;
+import com.betterlearning.server.multiagent.MultiAgentModels.AnswerInputKind;
 import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 
 import tools.jackson.core.StreamReadFeature;
@@ -37,8 +38,9 @@ public final class RoleOutputValidator {
             boolean uncertainOcr = input.ocrConfidence() != null && input.ocrConfidence() < 0.8
                     && !input.strokeIds().isEmpty();
             // 只有完整位置映射才能支持具体笔划观察；旧快照和超预算快照不猜测位置。
-            boolean unlocatedWriting = !input.writingMetadataKnown() || (!input.strokeIds().isEmpty()
-                    && input.strokeLocationsStatus() != StrokeLocationsStatus.COMPLETE);
+            boolean unlocatedWriting = input.answerInputKind() == AnswerInputKind.SNAPSHOT
+                    && (!input.writingMetadataKnown() || (!input.strokeIds().isEmpty()
+                    && input.strokeLocationsStatus() != StrokeLocationsStatus.COMPLETE));
             switch (role) {
                 case SOLVE -> solve(node);
                 case DIAGNOSE -> diagnose(node, input, unlocatedWriting || uncertainOcr);
@@ -140,7 +142,7 @@ public final class RoleOutputValidator {
         text(node, "summary", 1200, false);
         text(node, "clarification", 1600, true);
         String status = text(node, "status", 32, false);
-        require(Set.of("NO_WRITING", "OBSERVED", "UNCERTAIN").contains(status));
+        require(Set.of("NO_ANSWER", "NO_WRITING", "OBSERVED", "UNCERTAIN").contains(status));
         JsonNode observations = node.get("observations");
         array(observations, 12);
         // 先校验全部字段结构；缺映射或低置信OCR时不采纳模型诊断，交由parse统一安全澄清。
@@ -152,6 +154,13 @@ public final class RoleOutputValidator {
             List<String> ids = strings(observation.get("strokeIds"));
             require(!ids.isEmpty() && new HashSet<>(ids).size() == ids.size());
         }
+        if (input.answerInputKind() == AnswerInputKind.NONE) {
+            require("NO_ANSWER".equals(status) && observations.isEmpty());
+            require(!TutoringPipeline.unsupportedNoAnswerObservation(node.get("summary").asString())
+                    && !TutoringPipeline.unsupportedNoAnswerObservation(node.get("clarification").asString()));
+            return;
+        }
+        require(!"NO_ANSWER".equals(status));
         if (clarificationOnly) {
             return;
         }

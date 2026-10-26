@@ -55,6 +55,17 @@ class ConversationContextsTests {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void publishedTextOnlyParentIsValidWithoutInventingASnapshotReference() {
+        ConversationTurn original = turn(1, "第二步两边同时减3。");
+        ConversationTurn textOnly = new ConversationTurn(original.requestId(), original.runId(), original.resultId(),
+                original.mode(), original.prompt(), original.bodyMarkdown(), null, original.replySourceId(), 1);
+        ConversationContext context = ConversationContexts.append(ConversationContexts.empty(), textOnly);
+        assertThat(ConversationContexts.decode(ConversationContexts.encode(context), textOnly.requestId()))
+                .isEqualTo(context);
+        assertThat(context.turns().get(0).snapshotFileRef()).isNull();
+    }
+
     static ConversationTurn turn(int index, String body) {
         return new ConversationTurn(id(index), id(index + 100), id(index + 200), Mode.FULL_SOLUTION,
                 "为什么做第二步？", body, id(index + 300), id(index + 400), 1);

@@ -129,6 +129,9 @@ export struct TabletCanvasWorkspace {
   private emit(): void {
     const result: CanvasWorkspaceState = new CanvasWorkspaceState();
     result.isReady = this.document !== null && !this.loading && !this.rasterizing;
+    const user: UserProfile | null = authSession.read_user();
+    result.canFreezeV2 = result.isReady && this.freezeHandle !== null && user !== null &&
+      user.accountId === this.accountId && authSession.matches_access_token(this.token);
     result.isBusy = this.busy || this.loading || this.rasterizing || this.tutor_working() || this.v2_working();
     result.hasUnsavedChanges = this.dirty;
     result.hasSavedSolution = this.baseFileRef !== null;
@@ -284,6 +287,7 @@ export struct TabletCanvasWorkspace {
     if (key !== this.mountKey) { return; }
     if (attached) { this.freezeHandle = handle; }
     else if (this.freezeHandle === handle) { this.freezeHandle = null; }
+    this.emit();
   }
   private tutor_current(context: TutorFreezeContext): boolean {
     const user: UserProfile | null = authSession.read_user();

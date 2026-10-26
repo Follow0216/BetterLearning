@@ -25,6 +25,7 @@ import com.betterlearning.server.multiagent.SourceStore;
 import com.betterlearning.server.multiagent.CitationMarkers;
 import com.betterlearning.server.multiagent.ConversationContexts;
 import com.betterlearning.server.multiagent.TutorLedger;
+import com.betterlearning.server.multiagent.TabletPresence;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,12 +41,15 @@ public class PostgresTutorLedger implements TutorLedger {
     private final LearningDao questions;
     private final SourceStore sources;
     private final RolloutGate rollout;
+    private final TabletPresence presence;
 
-    public PostgresTutorLedger(MultiAgentMapper db, LearningDao questions, SourceStore sources, RolloutGate rollout) {
+    public PostgresTutorLedger(MultiAgentMapper db, LearningDao questions, SourceStore sources, RolloutGate rollout,
+            TabletPresence presence) {
         this.db = db;
         this.questions = questions;
         this.sources = sources;
         this.rollout = rollout;
+        this.presence = presence;
     }
 
     @Override
@@ -69,7 +73,7 @@ public class PostgresTutorLedger implements TutorLedger {
             if (key.equals(input.sourceRequestId())) {
                 throw invalid();
             }
-        } else if (!"NEW_CAPTURE".equals(input.kind()) || input.sourceRequestId() != null) {
+        } else if (!("NEW_CAPTURE".equals(input.kind()) || "AUTO".equals(input.kind())) || input.sourceRequestId() != null) {
             throw invalid();
         }
         if (command.contextParentRequestId() != null) {
@@ -83,7 +87,7 @@ public class PostgresTutorLedger implements TutorLedger {
         RequestRow existing = db.request(accountId, key);
         if (existing != null) {
             if (existing.questionId() != question || !existing.prompt().equals(command.prompt())
-                    || !existing.mode().equals(mode.name()) || !existing.snapshotKind().equals(input.kind())
+                    || !existing.mode().equals(mode.name()) || !existing.requestedSnapshotKind().equals(input.kind())
                     || !Objects.equals(existing.sourceRequestId(), input.sourceRequestId())
                     || !Objects.equals(existing.contextParentRequestId(), command.contextParentRequestId())) {
                 throw conflict();
@@ -103,11 +107,19 @@ public class PostgresTutorLedger implements TutorLedger {
             source(origin);
         }
         ConversationContext context = freezeContext(accountId, question, command.contextParentRequestId());
-        db.insertRequest(new RequestRow(key, accountId, question, command.prompt(), mode.name(), input.kind(),
+        TabletPresence.Availability availability = "AUTO".equals(input.kind())
+                ? presence.availability(accountId, questionId) : null;
+        String selected = availability == null ? input.kind() : availability.available() ? "NEW_CAPTURE" : "NO_ANSWER";
+        String frozenQuestion = "NO_ANSWER".equals(selected) ? questions.findById(accountId, question)
+                .orElseThrow(PostgresTutorLedger::missing).getBodyMarkdown() : null;
+        db.insertRequest(new RequestRow(key, accountId, question, command.prompt(), mode.name(), selected,
                 input.sourceRequestId(), null, null, null, null, null, null, "WAITING_INPUT", 0,
                 Instant.now().plusSeconds(300), null, null, command.contextParentRequestId(),
-                context.parentRequestId() == null ? null : ConversationContexts.encode(context)));
-        if (origin != null) {
+                context.parentRequestId() == null ? null : ConversationContexts.encode(context), input.kind(),
+                availability == null ? null : availability.reason(), frozenQuestion));
+        if ("NO_ANSWER".equals(selected)) {
+            newRun(require(accountId, key), null);
+        } else if (origin != null) {
             db.bind(accountId, key, origin.snapshotOriginRequestId(), origin.snapshotFileRef(), origin.snapshotSha256(),
                     origin.snapshotSourceId(), origin.snapshotVersion());
             newRun(require(accountId, key), null);
@@ -664,14 +676,15 @@ public class PostgresTutorLedger implements TutorLedger {
                 Mode.valueOf(request.mode()), request.prompt(), request.snapshotFileRef(), request.snapshotSourceId(),
                 request.snapshotVersion(), Status.valueOf(run.status()), run.revision(), run.queueDeadlineAt(),
                 run.runDeadlineAt(), run.cancelRequestedAt(), run.modelCalls(),
-                request.conversationContextJson() == null ? ConversationContexts.empty() : frozenContext(request));
+                request.conversationContextJson() == null ? ConversationContexts.empty() : frozenContext(request),
+                request.questionMarkdown());
     }
 
     private static Request view(RequestRow row) {
         return new Request(row.requestId(), Long.toString(row.questionId()), row.prompt(), Mode.valueOf(row.mode()),
                 new SnapshotInput(row.snapshotKind(), row.sourceRequestId()), row.snapshotOriginRequestId(),
                 row.snapshotFileRef(), row.currentRunId(), Status.valueOf(row.status()), row.revision(), row.createdAt(), row.updatedAt(),
-                row.contextParentRequestId());
+                row.contextParentRequestId(), row.inputSelectionReason());
     }
 
     private ConversationContext freezeContext(long account, long question, String parentId) {
@@ -686,7 +699,8 @@ public class PostgresTutorLedger implements TutorLedger {
         ResultRow reply = parent.currentRunId() == null ? null : db.result(parent.currentRunId());
         if (!"SUCCEEDED".equals(parent.status()) || parentRun == null || !"SUCCEEDED".equals(parentRun.status())
                 || !parent.requestId().equals(parentRun.requestId()) || reply == null || !"VERIFIED".equals(reply.status())
-                || parent.snapshotFileRef() == null || reply.bodyMarkdown() == null || reply.bodyMarkdown().isBlank()) {
+                || !(parent.snapshotFileRef() != null || "NO_ANSWER".equals(parent.snapshotKind()))
+                || reply.bodyMarkdown() == null || reply.bodyMarkdown().isBlank()) {
             throw contextUnavailable();
         }
         SourceContent published = sources.findOrigin(account, SourceType.TUTOR_REPLY, reply.resultId())
@@ -723,6 +737,10 @@ public class PostgresTutorLedger implements TutorLedger {
 
     /** 有来源的证据只引用已保存的锚点原文；推断必须使用不绑定来源的DERIVATION。 */
     private SourceContent referencedEvidence(long accountId, RequestRow request, Evidence evidence) {
+        if ("CURRENT_SNAPSHOT".equals(evidence.type()) && ("NO_ANSWER".equals(request.snapshotKind())
+                || request.snapshotSourceId() == null || request.snapshotVersion() == null)) {
+            throw conflict();
+        }
         SourceContent content = sources.get(accountId, evidence.sourceId(), evidence.version());
         Anchor anchor = content.anchors().stream().filter(item -> item.anchorId().equals(evidence.anchorId()))
                 .findFirst().orElseThrow(PostgresTutorLedger::conflict);
@@ -746,6 +764,14 @@ public class PostgresTutorLedger implements TutorLedger {
     }
 
     private void source(RequestRow row) {
+        if ("NO_ANSWER".equals(row.snapshotKind())) {
+            if (row.questionMarkdown() == null || row.sourceRequestId() != null || row.snapshotFileRef() != null
+                    || row.snapshotSourceId() != null || row.snapshotVersion() != null
+                    || row.snapshotOriginRequestId() != null || row.snapshotSha256() != null) {
+                throw conflict();
+            }
+            return;
+        }
         if (row.snapshotSourceId() == null || row.snapshotVersion() == null) {
             throw conflict();
         }

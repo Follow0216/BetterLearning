@@ -9,10 +9,20 @@ export enum V2RunStatus {
   QUEUED = 'QUEUED', RUNNING = 'RUNNING', CANCELLING = 'CANCELLING',
   SUCCEEDED = 'SUCCEEDED', FAILED = 'FAILED', CANCELLED = 'CANCELLED', TIMED_OUT = 'TIMED_OUT'
 }
-export interface V2SnapshotInput { kind: string; sourceRequestId?: string; }
+export interface V2SnapshotInput { kind: string; sourceRequestId?: string | null; }
+export interface V2TabletPresence {
+  sessionId: string; sequence: number; questionId: string | null; active: boolean;
+}
+export interface V2TabletPresenceReceipt {
+  sessionId: string; sequence: number; questionId: string | null; active: boolean; leaseExpiresAt: string;
+}
+export interface V2TabletAvailability {
+  available: boolean; reason: string; leaseExpiresAt: string | null;
+}
 export interface V2TutorRequest {
   requestId: string; questionId: string; prompt: string; mode: V2TutorMode;
   snapshotInput: V2SnapshotInput; contextParentRequestId?: string | null; snapshotOriginRequestId: string | null;
+  inputSelectionReason?: string | null;
   snapshotFileRef: string | null; currentRunId: string | null;
   status: V2TutorRequestStatus; revision: number; createdAt: string; updatedAt: string;
 }

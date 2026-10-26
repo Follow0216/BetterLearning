@@ -47,8 +47,8 @@ public interface MultiAgentMapper {
     List<RequestRow> page(@Param("account") long account, @Param("question") long question,
             @Param("before") Instant before, @Param("beforeId") String beforeId, @Param("limit") int limit);
 
-    @Insert("INSERT INTO ma_request(request_id,account_id,question_id,prompt,mode,snapshot_kind,source_request_id,status,input_deadline_at,context_parent_request_id,conversation_context_json) "
-            + "VALUES(#{requestId},#{accountId},#{questionId},#{prompt},#{mode},#{snapshotKind},#{sourceRequestId},'WAITING_INPUT',#{inputDeadlineAt},#{contextParentRequestId},#{conversationContextJson})")
+    @Insert("INSERT INTO ma_request(request_id,account_id,question_id,prompt,mode,snapshot_kind,source_request_id,status,input_deadline_at,context_parent_request_id,conversation_context_json,requested_snapshot_kind,input_selection_reason,question_markdown) "
+            + "VALUES(#{requestId},#{accountId},#{questionId},#{prompt},#{mode},#{snapshotKind},#{sourceRequestId},'WAITING_INPUT',#{inputDeadlineAt},#{contextParentRequestId},#{conversationContextJson},#{requestedSnapshotKind},#{inputSelectionReason},#{questionMarkdown})")
     int insertRequest(RequestRow row);
 
     @Update("UPDATE ma_request SET snapshot_origin_request_id=#{origin},snapshot_file_ref=#{file},snapshot_sha256=#{sha}, "

@@ -33,7 +33,7 @@ public final class LangChain4jRoleModel {
 
     public Reply generate(Call call) {
         // 预算先于配置、Base64编码和SDK网络调用；与流水线使用同一完整图预算。
-        TutoringInputBudget.validateModelImages(call.snapshot().images());
+        TutoringInputBudget.validateModelImages(call.snapshot().images(), call.answerInputKind());
         validateConfiguration();
         List<Content> content = new ArrayList<>();
         content.add(TextContent.from(call.inputJson()));

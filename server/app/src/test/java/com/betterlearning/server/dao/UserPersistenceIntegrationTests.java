@@ -79,7 +79,7 @@ class UserPersistenceIntegrationTests {
     void migratesEmptyDatabaseWithExpectedSchema() {
         List<String> expectedVersions = List.of("1", "2", "3", "4", "5", "2026102501", "2026102502",
                 "2026102503", "2026102504", "2026102505", "2026102506", "2026102507", "2026102508",
-                "2026102509", "2026102510", "2026102601");
+                "2026102509", "2026102510", "2026102601", "2026102604");
         assertThat(migrateResult.success).isTrue();
         assertThat(migrateResult.migrationsExecuted).isEqualTo(expectedVersions.size());
         assertThat(jdbcTemplate.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank",

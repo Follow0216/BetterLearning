@@ -3,6 +3,17 @@ import { AuthError, AuthResult, CitationModal, LearningV2Api, QuestionMarkdownVi
   v2_detail_is_active } from 'common';
 import { TabletBackController } from '../../components/TabletBackController';
 
+function tablet_v2_input_text(request: V2TutorRequest): string {
+  if (request.snapshotInput.kind === 'NO_ANSWER') {
+    const reason: string = request.inputSelectionReason === 'OTHER_QUESTION' ? '平板当时正在其他题目' :
+      request.inputSelectionReason === 'OFFLINE' ? '平板当时离线或可用状态已过期' : '当时没有同账号可用平板';
+    return reason + '；本轮使用题面、问题和已确认的问答上下文。';
+  }
+  if (request.snapshotInput.kind === 'REUSE_REQUEST') { return '本轮沿用所选历史作答。'; }
+  return request.snapshotFileRef === null ? '本轮等待平板同步作答。' :
+    '本轮使用新冻结的平板作答，未书写的画布也会照常同步。';
+}
+
 /** 当前题 V2 历史只读浏览；每次详情和引用都由服务端按当前账号重新授权。 */
 @Component
 export struct TabletV2HistoryView {
@@ -221,6 +232,7 @@ export struct TabletV2HistoryView {
             Text(this.detail.request.prompt).fontSize(16).fontWeight(FontWeight.Medium)
             Text(this.detail.request.mode === 'FULL_SOLUTION' ? '完整解答' : '提示与下一步')
             Text(this.detail.request.status).fontSize(13)
+            Text(tablet_v2_input_text(this.detail.request)).fontSize(12)
             if (this.detail.result !== null) {
               QuestionMarkdownView({ bodyMarkdown: this.detail.result.bodyMarkdown, maxLength: 65536,
                 citations: this.detail.result.citations,
@@ -242,6 +254,7 @@ export struct TabletV2HistoryView {
               Column({ space: 5 }) {
                 Text(request.prompt).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(request.status + ' · ' + request.createdAt).fontSize(12)
+                Text(tablet_v2_input_text(request)).fontSize(12)
               }.alignItems(HorizontalAlign.Start).padding(16).width('100%')
             }.onClick(() => this.openRequest(request.requestId))
           }, (request: V2TutorRequest) => request.requestId)

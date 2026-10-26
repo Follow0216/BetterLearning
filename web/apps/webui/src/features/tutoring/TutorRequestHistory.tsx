@@ -65,11 +65,17 @@ function RequestDetail({ questionId, requestId }: { questionId: string; requestI
       {detail && (
         <>
           <p className={styles.muted}>
-            快照：
-            {detail.request.snapshotInput.kind === "REUSE_REQUEST"
-              ? "复用同题已保存的冻结时刻"
-              : "本次独立冻结"}
-            ；后续笔迹不会进入此快照。
+            {detail.request.snapshotInput.kind === "NO_ANSWER" ? (
+              "本轮未提供作答，按题面和文字提问辅导。"
+            ) : (
+              <>
+                快照：
+                {detail.request.snapshotInput.kind === "REUSE_REQUEST"
+                  ? "复用同题已保存的冻结时刻"
+                  : "本次独立冻结"}
+                ；后续笔迹不会进入此快照。
+              </>
+            )}
           </p>
           <ol className="my-3 space-y-2" aria-label="运行历史">
             {detail.runs.map((run) => (
