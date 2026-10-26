@@ -10,13 +10,15 @@ import java.util.Set;
 
 import com.betterlearning.server.agent.model.TutorModels.FrozenAnswer;
 import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocation;
+import com.betterlearning.server.multiagent.MultiAgentModels.ConversationContext;
+import com.betterlearning.server.multiagent.ConversationContexts;
 import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocationsStatus;
 
 import tools.jackson.databind.JsonNode;
 
 /** Agent内部角色协议；不是HTTP/common DTO，不含供应商密钥或隐藏思维链。 */
 public final class RoleProtocol {
-    public static final String PROMPT_VERSION = "p3-roles-v7";
+    public static final String PROMPT_VERSION = "p3-roles-v8-conversation";
     public static final int MAX_GENERATION_CALLS = 8;
     public static final int MAX_STROKE_LOCATIONS = 2000;
     public static final int MAX_STROKE_LOCATIONS_JSON_BYTES = 256 * 1024;
@@ -36,7 +38,15 @@ public final class RoleProtocol {
     /** 必须来自已经授权且完整校验的不可变快照；全部世界坐标与块原样传给模型。 */
     public record Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
             Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
-            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+            StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations,
+            ConversationContext conversationContext) {
+        public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
+                Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
+                StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
+            this(prompt, mode, snapshot, strokeIds, ocrConfidence, writingMetadataKnown, ocrText,
+                    strokeLocationsStatus, strokeLocations, ConversationContexts.empty());
+        }
+
         public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
                 Double ocrConfidence, boolean writingMetadataKnown, String ocrText) {
             this(prompt, mode, snapshot, strokeIds, ocrConfidence, writingMetadataKnown, ocrText,
@@ -48,6 +58,13 @@ public final class RoleProtocol {
         }
 
         public Input {
+            try {
+                ConversationContexts.validate(conversationContext);
+            } catch (ConversationContexts.ContextTooLargeException exception) {
+                throw new PipelineFailure(Reason.MODEL_INPUT_TOO_LARGE);
+            } catch (IllegalArgumentException exception) {
+                throw new PipelineFailure(Reason.INVALID_INPUT);
+            }
             mode = mode == null ? "HINT" : mode;
             strokeIds = strokeIds == null ? Set.of() : Set.copyOf(strokeIds);
             if (prompt == null || prompt.isBlank() || prompt.length() > 4000

@@ -8,7 +8,8 @@ public final class MultiAgentRows {
     public record RequestRow(String requestId, long accountId, long questionId, String prompt, String mode,
             String snapshotKind, String sourceRequestId, String snapshotOriginRequestId, String snapshotFileRef,
             String snapshotSha256, String snapshotSourceId, Long snapshotVersion, String currentRunId,
-            String status, long revision, Instant inputDeadlineAt, Instant createdAt, Instant updatedAt) { }
+            String status, long revision, Instant inputDeadlineAt, Instant createdAt, Instant updatedAt,
+            String contextParentRequestId, String conversationContextJson) { }
     public record RunRow(String runId, String requestId, long accountId, int runNo, String retryOfRunId,
             String status, long revision, String reason, Instant cancelRequestedAt, Instant queueDeadlineAt,
             Instant runDeadlineAt, int modelCalls, Instant createdAt, Instant updatedAt) { }

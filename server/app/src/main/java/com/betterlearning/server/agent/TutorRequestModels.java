@@ -15,7 +15,11 @@ public final class TutorRequestModels {
     public record SnapshotInput(String kind, String sourceRequestId) {
     }
 
-    public record CreateRequest(String requestId, String prompt, String mode, SnapshotInput snapshotInput) {
+    public record CreateRequest(String requestId, String prompt, String mode, SnapshotInput snapshotInput,
+            String contextParentRequestId) {
+        public CreateRequest(String requestId, String prompt, String mode, SnapshotInput snapshotInput) {
+            this(requestId, prompt, mode, snapshotInput, null);
+        }
     }
 
     public record CancelRequest(String expectedRunId) {
@@ -26,7 +30,7 @@ public final class TutorRequestModels {
 
     public record Request(String requestId, String questionId, String prompt, String mode,
             SnapshotInput snapshotInput, String snapshotOriginRequestId, String snapshotFileRef,
-            String currentRunId, String status, long revision, Instant createdAt, Instant updatedAt) {
+            String currentRunId, String status, long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId) {
     }
 
     public record Page(List<Request> items, String nextCursor) {

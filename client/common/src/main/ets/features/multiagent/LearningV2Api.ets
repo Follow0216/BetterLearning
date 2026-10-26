@@ -11,7 +11,7 @@ import {
   V2TutorRequestPage, V2TutorRequestStatus, V2Run, V2RunStatus, V2WorldBounds
 } from './LearningV2Models';
 
-interface V2CreatePayload { requestId: string; prompt: string; mode: V2TutorMode; snapshotInput: V2SnapshotInput; }
+interface V2CreatePayload { requestId: string; prompt: string; mode: V2TutorMode; snapshotInput: V2SnapshotInput; contextParentRequestId?: string | null; }
 interface V2CancelPayload { expectedRunId: string | null; }
 interface V2RetryPayload { targetRunId: string; }
 const ROOT: string = '/api/v2/learning';
@@ -39,6 +39,8 @@ function valid_request(value: V2TutorRequest, questionId: string, requestId: str
     value.questionId === questionId && typeof value.prompt === 'string' && value.prompt.trim().length > 0 &&
     (value.mode === V2TutorMode.HINT || value.mode === V2TutorMode.FULL_SOLUTION) &&
     valid_snapshot(value.snapshotInput) &&
+    (value.contextParentRequestId === undefined || value.contextParentRequestId === null ||
+      v2_uuid_valid(value.contextParentRequestId) && value.contextParentRequestId !== value.requestId) &&
     (value.snapshotOriginRequestId === null || v2_uuid_valid(value.snapshotOriginRequestId)) &&
     (value.snapshotFileRef === null || v2_uuid_valid(value.snapshotFileRef)) &&
     (value.currentRunId === null || v2_uuid_valid(value.currentRunId)) &&
@@ -151,11 +153,14 @@ export class LearningV2Api {
   static create_default(): LearningV2Api { return new LearningV2Api(); }
 
   async createRequest(token: string, questionId: string, requestId: string, prompt: string,
-    mode: V2TutorMode = V2TutorMode.HINT, snapshotInput: V2SnapshotInput = { kind: 'NEW_CAPTURE' }): Promise<AuthResult<V2TutorRequest>> {
+    mode: V2TutorMode = V2TutorMode.HINT, snapshotInput: V2SnapshotInput = { kind: 'NEW_CAPTURE' },
+    contextParentRequestId: string | null = null): Promise<AuthResult<V2TutorRequest>> {
     if (!v2_question_id_valid(questionId) || !v2_uuid_valid(requestId) || prompt.trim().length === 0 ||
       prompt.length > 4000 || !valid_snapshot(snapshotInput) ||
+      contextParentRequestId !== null && (!v2_uuid_valid(contextParentRequestId) || contextParentRequestId === requestId) ||
       ![V2TutorMode.HINT, V2TutorMode.FULL_SOLUTION].includes(mode)) { return local<V2TutorRequest>('发问参数无效'); }
     const payload: V2CreatePayload = { requestId: requestId, prompt: prompt, mode: mode, snapshotInput: snapshotInput };
+    if (contextParentRequestId !== null) { payload.contextParentRequestId = contextParentRequestId; }
     const body: string = JSON.stringify(payload);
     const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.POST, request_path(questionId),
       token, body, 200, 15000, { 'Idempotency-Key': requestId });
@@ -164,6 +169,7 @@ export class LearningV2Api {
       const value: V2TutorRequest = JSON.parse(result.data) as V2TutorRequest;
       if (!valid_request(value, questionId, requestId) || value.prompt !== prompt || value.mode !== mode ||
         value.snapshotInput.kind !== snapshotInput.kind ||
+        (value.contextParentRequestId ?? null) !== contextParentRequestId ||
         (snapshotInput.kind === 'REUSE_REQUEST' && value.snapshotInput.kind === 'REUSE_REQUEST' &&
           value.snapshotInput.sourceRequestId !== snapshotInput.sourceRequestId)) { return fail<V2TutorRequest>('发问回执与请求不匹配'); }
       return AuthResult.success<V2TutorRequest>(value);

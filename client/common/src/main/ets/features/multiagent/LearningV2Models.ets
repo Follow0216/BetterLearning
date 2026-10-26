@@ -12,7 +12,7 @@ export enum V2RunStatus {
 export interface V2SnapshotInput { kind: string; sourceRequestId?: string; }
 export interface V2TutorRequest {
   requestId: string; questionId: string; prompt: string; mode: V2TutorMode;
-  snapshotInput: V2SnapshotInput; snapshotOriginRequestId: string | null;
+  snapshotInput: V2SnapshotInput; contextParentRequestId?: string | null; snapshotOriginRequestId: string | null;
   snapshotFileRef: string | null; currentRunId: string | null;
   status: V2TutorRequestStatus; revision: number; createdAt: string; updatedAt: string;
 }

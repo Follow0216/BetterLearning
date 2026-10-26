@@ -58,6 +58,22 @@ class TutorRequestServiceTests {
     }
 
     @Test
+    void explicitConversationParentIsForwardedAndEmptyStringOrSelfIsRejected() {
+        when(ledger.getByRequestId(7, REQUEST_ID)).thenThrow(new BusinessException(ErrorCode.NOT_FOUND));
+        when(ledger.create(eq(7L), eq("91"), eq(REQUEST_ID), any())).thenReturn(request(null));
+        service.create(7, "91", REQUEST_ID,
+                new TutorRequestModels.CreateRequest(REQUEST_ID, "你刚才第二步？", "HINT", null, RUN_ID));
+        ArgumentCaptor<MultiAgentModels.CreateRequest> command = ArgumentCaptor.forClass(MultiAgentModels.CreateRequest.class);
+        verify(ledger).create(eq(7L), eq("91"), eq(REQUEST_ID), command.capture());
+        assertThat(command.getValue().contextParentRequestId()).isEqualTo(RUN_ID);
+        for (String invalidParent : List.of("", " ", REQUEST_ID)) {
+            assertThatThrownBy(() -> service.create(7, "91", REQUEST_ID,
+                    new TutorRequestModels.CreateRequest(REQUEST_ID, "第二步？", "HINT", null, invalidParent)))
+                    .isInstanceOf(BusinessException.class).extracting("errorCode").isEqualTo(ErrorCode.INVALID_PARAM);
+        }
+    }
+
+    @Test
     void wrongKeyNeverTouchesLedger() {
         assertThatThrownBy(() -> service.create(7, "91", RUN_ID,
                 new TutorRequestModels.CreateRequest(REQUEST_ID, "下一步？", null, null)))

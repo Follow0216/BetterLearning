@@ -108,6 +108,10 @@ export struct PhoneHomePage {
               visible: this.active && this.mode === PhoneHomeMode.COLLABORATION &&
                 !this.readingVisible && !this.historyVisible && !this.modePickerVisible,
               onChooseQuestion: () => { this.onChooseQuestion(); },
+              onSwitchQuestion: (questionId: string) => {
+                this.sessions.get(questionId);
+                this.selectedQuestionId = questionId;
+              },
               onRead: (title: string, body: string, plainText: boolean, citations?: V2Citation[]) => {
                 this.open_reading(title, body, plainText, citations);
               },

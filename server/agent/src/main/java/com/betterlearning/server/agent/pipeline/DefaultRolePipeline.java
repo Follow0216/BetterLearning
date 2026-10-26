@@ -79,7 +79,7 @@ public final class DefaultRolePipeline implements RolePipeline {
             Input input = new Input(execution.prompt(), execution.mode() == null ? "HINT" : execution.mode().name(),
                     new FrozenAnswer(snapshot.fileRef(), snapshot.questionMarkdown(), images), strokeIds,
                     snapshot.ocrConfidence(), known, snapshot.ocrText(),
-                    snapshot.strokeLocationsStatus(), snapshot.strokeLocations());
+                    snapshot.strokeLocationsStatus(), snapshot.strokeLocations(), execution.conversationContext());
             LangChain4jRoleModel model = new LangChain4jRoleModel(properties.getTutoring());
             RuntimeBoundary boundary = new RuntimeBoundary(context, steps, ledger, model, input);
             if (input.writingMetadataKnown() && TutoringInputBudget.locationBudgetExceeded(input)
@@ -145,6 +145,7 @@ public final class DefaultRolePipeline implements RolePipeline {
                 StoredReply safe;
                 try {
                     model.validateConfiguration();
+                    checkActive();
                     Reply reply = model.generate(call);
                     JsonNode validated = RoleOutputValidator.parse(call.role(), reply.json(), input);
                     safe = new StoredReply(RoleOutputValidator.JSON.writeValueAsString(validated), null,

@@ -18,10 +18,39 @@ public final class MultiAgentModels {
     public enum StrokeLocationsStatus { COMPLETE, UNAVAILABLE, TOO_LARGE }
 
     public record SnapshotInput(String kind, String sourceRequestId) { }
-    public record CreateRequest(String requestId, String prompt, Mode mode, SnapshotInput snapshotInput) { }
+    public record CreateRequest(String requestId, String prompt, Mode mode, SnapshotInput snapshotInput,
+            String contextParentRequestId) {
+        public CreateRequest(String requestId, String prompt, Mode mode, SnapshotInput snapshotInput) {
+            this(requestId, prompt, mode, snapshotInput, null);
+        }
+    }
+    /** 已发布问答的不可变副本；旧快照ID仅作语义来源，不是当前作答事实。 */
+    public record ConversationTurn(String requestId, String runId, String resultId, Mode mode, String prompt,
+            String bodyMarkdown, String snapshotFileRef, String replySourceId, long replyVersion) {
+        @Override
+        public String toString() {
+            return "ConversationTurn[requestId=" + requestId + ", mode=" + mode + "]";
+        }
+    }
+    public record ConversationContext(String parentRequestId, List<ConversationTurn> turns, long omittedAncestorCount) {
+        public ConversationContext {
+            turns = List.copyOf(turns);
+        }
+        @Override
+        public String toString() {
+            return "ConversationContext[turns=" + turns.size() + "]";
+        }
+    }
     public record Request(String requestId, String questionId, String prompt, Mode mode, SnapshotInput snapshotInput,
             String snapshotOriginRequestId, String snapshotFileRef, String currentRunId, Status status,
-            long revision, Instant createdAt, Instant updatedAt) { }
+            long revision, Instant createdAt, Instant updatedAt, String contextParentRequestId) {
+        public Request(String requestId, String questionId, String prompt, Mode mode, SnapshotInput snapshotInput,
+                String snapshotOriginRequestId, String snapshotFileRef, String currentRunId, Status status,
+                long revision, Instant createdAt, Instant updatedAt) {
+            this(requestId, questionId, prompt, mode, snapshotInput, snapshotOriginRequestId, snapshotFileRef,
+                    currentRunId, status, revision, createdAt, updatedAt, null);
+        }
+    }
     public record RequestPage(List<Request> items, String nextCursor) { }
     public record Pending(Request request) { }
     public record CancelRequest(String expectedRunId) { }
@@ -34,7 +63,16 @@ public final class MultiAgentModels {
     public record Execution(long accountId, String requestId, String questionId, String runId, Mode mode,
             String prompt, String snapshotFileRef, String snapshotSourceId, long snapshotVersion,
             Status status, long revision, Instant queueDeadlineAt, Instant runDeadlineAt,
-            Instant cancelRequestedAt, int modelCalls) { }
+            Instant cancelRequestedAt, int modelCalls, ConversationContext conversationContext) {
+        public Execution(long accountId, String requestId, String questionId, String runId, Mode mode,
+                String prompt, String snapshotFileRef, String snapshotSourceId, long snapshotVersion,
+                Status status, long revision, Instant queueDeadlineAt, Instant runDeadlineAt,
+                Instant cancelRequestedAt, int modelCalls) {
+            this(accountId, requestId, questionId, runId, mode, prompt, snapshotFileRef, snapshotSourceId,
+                    snapshotVersion, status, revision, queueDeadlineAt, runDeadlineAt, cancelRequestedAt,
+                    modelCalls, new ConversationContext(null, List.of(), 0));
+        }
+    }
     public record Attempt(String attemptId, String stepId, int attemptNo, String status, String providerCallState,
             long fence, Instant startedAt, Instant endedAt, String output, String outputDigest) { }
     public record Evidence(String evidenceId, String runId, String stepId, String type, String sourceId,

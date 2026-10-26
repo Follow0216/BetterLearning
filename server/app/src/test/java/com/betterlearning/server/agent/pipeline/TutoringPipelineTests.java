@@ -47,6 +47,60 @@ class TutoringPipelineTests {
     static final String EVIDENCE = "d99c57df-27aa-4c88-a2a3-82f950e89249";
 
     @Test
+    void selectedParentReachesTeachAndReviewIncludingRepairsButNeverIndependentRoles() {
+        var previous = com.betterlearning.server.multiagent.ConversationContexts.append(
+                com.betterlearning.server.multiagent.ConversationContexts.empty(),
+                ConversationContextsTests.turn(1, "第二步，两边同时减3。旧结论x=7。[[citation:" + EVIDENCE + "]]"));
+        Input base = input("HINT", Set.of(), null);
+        Input followup = new Input("你刚才第二步为什么这样做？", "HINT", base.snapshot(), base.strokeIds(),
+                null, true, null, base.strokeLocationsStatus(), base.strokeLocations(), previous);
+        for (String target : List.of("NONE", "TEACH", "SOLVE", "DIAGNOSE")) {
+            Boundary boundary = new Boundary(call -> {
+                if (call.role() == Role.REVIEW && call.sequence() == 4 && !"NONE".equals(target)) {
+                    return rejected(target);
+                }
+                if (call.role() == Role.TEACH) {
+                    assertThat(call.inputJson()).contains("第二步，两边同时减3", "你刚才第二步", "FULL_SOLUTION");
+                    return TEACH.replace("先考虑怎样消去常数项。", "刚才第二步使用等式性质；想想两边做相同操作为何仍相等。");
+                }
+                return normal(call);
+            });
+            var result = new TutoringPipeline().run(followup, boundary);
+            assertThat(result.bodyMarkdown()).contains("刚才第二步使用等式性质").doesNotContain("x=7", "[[citation:");
+            assertThat(result.mode()).isEqualTo("HINT");
+            assertThat(result.evidenceIds()).isEmpty();
+            for (Call call : boundary.calls) {
+                JsonNode envelope = RoleOutputValidator.JSON.readTree(call.inputJson());
+                if (call.role() == Role.TEACH || call.role() == Role.REVIEW) {
+                    assertThat(envelope.path("conversationContext").toString())
+                            .isEqualTo(RoleOutputValidator.JSON.writeValueAsString(previous));
+                    assertThat(envelope.path("currentSnapshotFileRef").asString()).isEqualTo(base.snapshot().fileRef());
+                    assertThat(envelope.path("mode").asString()).isEqualTo("HINT");
+                    assertThat(envelope.path("context").path("allowedEvidence")).isEmpty();
+                    assertThat(call.systemPrompt()).contains("旧FULL_SOLUTION", "旧诊断不能当作新作答结论", "不得复制标记");
+                } else {
+                    assertThat(envelope.has("conversationContext")).isFalse();
+                    assertThat(call.inputJson()).doesNotContain("第二步，两边同时减3", EVIDENCE);
+                }
+            }
+        }
+    }
+
+    @Test
+    void oldConversationCitationCannotBecomeCurrentAllowedEvidence() {
+        var previous = com.betterlearning.server.multiagent.ConversationContexts.append(
+                com.betterlearning.server.multiagent.ConversationContexts.empty(),
+                ConversationContextsTests.turn(1, "旧提示[[citation:" + EVIDENCE + "]]"));
+        Input base = input("HINT", Set.of(), null);
+        Input followup = new Input("继续解释", "HINT", base.snapshot(), base.strokeIds(), null, true, null,
+                base.strokeLocationsStatus(), base.strokeLocations(), previous);
+        Boundary boundary = new Boundary(call -> call.role() == Role.TEACH
+                ? TEACH.replace("先考虑怎样消去常数项。", "旧提示[[evidence:" + EVIDENCE + "]]")
+                .replace("\"evidenceIds\":[]", "\"evidenceIds\":[\"" + EVIDENCE + "\"]") : normal(call));
+        assertReason(() -> new TutoringPipeline().run(followup, boundary), Reason.REVIEW_REJECTED);
+    }
+
+    @Test
     void fourCallsUseCompleteSnapshotAndDefaultHintWithNoHistory() {
         Input input = input(null, Set.of(), null);
         Boundary boundary = new Boundary(TutoringPipelineTests::normal);

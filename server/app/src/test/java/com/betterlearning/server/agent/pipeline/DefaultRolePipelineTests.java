@@ -76,6 +76,41 @@ class DefaultRolePipelineTests {
             provider(ledger), provider(sources), provider(retriever));
 
     @Test
+    void executionFrozenConversationReachesModelInputDigestsAndConfirmedReplayWithoutProviderCalls() {
+        Execution original = execution(MultiAgentModels.Status.RUNNING, null);
+        var conversation = com.betterlearning.server.multiagent.ConversationContexts.append(
+                com.betterlearning.server.multiagent.ConversationContexts.empty(),
+                ConversationContextsTests.turn(1, "第二步两边同时减3，继续解释等式性质。"));
+        Execution execution = new Execution(original.accountId(), original.requestId(), original.questionId(), original.runId(),
+                original.mode(), "你刚才第二步为什么这样做？", original.snapshotFileRef(), original.snapshotSourceId(),
+                original.snapshotVersion(), original.status(), original.revision(), original.queueDeadlineAt(),
+                original.runDeadlineAt(), null, 0, conversation);
+        when(ledger.execution(42L, RUN)).thenReturn(execution);
+        PipelineContext context = knownEmptyContext(execution);
+        var images = context.snapshot().images().stream()
+                .map(image -> new ModelImage(image.mediaType(), image.bytes(), image.position())).toList();
+        Input input = new Input(execution.prompt(), "HINT", new FrozenAnswer(context.snapshot().fileRef(),
+                context.snapshot().questionMarkdown(), images), Set.of(), null, true, null,
+                context.snapshot().strokeLocationsStatus(), context.snapshot().strokeLocations(), conversation);
+        TutoringPipelineTests.Boundary expected = new TutoringPipelineTests.Boundary(TutoringPipelineTests::normal);
+        new TutoringPipeline().run(input, expected);
+        ReplaySteps steps = emptyHistorySteps().reply(Role.DIAGNOSE, TutoringPipelineTests.EMPTY_DIAGNOSIS)
+                .reply(Role.TEACH, TutoringPipelineTests.TEACH);
+        assertThat(pipeline.execute(context, steps).verified()).isTrue();
+        assertThat(pipeline.execute(context, steps).verified()).isTrue();
+        assertThat(steps.actionCalls).isZero();
+        for (Call call : expected.calls) {
+            assertThat(steps.invocations.stream().filter(invocation -> invocation.role().name().equals(call.role().name()))
+                    .map(StepInvocation::inputDigest).toList()).containsExactly(call.inputDigest(), call.inputDigest());
+            if (call.role() == RoleProtocol.Role.TEACH || call.role() == RoleProtocol.Role.REVIEW) {
+                assertThat(call.inputJson()).contains("第二步两边同时减3", "conversationContext");
+            } else {
+                assertThat(call.inputJson()).doesNotContain("第二步两边同时减3", "conversationContext");
+            }
+        }
+    }
+
+    @Test
     void confirmedReplayNeedsNoProviderConfigurationOrActionsAndRetainsClarification() {
         Execution execution = execution(MultiAgentModels.Status.RUNNING, null);
         when(ledger.execution(42L, RUN)).thenReturn(execution);

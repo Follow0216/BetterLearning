@@ -6,6 +6,8 @@
   var formulaErrors = 0;
   var citationLabels = Object.create(null);
   var lastCitationButton = null;
+  var heightRevision = 0;
+  var autoHeightEnabled = false;
 
   function renderMath(tokens, index, displayMode, numbered, inline) {
     var token = tokens[index];
@@ -106,6 +108,24 @@
     });
   }
 
+
+  function reportHeight() {
+    if (!autoHeightEnabled || !content || !window.BetterLearningCitations ||
+        typeof window.BetterLearningCitations.resize !== 'function') { return; }
+    var rect = content.getBoundingClientRect();
+    var style = window.getComputedStyle(document.body);
+    // 不使用 scrollHeight/clientHeight：它们至少等于旧viewport，会形成只能增高的反馈环。
+    var height = rect.height + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    if (Number.isFinite(height) && height > 0) {
+      window.BetterLearningCitations.resize(Math.ceil(height), heightRevision);
+    }
+  }
+  if (typeof ResizeObserver === 'function' && content) {
+    new ResizeObserver(reportHeight).observe(content);
+  }
+  if (document.fonts && document.fonts.ready) { document.fonts.ready.then(reportHeight); }
+  if (typeof window.addEventListener === 'function') { window.addEventListener('resize', reportHeight); }
+
   window.BetterLearningQuestion = {
     restoreCitationFocus: function (id) {
       if (lastCitationButton && lastCitationButton.getAttribute('data-citation-id') === id &&
@@ -114,7 +134,7 @@
       }
       return false;
     },
-    render: function (markdown, fontSize, highlightBlock, citations) {
+    render: function (markdown, fontSize, highlightBlock, citations, autoHeight, revision) {
       if (!content || typeof markdown !== 'string' || markdown.length > 65536) {
         return false;
       }
@@ -133,6 +153,11 @@
                 typeof citation.label === 'string') { citationLabels[citation.citationId] = citation.label; }
           });
         }
+        autoHeightEnabled = autoHeight === true;
+        heightRevision = Number.isSafeInteger(revision) ? revision : 0;
+        if (document.documentElement.classList) {
+          document.documentElement.classList.toggle('auto-height', autoHeightEnabled);
+        }
         formulaErrors = 0;
         var html = parser.render(markdown);
         document.documentElement.style.fontSize =
@@ -143,6 +168,10 @@
         content.setAttribute('data-formula-errors', String(formulaErrors));
         content.setAttribute('data-render-state', 'ready');
         window.scrollTo(0, 0);
+        if (autoHeightEnabled) {
+          reportHeight();
+          if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(reportHeight); }
+        }
         return true;
       } catch (error) {
         content.textContent = '题面暂时无法显示，请重试';

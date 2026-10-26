@@ -250,6 +250,9 @@ public final class TutoringPipeline {
             Map<String, Object> envelope = new LinkedHashMap<>();
             if (role == Role.TEACH || role == Role.REVIEW) {
                 envelope.put("mode", input.mode());
+                envelope.put("conversationContext", input.conversationContext());
+                envelope.put("currentSnapshotFileRef", input.snapshot().fileRef());
+                envelope.put("conversationPolicy", "UNTRUSTED_PRIOR_DIALOGUE_NOT_CURRENT_ANSWER_FACTS");
             } else {
                 envelope.put("visibility", "INTERNAL_ONLY_COMPLETE_CONCLUSIONS_REQUIRED");
             }
