@@ -1,8 +1,12 @@
 package com.betterlearning.server.agent;
 
+import com.betterlearning.server.config.OpenApiConfiguration;
 import com.betterlearning.server.learning.service.RolloutGate;
 import com.betterlearning.server.multiagent.TabletPresence;
 import com.betterlearning.server.security.AuthenticatedAccount;
+
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 账号来自认证上下文；客户端只能声明其当前前台可冻结题目。 */
 @RestController
+@SecurityRequirement(name = OpenApiConfiguration.BEARER_SCHEME)
 public class TabletPresenceController {
     private final TabletPresence presence;
     private final RolloutGate rollout;
@@ -23,14 +28,16 @@ public class TabletPresenceController {
     }
 
     @PostMapping("/api/v2/learning/tablet-presence")
-    public TabletPresence.Receipt heartbeat(@AuthenticationPrincipal AuthenticatedAccount account,
+    public TabletPresence.Receipt heartbeat(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @RequestBody TabletPresence.Heartbeat input) {
         rollout.require("V2");
         return presence.heartbeat(account.accountId(), input);
     }
 
     @GetMapping("/api/v2/learning/questions/{questionId}/tablet-availability")
-    public TabletPresence.Availability availability(@AuthenticationPrincipal AuthenticatedAccount account,
+    public TabletPresence.Availability availability(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
             @PathVariable String questionId) {
         rollout.require("V2");
         return presence.availability(account.accountId(), questionId);

@@ -139,6 +139,8 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", List.of("get")),
                 Map.entry("/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", List.of("get")),
                 Map.entry("/api/v1/learning/ocr", List.of("post")),
+                Map.entry("/api/v2/learning/tablet-presence", List.of("post")),
+                Map.entry("/api/v2/learning/questions/{questionId}/tablet-availability", List.of("get")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests", List.of("get", "post")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/pending", List.of("get")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}", List.of("get")),
@@ -161,6 +163,18 @@ class ApiDocumentationEnabledIntegrationTests {
             assertThat(asMap(paths.get(expected.getKey())).keySet())
                     .containsExactlyInAnyOrderElementsOf(expected.getValue());
         }
+
+        Map<String, Object> presence = operation(docs, "/api/v2/learning/tablet-presence", "post");
+        Map<String, Object> availability = operation(docs,
+                "/api/v2/learning/questions/{questionId}/tablet-availability", "get");
+        for (Map<String, Object> added : List.of(presence, availability)) {
+            assertThat(asMap(added.get("responses"))).containsKey("200");
+            assertThat(asList(added.get("security"))).anySatisfy(requirement ->
+                    assertThat(asMap(requirement)).containsKey("bearerAuth"));
+        }
+        assertThat(asList(presence.getOrDefault("parameters", List.of()))).isEmpty();
+        assertThat(asList(availability.get("parameters")))
+                .extracting(parameter -> asMap(parameter).get("name")).containsExactly("questionId");
 
         assertOperation(docs, "/api/v1/users", "post", "201");
         assertOperation(docs, "/api/v1/sessions", "post", "201");
