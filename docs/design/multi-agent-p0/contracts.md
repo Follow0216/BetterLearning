@@ -1,6 +1,6 @@
 # 多 Agent 与个人学习引用 P0 契约 v2
 
-状态：**设计与技术验证用，未实施**。基线 `develop@0c8bd945`；机器契约见 [openapi.yaml](openapi.yaml)。本文件固定首版跨模块语义；字段名、路径、状态及竞争处理如需改动，先更新两份契约并重新审核。所有公开 ID 均为小写 UUID 字符串（既有 `questionId` 仍为十进制正整数字符串），时间为带时区 ISO 8601。账号只从认证 principal 获取，客户端不得提供 `accountId`。
+机器契约见 [openapi.yaml](openapi.yaml)。本文件记录跨模块语义；字段名、路径、状态及竞争处理如需改动，应同步更新两份契约。所有公开 ID 均为小写 UUID 字符串（既有 `questionId` 仍为十进制正整数字符串），时间为带时区 ISO 8601。账号只从认证 principal 获取，客户端不得提供 `accountId`。
 
 ## 产品范围及旧入口
 
@@ -50,8 +50,8 @@ request/run 持久化 `inputDeadlineAt/queueDeadlineAt/runDeadlineAt` 的适用�
 
 点击引用调用 `GET /api/v2/learning/citations/{citationId}/resolve`，服务端实时验证 citation 所属 result **已发布且属当前账号**、source 归属与 ACTIVE 状态、sourceVersion 可见、anchor 的版本和摘要与 citation 完全相符。返回来源创建时间、被引版本创建时间、当前版本号、作答草稿/完成状态。Markdown 返回原始块和 `[startOffset,endOffset)`，偏移以返回块的 UTF-16 code units 计且不得切开代理对；`contentSha256` 对保存时仅统一 CRLF→LF 的原始 UTF-8 块字节计算，公式不改写。`MARKDOWN_BLOCK` 必有 markdown/markdownLocator；`HANDWRITING_STEP` 必有 handwritingLocator；`QUESTION_BLOCK` 必有其中一种。手写定位有一个或多个 `segments`：每段包含 blockIndex、assetUrl、blockWorldBounds、pixelWidth/Height、regionWorldBounds，可选 strokeIds；所有跨块部分须完整覆盖。模态框按每段明确的世界坐标与实际像素尺寸变换并高亮，不跳到当前修订版冒充旧证据。每次资产 GET 再校验当前账号→已发布 result→citation→ACTIVE source→version→anchor 全链及请求的 blockIndex 确属 segments；URL 本身不是凭证。源已删除/撤销或定位不可验证返回 404/409 错误对象，不退化为相似片段，也不显示空白伪引用。
 
-## 验收与待定
+## 验证范围
 
-分阶段整体验收须覆盖 request 创建后快照、复用快照、重复同包/异包、抬笔完整冻结、M2 草稿/完成/CONTINUE 版本、笔记 CAS、方法相同题面不同与题面相同方法不同、无命中、错误旧解、编辑/删除/跨账号、索引乱序、跨块定位、cancel/complete 竞争、旧 cancel 迟到、已发送未知模型调用及显式新 run retry。**本次 P0 仅做静态契约检查与隔离技术原型**；真机、真实模型语义质量和持久服务故障验收按 里程碑定义的后续阶段完成，不能把计划用例写成 P0 实测。HTTP 错误沿既有 `ApiErrorVO {code,message,traceId,fieldErrors?}`；当前已有 `A0400/A0427/A0200/A0300/A0606/A0455/C0001/C0002/B0001`，新错误码须单独审核，不能在本契约中假称已实现。
+端到端验证应覆盖 request 创建后快照、复用快照、重复同包/异包、抬笔完整冻结、M2 草稿/完成/CONTINUE 版本、笔记 CAS、方法相同题面不同与题面相同方法不同、无命中、错误旧解、编辑/删除/跨账号、索引乱序、跨块定位、cancel/complete 竞争、旧 cancel 迟到、已发送未知模型调用及显式新 run retry。真机、真实模型语义质量和持久服务故障仍需独立验证。HTTP 错误沿既有 `ApiErrorVO {code,message,traceId,fieldErrors?}`；当前已有 `A0400/A0427/A0200/A0300/A0606/A0455/C0001/C0002/B0001`，新错误码须单独审核，不能在本契约中假称已实现。
 
-P0 冻结建议（仍待用户审核）：笔记正文 UTF-8 最多 64 KiB；列表默认 20、最多 100；所有受保护路径要求 Bearer；删除/失权立刻撤销旧版本读权限，物理清除建议 7 天内。待 P1 前确认的实施参数仅剩新旧入口灰度/关闭日期、Temporal/pgvector 具体依赖版本与部署预算、方法标签词表和检索质量门槛、供应商是否提供可核验调用幂等键。本文不宣称这些技术已经部署或真实模型已通过。
+建议参数：笔记正文 UTF-8 最多 64 KiB；列表默认 20、最多 100；所有受保护路径要求 Bearer；删除/失权立刻撤销旧版本读权限，物理清除建议 7 天内。待确认的实施参数包括新旧入口灰度/关闭日期、Temporal/pgvector 具体依赖版本与部署预算、方法标签词表和检索质量门槛、供应商是否提供可核验调用幂等键。本文不宣称这些技术已经部署或真实模型已通过。

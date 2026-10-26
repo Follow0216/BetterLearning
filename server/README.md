@@ -1,6 +1,6 @@
 # BetterLearning 服务端
 
-认证与用户资料服务，基于 Spring Boot 4.0.8、Java 17、PostgreSQL、Redis。本服务只使用已准备好的基础设施，不负责创建数据库实例、Redis 实例或系统账号。
+BetterLearning 服务端基于 Spring Boot 4.0.8、Java 17、PostgreSQL、Redis，提供账号、题库、作答与辅导能力。本服务使用已准备好的基础设施，不负责创建数据库实例、Redis 实例或系统账号。
 
 ## 0. Maven 模块边界
 
@@ -10,8 +10,8 @@
 | --- | --- |
 | `common` | 公共错误响应、业务异常、traceId 与脱敏诊断契约 |
 | `user` | 用户/会话 API、注册登录、资料改密、JWT、安全认证、Redis 会话与限流、DAO/Mapper |
-| `learning` | M1 当前账号题库与题集存储、确认去重及摘要 |
-| `agent` | 智能体能力骨架，M0 不调用模型、不引入 AI 运行依赖 |
+| `learning` | 题库、题集、作答与辅导数据存储 |
+| `agent` | OCR、辅导模型、检索与任务运行能力 |
 | `app` | 唯一启动入口、HTTP/安全装配、应用配置、统一 Flyway 迁移、跨模块测试 |
 
 依赖为 `app → user/learning/agent/common`、`user/learning/agent → common`；业务不依赖 app，user 与 agent 不互相依赖。四个依赖模块是普通 jar，只有 app 生成可执行的 `app/target/server.jar`。原 Java 包名保留为 `com.betterlearning.server` 下的分层包；启动类仍位于根包，因此会扫描各模块中的组件。
@@ -307,9 +307,9 @@ cd server
 | 退出 | `controller/SessionLogoutIntegrationTests` |
 | Swagger/OpenAPI | `controller/ApiDocumentationEnabledIntegrationTests`、`controller/ApiDocumentationDisabledIntegrationTests` |
 
-以上测试类覆盖六个接口的主要成功与失败路径。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
+以上测试类覆盖账号接口的主要成功与失败路径。单次任务只运行直接受影响的测试，不能将局部通过等同于最终验收。
 
-本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。验收使用的临时容器与服务已清理，本仓库不保留任何测试服务或临时密钥。
+本地启动前需自行准备可用的 PostgreSQL 与 Redis，并按第 2 节配置 `.env.local`。
 
 ## 8. M1 真实题库
 
@@ -320,15 +320,13 @@ HTTP 契约以根目录 `docs/design/mvp-m1-contract.md` 为准。接口均要�
 - `GET /api/v1/learning/questions/{questionId}`：当前账号详情与原始 Markdown。
 - `GET /api/v1/learning/collections`：当前账号题集，固定待整理第一项。
 
-没有独立标题；summary 由服务端生成约 50 字符预览。M1 科目代码仅 `HIGHER_MATHEMATICS`、`OTHER`。不提供题目编辑、题集写操作、搜索、作答、AI 或文件系统。
-
-新增 `LearningIntegrationTests` 与 `DevAdminAccountIntegrationTests` 使用原 Testcontainers PostgreSQL/Redis 基础设施；开发交付不运行构建或测试，具体结果由独立 TEST 记录。
+没有独立标题；summary 由服务端生成约 50 字符预览。M1 科目代码仅 `HIGHER_MATHEMATICS`、`OTHER`。题集写操作与作答接口见下文。
 
 ## 9. M2 题集阶段
 
 题集现支持 POST `/api/v1/learning/collections`（name、可空 parentCollectionId）、PATCH `/api/v1/learning/collections/{collectionId}`（仅 name）和 PATCH `/api/v1/learning/questions/{questionId}/collection`（collectionId，inbox 可移回待整理）。题集 GET 节点增加 parentCollectionId；计数只含直接归属，父级不可更改，固定待整理不可改名或作为父级。同级重名为 409 A0450，其他账号资源为 404。
 
-V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动题集或题干编辑。字段以 `docs/design/mvp-m2-contract.md` 题集章节为准。完整作答／文件接口另行固定并交付，本题集提交不提供模拟作答。
+V3 增加父级及同级唯一约束；无题集删除、移动题集或题干编辑。字段以 `docs/design/mvp-m2-contract.md` 题集章节为准。
 
 
 ## 10. M2 当前完整作答
@@ -343,7 +341,7 @@ V3 新增父级及同级唯一约束，V1/V2 不改；无题集删除、移动�
 
 正常覆盖提交成功后清理被替代文件；请求失败／重复包清理本次多余候选。提交结果未知时保留可能已提交候选；崩溃或清理失败的不可见孤儿为已知空间限制，无启动扫描、定时回收或历史版本功能。备份必须同时保留 PostgreSQL 当前记录与文件根目录。
 
-测试源码包含 AnswerManifestValidatorTests、AnswerFileStoreTests 与 QuestionAnswerIntegrationTests，尚未在开发树执行。测试 classpath 的 config/application.properties 仅为测试设置 APP_TEST_FILES_ROOT；C4 应指向自己的临时目录并在结束后清理。新集成类自行创建／清理独有目录，重新创建存储对象的单元测试不代表已完成真实进程重启验收。
+测试源码包含 AnswerManifestValidatorTests、AnswerFileStoreTests 与 QuestionAnswerIntegrationTests。测试 classpath 的 config/application.properties 仅为测试设置 APP_TEST_FILES_ROOT；执行集成测试时应指向独立临时目录并在结束后清理。重新创建存储对象的单元测试不代表真实进程重启验收。
 
 
 ## 11. M3 跨端辅导与 M4 OCR

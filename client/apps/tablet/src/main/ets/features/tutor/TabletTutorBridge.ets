@@ -10,13 +10,13 @@ import {
 } from 'common';
 import { TabletCanvasController } from '../canvas/CanvasWorkspaceController';
 
-/** 页面用 C2 TutorApi 适配这两个函数，不另建网络请求或公共协议。 */
+/** 页面用 TutorApi 适配这两个函数，不另建网络请求或公共协议。 */
 export interface TabletTutorApiPort {
   pending(token: string, questionId: string): Promise<AuthResult<TutorTurn | null>>;
   get(token: string, questionId: string, turnId: string): Promise<AuthResult<TutorTurn>>;
 }
 
-/** 只转换 C2 已校验的公共响应，不复制其 HTTP/协议实现。 */
+/** 只转换已校验的公共响应，不复制其 HTTP/协议实现。 */
 export class SharedTabletTutorApi implements TabletTutorApiPort {
   private readonly api: TutorApi;
 
@@ -66,7 +66,7 @@ export class TabletTutorState {
   }
 }
 
-/** 前台当前题单循环轮询；完整冻结和顺序发送全部委托 C2。 */
+/** 前台当前题单循环轮询；完整冻结和顺序发送全部委托共享接口。 */
 export class TabletTutorBridge {
   private readonly canvas: TabletCanvasController;
   private readonly api: TabletTutorApiPort;
@@ -109,7 +109,7 @@ export class TabletTutorBridge {
     }
     this.stop();
     if (this.ownerAccountId !== user.accountId || this.questionId !== questionId) {
-      // 不删除 C2 的账号草稿/冻结文件；只解除本桥接器对旧题的内存引用。
+      // 不删除账号草稿/冻结文件；只解除本桥接器对旧题的内存引用。
       this.retained = null;
       this.activeTurnId = '';
     }

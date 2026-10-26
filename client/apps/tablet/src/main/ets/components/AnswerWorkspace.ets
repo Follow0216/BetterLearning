@@ -23,9 +23,9 @@ import {
 } from '../theme/TabletTheme';
 
 /**
- * 答题页包装：沉浸式单条页头 + C2 画布工作区。
+ * 答题页包装：沉浸式单条页头 + 画布工作区。
  *
- * <p>题面、笔迹与工具栏全部由 C2 的 TabletCanvasWorkspace 内部维护；本组件只
+ * <p>题面、笔迹与工具栏全部由 TabletCanvasWorkspace 内部维护；本组件只
  * 负责返回、真实保存状态、保存/完成/继续按钮与必要的错误提示。按钮可用性和
  * 文案直接读取 @Prop，不再经过多参数 Builder 转发动态值。</p>
  */

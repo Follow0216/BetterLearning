@@ -32,4 +32,4 @@ function CollectionSaveButton({ scopeId, save }: { scopeId: string; save: () => 
 
 同时最多两条，其他 FIFO 排队；卡片 DOM 提交后才计时。同 key 保留位置并更新内容、重新计时；悬停/键盘焦点各自暂停，均离开后继续剩余时间。普通/成功默认 3 秒，错误 6 秒，最大宽度 420px，有说明时主文案与说明各一行、总计最多两行，所有卡片提供 44px 关闭按钮。关闭只清显示。宿主空白区域 pointer-events:none；气泡本身可交互。
 
-`pnpm --filter @betterlearning/ui-feedback test:run` 使用 Node 24 内置测试与类型擦除，覆盖计时、队列、同 key、暂停、scope、卸载及失效回调，不引入新的测试依赖。组件/浏览器验收仍须由 C4 完成。
+`pnpm --filter @betterlearning/ui-feedback test:run` 使用 Node 24 内置测试与类型擦除，覆盖计时、队列、同 key、暂停、scope、卸载及失效回调，不引入新的测试依赖。组件和浏览器行为需单独验收。

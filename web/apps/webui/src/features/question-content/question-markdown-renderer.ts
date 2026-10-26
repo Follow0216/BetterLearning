@@ -7,7 +7,7 @@ import type { Env, MarkdownIt as MarkdownItInstance, Token } from "markdown-it";
 import type { TexmathBlockRule, TexmathRule } from "markdown-it-texmath";
 
 /**
- * 题面渲染与 C2 原生端保持同一配置：
+ * 题面渲染与原生端保持同一配置：
  * - 关闭原始 HTML、linkify、typographer，保留换行；
  * - texmath 识别美元行内/块公式与 `\(...\)`、`\[...\]`；
  * - 每次公式渲染使用独立 macros，避免跨题共用可变宏。

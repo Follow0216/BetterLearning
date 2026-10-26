@@ -150,4 +150,4 @@ check('输入规范化和短/超长定时器边界', () => {
   h.show('long', 'info', { durationMs: 2147483648 }); h.shown(); h.advance(2147483647); assert.equal(h.keys(), 'long');
   h.advance(1); assert.equal(h.keys(), '');
 });
-console.log(JSON.stringify({ suite: 'toast-store-v1', passed, plainTypeScriptStrict: true, nativeBuild: 'C4 pending' }));
+console.log(JSON.stringify({ suite: 'toast-store-v1', passed, plainTypeScriptStrict: true, nativeBuild: 'not verified' }));

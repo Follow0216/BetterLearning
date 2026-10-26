@@ -61,7 +61,7 @@ this.toast.dispose();
 
 用户主动操作的结果由对应业务回调触发。字段校验、持续错误、未保存、加载状态和原位重试保持原有事实呈现。禁止 API 层对所有异常强制弹通知；禁止在 build/render、自动保存、每次轮询或笔 MOVE 中触发。没有通知中心、持久化、推送、新第三方依赖或后端接口。
 
-T1 唯一维护 common/Index.ets 的新增出口；T2 负责 phone/tablet 根与业务回调接线。AuthScreen 由 T1 适配，公开注入 `toast?: ToastStore`，根传同一实例而不另挂 Host。其他账号模型/API 负责人通过 T1 提供新增出口需求，禁止多人写同一 Index.ets。
+`common/Index.ets` 导出 Toast 公共接口；phone/tablet 根组件接入业务回调。AuthScreen 接收 `toast?: ToastStore`，根传同一实例而不另挂 Host。
 
 ## AuthScreen 与根的 scope 分工
 
@@ -69,6 +69,6 @@ T1 唯一维护 common/Index.ets 的新增出口；T2 负责 phone/tablet 根与
 
 AuthScreen 会话失效/退出时先清旧 scope，再回调根 `onSignedOut` 同步进入新登录 scope，最后在新 scope 发一次操作结果。账号页改密成功同样先按令牌条件清会话、回调根切入新登录 scope，再显示当前 scope 的成功提示；不要在随后 AuthScreen.onAppear 再次清理。请求失败沿用发起时捕获的 token，不能把已失效的旧请求重新绑定到当前 scope。字段错误与持续事实仍原位保留。
 
-## 验证边界
+## 验证范围
 
-T1 纯逻辑验证：时长、FIFO、同 key 合并、手动关闭、真实显示后计时、scope 迟到结果拒绝、销毁和失效定时器。Web 另验证悬停/焦点叠加暂停。C4 独占正式 phone/tablet 编译、设备安装与触控穿透/安全区/焦点验收；静态/纯逻辑通过不能替代设备验收。
+纯逻辑验证覆盖时长、FIFO、同 key 合并、手动关闭、真实显示后计时、scope 迟到结果拒绝、销毁和失效定时器。Web 另验证悬停/焦点叠加暂停。phone/tablet 仍需编译、设备安装与触控穿透、安全区、焦点验收；静态检查和纯逻辑测试不能替代设备验收。

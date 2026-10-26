@@ -8,7 +8,7 @@
 - `web/` 是 pnpm workspace 单仓库，根目录只放编排与共享配置。
 - `apps/webui`：C 端用户界面，重视 SEO、SSR/SSG、首屏性能与可访问性，端口 3000。
 - `apps/admin`：B 端管理后台，重视登录态、权限、数据请求边界，端口 3001。
-- `packages/`：预留的共享库目录，当前尚未创建。应用之间不得互相 `import`。
+- `packages/`：共享库目录，包含 `ui-feedback`。应用之间不得互相 `import`。
 
 ## 2. 目录结构
 
