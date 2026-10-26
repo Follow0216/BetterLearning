@@ -1,5 +1,6 @@
 package com.betterlearning.server.agent.pipeline;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -9,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 
 import com.betterlearning.server.agent.model.TutorModels.FrozenAnswer;
+import com.betterlearning.server.multiagent.MultiAgentModels.AnswerInputKind;
 import com.betterlearning.server.multiagent.MultiAgentModels.StrokeLocation;
 import com.betterlearning.server.multiagent.MultiAgentModels.ConversationContext;
 import com.betterlearning.server.multiagent.ConversationContexts;
@@ -18,7 +20,7 @@ import tools.jackson.databind.JsonNode;
 
 /** Agent内部角色协议；不是HTTP/common DTO，不含供应商密钥或隐藏思维链。 */
 public final class RoleProtocol {
-    public static final String PROMPT_VERSION = "p3-roles-v8-conversation";
+    public static final String PROMPT_VERSION = "p3-roles-v9-answer-input";
     public static final int MAX_GENERATION_CALLS = 8;
     public static final int MAX_STROKE_LOCATIONS = 2000;
     public static final int MAX_STROKE_LOCATIONS_JSON_BYTES = 256 * 1024;
@@ -35,11 +37,19 @@ public final class RoleProtocol {
         BUDGET_EXCEEDED, REVIEW_REJECTED, EVIDENCE_REJECTED, CANCELLED
     }
 
-    /** 必须来自已经授权且完整校验的不可变快照；全部世界坐标与块原样传给模型。 */
+    /** 题面和作答类型由服务器冻结；SNAPSHOT须完整授权校验，NONE只提供真实题面与文字。 */
     public record Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
             Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
             StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations,
-            ConversationContext conversationContext) {
+            ConversationContext conversationContext, AnswerInputKind answerInputKind) {
+        public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
+                Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
+                StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations,
+                ConversationContext conversationContext) {
+            this(prompt, mode, snapshot, strokeIds, ocrConfidence, writingMetadataKnown, ocrText,
+                    strokeLocationsStatus, strokeLocations, conversationContext, AnswerInputKind.SNAPSHOT);
+        }
+
         public Input(String prompt, String mode, FrozenAnswer snapshot, Set<String> strokeIds,
                 Double ocrConfidence, boolean writingMetadataKnown, String ocrText,
                 StrokeLocationsStatus strokeLocationsStatus, List<StrokeLocation> strokeLocations) {
@@ -69,9 +79,15 @@ public final class RoleProtocol {
             strokeIds = strokeIds == null ? Set.of() : Set.copyOf(strokeIds);
             if (prompt == null || prompt.isBlank() || prompt.length() > 4000
                     || (!"HINT".equals(mode) && !"FULL_SOLUTION".equals(mode))
-                    || snapshot == null || snapshot.fileRef() == null || snapshot.fileRef().isBlank()
+                    || answerInputKind == null || snapshot == null
                     || snapshot.questionMarkdown() == null || snapshot.questionMarkdown().isBlank()
-                    || snapshot.images().isEmpty() || (ocrText != null && ocrText.length() > 16000) || (ocrConfidence != null
+                    || (answerInputKind == AnswerInputKind.SNAPSHOT && (snapshot.fileRef() == null
+                    || snapshot.fileRef().isBlank() || snapshot.images().isEmpty()))
+                    || (answerInputKind == AnswerInputKind.NONE && (snapshot.fileRef() != null
+                    || !snapshot.images().isEmpty() || !strokeIds.isEmpty() || writingMetadataKnown
+                    || ocrText != null || ocrConfidence != null || strokeLocationsStatus != StrokeLocationsStatus.UNAVAILABLE
+                    || strokeLocations == null || !strokeLocations.isEmpty()))
+                    || (ocrText != null && ocrText.length() > 16000) || (ocrConfidence != null
                     && (!Double.isFinite(ocrConfidence) || ocrConfidence < 0 || ocrConfidence > 1))) {
                 throw new PipelineFailure(Reason.INVALID_INPUT);
             }
@@ -118,15 +134,20 @@ public final class RoleProtocol {
     }
 
     /** sequence在单个run内从1递增；runtime以runId+sequence保存输入摘要和已确认结果。 */
-    public record Call(int sequence, Role role, String systemPrompt, String inputJson, FrozenAnswer snapshot) {
+    public record Call(int sequence, Role role, String systemPrompt, String inputJson, FrozenAnswer snapshot,
+            AnswerInputKind answerInputKind) {
+        public Call(int sequence, Role role, String systemPrompt, String inputJson, FrozenAnswer snapshot) {
+            this(sequence, role, systemPrompt, inputJson, snapshot, AnswerInputKind.SNAPSHOT);
+        }
+
         public String inputDigest() {
             try {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 List<List<String>> images = java.util.stream.IntStream.range(0, snapshot.images().size())
                         .mapToObj(index -> List.of(snapshot.images().get(index).mediaType(), imageCaption(index),
                         HexFormat.of().formatHex(digest.digest(snapshot.images().get(index).bytes())))).toList();
-                return TutoringPipeline.sha256(RoleOutputValidator.JSON.writeValueAsString(List.of(
-                        PROMPT_VERSION, role.name(), systemPrompt, inputJson, snapshot.fileRef(), images)));
+                return TutoringPipeline.sha256(RoleOutputValidator.JSON.writeValueAsString(Arrays.asList(
+                        PROMPT_VERSION, role.name(), systemPrompt, inputJson, answerInputKind.name(), snapshot.fileRef(), images)));
             } catch (NoSuchAlgorithmException exception) {
                 throw new IllegalStateException("SHA-256 unavailable");
             }

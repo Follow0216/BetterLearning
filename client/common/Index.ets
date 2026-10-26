@@ -97,6 +97,7 @@ export { CANVAS_DEFAULT_PRESSURE, valid_canvas_pen, valid_canvas_pressure, canva
 export { LearningV2Api } from './src/main/ets/features/multiagent/LearningV2Api';
 export {
   V2TutorMode, V2TutorRequestStatus, V2RunStatus, V2SnapshotInput, V2TutorRequest,
+  V2TabletPresence, V2TabletPresenceReceipt, V2TabletAvailability,
   V2TutorRequestPage, V2PendingRequest, V2Step, V2Attempt, V2Run, V2Evidence,
   V2SourceType, V2Citation, V2TutorResult, V2TutorRequestDetail, V2Note, V2NotePage,
   V2WorldBounds, V2MarkdownLocator, V2HandwritingSegment, V2HandwritingLocator, V2CitationResolution

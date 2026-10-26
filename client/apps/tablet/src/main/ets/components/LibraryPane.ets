@@ -66,6 +66,7 @@ export struct LibraryPane {
   toast?: ToastStore;
   on_context_changed: (context: string) => void = () => {};
   @Prop @Watch('sync_tutor') active: boolean = false;
+  @StorageProp('tabletForeground') @Watch('sync_tutor') foreground: boolean = true;
   backController: TabletBackController = new TabletBackController();
   private backHandler: () => boolean = () => {
     if (!this.active || this.open_question_id.length === 0) { return false; }
@@ -96,6 +97,7 @@ export struct LibraryPane {
   @State detail_error: string = '';
   @State current_answer_state: AnswerState = AnswerState.NOT_STARTED;
   @State canvas_ready: boolean = false;
+  @State canvas_can_freeze_v2: boolean = false;
   @State canvas_busy: boolean = false;
   @State canvas_can_complete: boolean = false;
   @State canvas_completed: boolean = false;
@@ -1241,6 +1243,7 @@ export struct LibraryPane {
     this.answer_mount_revision += 1;
     this.dispose_tutor();
     this.canvas_ready = false;
+    this.canvas_can_freeze_v2 = false;
     this.canvas_busy = false;
     this.canvas_can_complete = false;
     this.canvas_completed = false;
@@ -1260,6 +1263,7 @@ export struct LibraryPane {
       return;
     }
     this.canvas_ready = state.isReady;
+    this.canvas_can_freeze_v2 = state.canFreezeV2;
     this.canvas_busy = state.isBusy;
     this.canvas_can_complete = state.canComplete;
     this.canvas_completed = state.isCompleted;
@@ -1555,7 +1559,7 @@ export struct LibraryPane {
   }
 
   private tutor_eligible(): boolean {
-    return this.alive && this.active && this.canvas_ready && !this.detail_loading &&
+    return this.alive && this.active && this.foreground && this.canvas_can_freeze_v2 && !this.detail_loading &&
       this.detail_error.length === 0 && this.detail !== null &&
       this.open_question_id.length > 0 && this.detail.questionId === this.open_question_id;
   }
@@ -1592,7 +1596,7 @@ export struct LibraryPane {
             (current_token === null || current_token === token)) {
             this.expire_session();
           }
-        });
+        }, () => this.tutor_context_current(revision, question_id));
     }
     if (!this.tutor_started) {
       this.tutor_started = true;

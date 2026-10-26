@@ -8,7 +8,8 @@ import { AnswerManifest, FrozenAnswerUpload } from '../learning/SolutionModels';
 import {
   V2Citation, V2CitationResolution, V2Note, V2NotePage, V2PendingRequest,
   V2SnapshotInput, V2TutorMode, V2TutorRequest, V2TutorRequestDetail,
-  V2TutorRequestPage, V2TutorRequestStatus, V2Run, V2RunStatus, V2WorldBounds
+  V2TutorRequestPage, V2TutorRequestStatus, V2Run, V2RunStatus, V2WorldBounds,
+  V2TabletPresence, V2TabletPresenceReceipt, V2TabletAvailability
 } from './LearningV2Models';
 
 interface V2CreatePayload { requestId: string; prompt: string; mode: V2TutorMode; snapshotInput: V2SnapshotInput; contextParentRequestId?: string | null; }
@@ -30,7 +31,8 @@ function valid_date(value: string): boolean {
     Number.isFinite(Date.parse(value));
 }
 function valid_snapshot(value: V2SnapshotInput): boolean {
-  return !!value && (value.kind === 'NEW_CAPTURE' && value.sourceRequestId === undefined ||
+  return !!value && (['AUTO', 'NEW_CAPTURE', 'NO_ANSWER'].includes(value.kind) &&
+    (value.sourceRequestId === undefined || value.sourceRequestId === null) ||
     value.kind === 'REUSE_REQUEST' && typeof value.sourceRequestId === 'string' &&
       v2_uuid_valid(value.sourceRequestId));
 }
@@ -38,7 +40,13 @@ function valid_request(value: V2TutorRequest, questionId: string, requestId: str
   return !!value && v2_uuid_valid(value.requestId) && (requestId === '' || value.requestId === requestId) &&
     value.questionId === questionId && typeof value.prompt === 'string' && value.prompt.trim().length > 0 &&
     (value.mode === V2TutorMode.HINT || value.mode === V2TutorMode.FULL_SOLUTION) &&
-    valid_snapshot(value.snapshotInput) &&
+    valid_snapshot(value.snapshotInput) && value.snapshotInput.kind !== 'AUTO' &&
+    (value.inputSelectionReason === undefined || value.inputSelectionReason === null ||
+      ['TABLET_AVAILABLE', 'NO_DEVICE', 'OFFLINE', 'OTHER_QUESTION'].includes(value.inputSelectionReason)) &&
+    (value.snapshotInput.kind !== 'NO_ANSWER' || value.snapshotOriginRequestId === null &&
+      value.snapshotFileRef === null && value.currentRunId !== null &&
+      ['NO_DEVICE', 'OFFLINE', 'OTHER_QUESTION'].includes(value.inputSelectionReason ?? '') &&
+      value.status !== V2TutorRequestStatus.WAITING_INPUT) &&
     (value.contextParentRequestId === undefined || value.contextParentRequestId === null ||
       v2_uuid_valid(value.contextParentRequestId) && value.contextParentRequestId !== value.requestId) &&
     (value.snapshotOriginRequestId === null || v2_uuid_valid(value.snapshotOriginRequestId)) &&
@@ -152,11 +160,46 @@ export class LearningV2Api {
   constructor(baseUrl: string = DEFAULT_DEV_BASE_URL) { this.transport = new AuthApi(baseUrl); }
   static create_default(): LearningV2Api { return new LearningV2Api(); }
 
+  async updateTabletPresence(token: string, presence: V2TabletPresence): Promise<AuthResult<V2TabletPresenceReceipt>> {
+    if (!v2_uuid_valid(presence.sessionId) || !Number.isSafeInteger(presence.sequence) || presence.sequence < 1 ||
+      typeof presence.active !== 'boolean' || (presence.active ?
+        presence.questionId === null || !v2_question_id_valid(presence.questionId) : presence.questionId !== null)) {
+      return local<V2TabletPresenceReceipt>('平板在线状态参数无效');
+    }
+    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.POST,
+      ROOT + '/tablet-presence', token, JSON.stringify(presence), 200, 15000);
+    if (!result.isSuccess || result.data === null) { return AuthResult.failure<V2TabletPresenceReceipt>(error(result)); }
+    try {
+      const value: V2TabletPresenceReceipt = JSON.parse(result.data) as V2TabletPresenceReceipt;
+      if (!value || value.sessionId !== presence.sessionId || value.sequence !== presence.sequence ||
+        value.questionId !== presence.questionId || value.active !== presence.active || !valid_date(value.leaseExpiresAt)) {
+        return fail<V2TabletPresenceReceipt>('平板在线回执已过期或与上报不一致');
+      }
+      return AuthResult.success<V2TabletPresenceReceipt>(value);
+    } catch (e) { return fail<V2TabletPresenceReceipt>('平板在线回执格式无效'); }
+  }
+
+  async getTabletAvailability(token: string, questionId: string): Promise<AuthResult<V2TabletAvailability>> {
+    if (!v2_question_id_valid(questionId)) { return local<V2TabletAvailability>('题号无效'); }
+    const result: AuthResult<string> = await this.transport.request_resource(http.RequestMethod.GET,
+      ROOT + '/questions/' + questionId + '/tablet-availability', token);
+    if (!result.isSuccess || result.data === null) { return AuthResult.failure<V2TabletAvailability>(error(result)); }
+    try {
+      const value: V2TabletAvailability = JSON.parse(result.data) as V2TabletAvailability;
+      if (!value || typeof value.available !== 'boolean' ||
+        !['TABLET_AVAILABLE', 'NO_DEVICE', 'OFFLINE', 'OTHER_QUESTION'].includes(value.reason) ||
+        value.available !== (value.reason === 'TABLET_AVAILABLE') ||
+        !(value.leaseExpiresAt === null || valid_date(value.leaseExpiresAt)) ||
+        value.available && value.leaseExpiresAt === null) { return fail<V2TabletAvailability>('平板可用状态格式无效'); }
+      return AuthResult.success<V2TabletAvailability>(value);
+    } catch (e) { return fail<V2TabletAvailability>('平板可用状态格式无效'); }
+  }
+
   async createRequest(token: string, questionId: string, requestId: string, prompt: string,
-    mode: V2TutorMode = V2TutorMode.HINT, snapshotInput: V2SnapshotInput = { kind: 'NEW_CAPTURE' },
+    mode: V2TutorMode = V2TutorMode.HINT, snapshotInput: V2SnapshotInput = { kind: 'AUTO' },
     contextParentRequestId: string | null = null): Promise<AuthResult<V2TutorRequest>> {
     if (!v2_question_id_valid(questionId) || !v2_uuid_valid(requestId) || prompt.trim().length === 0 ||
-      prompt.length > 4000 || !valid_snapshot(snapshotInput) ||
+      prompt.length > 4000 || !valid_snapshot(snapshotInput) || snapshotInput.kind === 'NO_ANSWER' ||
       contextParentRequestId !== null && (!v2_uuid_valid(contextParentRequestId) || contextParentRequestId === requestId) ||
       ![V2TutorMode.HINT, V2TutorMode.FULL_SOLUTION].includes(mode)) { return local<V2TutorRequest>('发问参数无效'); }
     const payload: V2CreatePayload = { requestId: requestId, prompt: prompt, mode: mode, snapshotInput: snapshotInput };
@@ -168,7 +211,11 @@ export class LearningV2Api {
     try {
       const value: V2TutorRequest = JSON.parse(result.data) as V2TutorRequest;
       if (!valid_request(value, questionId, requestId) || value.prompt !== prompt || value.mode !== mode ||
-        value.snapshotInput.kind !== snapshotInput.kind ||
+        (snapshotInput.kind === 'AUTO' ?
+          !(value.snapshotInput.kind === 'NEW_CAPTURE' && value.inputSelectionReason === 'TABLET_AVAILABLE' ||
+            value.snapshotInput.kind === 'NO_ANSWER' &&
+            ['NO_DEVICE', 'OFFLINE', 'OTHER_QUESTION'].includes(value.inputSelectionReason ?? '')) :
+          value.snapshotInput.kind !== snapshotInput.kind) ||
         (value.contextParentRequestId ?? null) !== contextParentRequestId ||
         (snapshotInput.kind === 'REUSE_REQUEST' && value.snapshotInput.kind === 'REUSE_REQUEST' &&
           value.snapshotInput.sourceRequestId !== snapshotInput.sourceRequestId)) { return fail<V2TutorRequest>('发问回执与请求不匹配'); }

@@ -169,6 +169,40 @@ describe("learning response parsers", () => {
     ).toThrow(LearningContractError);
   });
 
+  it("reads a text-only request with a run while preserving its absent snapshot", () => {
+    const request = {
+      requestId: id,
+      questionId: "1",
+      prompt: "提示",
+      mode: "HINT",
+      snapshotInput: { kind: "NO_ANSWER" },
+      inputSelectionReason: "OFFLINE",
+      snapshotOriginRequestId: null,
+      snapshotFileRef: null,
+      currentRunId: sourceId,
+      status: "QUEUED",
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const run = {
+      runId: sourceId,
+      requestId: id,
+      runNo: 1,
+      status: "QUEUED",
+      revision: 0,
+      steps: [],
+    };
+    const detail = { request, run, runs: [run], result: null };
+    expect(parseTutorDetail(detail).request).toEqual(request);
+    expect(() =>
+      parseTutorDetail({
+        ...detail,
+        request: { ...request, snapshotFileRef: anchorId },
+      }),
+    ).toThrow(LearningContractError);
+  });
+
   it("rejects FULL_SOLUTION results for a HINT request", () => {
     const request = {
       requestId: id,

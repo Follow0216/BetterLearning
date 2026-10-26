@@ -43,7 +43,7 @@ class TeachRepairContextTests {
 
         var candidate = new TutoringPipeline().run(input(null, Set.of(), null), boundary);
 
-        assertThat(RoleProtocol.PROMPT_VERSION).isEqualTo("p3-roles-v8-conversation");
+        assertThat(RoleProtocol.PROMPT_VERSION).isEqualTo("p3-roles-v9-answer-input");
         assertThat(candidate.evidenceIds()).containsExactly(EVIDENCE);
         assertThat(candidate.bodyMarkdown()).contains("[[evidence:" + EVIDENCE + "]]");
         assertThat(boundary.retrieveCount).isEqualTo(1);

@@ -10,6 +10,7 @@ export type TutorStatus =
   | "CANCELLED"
   | "TIMED_OUT";
 export type TutorMode = "HINT" | "FULL_SOLUTION";
+export type InputSelectionReason = "TABLET_AVAILABLE" | "NO_DEVICE" | "OFFLINE" | "OTHER_QUESTION";
 export interface CursorPage<T> {
   items: T[];
   nextCursor: string | null;
@@ -72,7 +73,9 @@ export interface TutorRequest {
   questionId: string;
   prompt: string;
   mode: TutorMode;
-  snapshotInput: { kind: "NEW_CAPTURE" } | { kind: "REUSE_REQUEST"; sourceRequestId: string };
+  snapshotInput:
+    { kind: "NEW_CAPTURE" | "NO_ANSWER" } | { kind: "REUSE_REQUEST"; sourceRequestId: string };
+  inputSelectionReason?: InputSelectionReason | null;
   snapshotOriginRequestId: string | null;
   snapshotFileRef: string | null;
   currentRunId: string | null;
@@ -333,11 +336,34 @@ export function parseCursorPage<T>(v: unknown, parser: (value: unknown) => T): C
 export function parseTutorRequest(v: unknown): TutorRequest {
   const o = obj(v),
     input = obj(o.snapshotInput),
-    kind = enumeration(input.kind, ["NEW_CAPTURE", "REUSE_REQUEST"]);
+    kind = enumeration(input.kind, ["NEW_CAPTURE", "REUSE_REQUEST", "NO_ANSWER"]);
   const questionId = str(o.questionId);
   if (!QUESTION_ID.test(questionId)) fail();
   const status = tutorStatus(o.status);
   const currentRunId = nullable(o.currentRunId, uuid);
+  const snapshotOriginRequestId = nullable(o.snapshotOriginRequestId, uuid);
+  const snapshotFileRef = nullable(o.snapshotFileRef, uuid);
+  const inputSelectionReason = optional(o.inputSelectionReason, (value) =>
+    nullable(value, (reason) =>
+      enumeration<InputSelectionReason>(reason, [
+        "TABLET_AVAILABLE",
+        "NO_DEVICE",
+        "OFFLINE",
+        "OTHER_QUESTION",
+      ]),
+    ),
+  );
+  if (
+    kind === "NO_ANSWER" &&
+    (snapshotOriginRequestId !== null ||
+      snapshotFileRef !== null ||
+      input.sourceRequestId != null ||
+      currentRunId === null ||
+      status === "WAITING_INPUT" ||
+      !inputSelectionReason ||
+      inputSelectionReason === "TABLET_AVAILABLE")
+  )
+    fail();
   if (status === "WAITING_INPUT" && currentRunId !== null) fail();
   if (["QUEUED", "RUNNING", "CANCELLING", "SUCCEEDED"].includes(status) && currentRunId === null)
     fail();
@@ -347,9 +373,10 @@ export function parseTutorRequest(v: unknown): TutorRequest {
     prompt: str(o.prompt),
     mode: enumeration(o.mode, ["HINT", "FULL_SOLUTION"]),
     snapshotInput:
-      kind === "NEW_CAPTURE" ? { kind } : { kind, sourceRequestId: uuid(input.sourceRequestId) },
-    snapshotOriginRequestId: nullable(o.snapshotOriginRequestId, uuid),
-    snapshotFileRef: nullable(o.snapshotFileRef, uuid),
+      kind === "REUSE_REQUEST" ? { kind, sourceRequestId: uuid(input.sourceRequestId) } : { kind },
+    inputSelectionReason,
+    snapshotOriginRequestId,
+    snapshotFileRef,
     currentRunId,
     status,
     revision: integer(o.revision),

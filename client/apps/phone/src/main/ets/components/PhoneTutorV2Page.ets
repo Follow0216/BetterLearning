@@ -11,7 +11,7 @@ import {
   phone_v2_intent_for, phone_v2_merge_requests, phone_v2_retryable, PhoneV2CreateIntent,
   PhoneV2Draft, PhoneV2ViewState, PhoneV2RecentQuestion, phone_v2_chronological,
   phone_v2_merge_details, phone_v2_verified, phone_v2_stage_text, phone_v2_recent_questions,
-  phone_v2_context_parent, phone_v2_context_unconfirmed
+  phone_v2_context_parent, phone_v2_context_unconfirmed, phone_v2_input_text
 } from '../model/PhoneTutorV2Logic';
 import { PhoneBackController } from '../model/PhoneHomeState';
 import { format_question_time, question_summary_title } from '../model/QuestionFormat';
@@ -387,6 +387,13 @@ export struct PhoneTutorV2Page {
             .onClick(() => { this.contextParentRequestId = ''; this.independentQuestion = false; this.save_draft(); })
         }
       }.width('100%')
+      if (this.reuseRequestId.length > 0) {
+        Row({ space: 6 }) {
+          Text('下一轮沿用所选作答').fontSize(10).fontColor(PHONE_COLOR_PRIMARY_DEEP).layoutWeight(1)
+          Text('恢复自动选择').fontSize(10).fontColor(PHONE_COLOR_PRIMARY_DEEP).padding(4)
+            .onClick(() => { this.reuseRequestId = ''; this.save_draft(); })
+        }.width('100%')
+      }
       TextArea({ text: this.prompt, placeholder: '继续问一个具体的问题…', controller: this.editorController })
         .width('100%').height(62).fontSize(14).maxLength(V2_PROMPT_MAX)
         .fontColor(PHONE_COLOR_TITLE).backgroundColor(PHONE_COLOR_BACKGROUND)
@@ -481,6 +488,8 @@ export struct PhoneTutorV2Page {
 
   @Builder
   selected_detail(requestId: string) {
+    Text(phone_v2_input_text(this.request_for(requestId)))
+      .fontSize(10).lineHeight(16).fontColor(PHONE_COLOR_MUTED)
     if (this.request_for(requestId)?.status === V2TutorRequestStatus.WAITING_INPUT) {
       Text('请在平板前台打开本题，同步本轮作答。').fontSize(12).lineHeight(19).fontColor(PHONE_COLOR_MUTED)
       Button('检查同步').height(36).fontSize(11).fontColor(PHONE_COLOR_PRIMARY_DEEP)
@@ -492,7 +501,7 @@ export struct PhoneTutorV2Page {
           .backgroundColor(PHONE_COLOR_SOFT).onClick(() => {
             this.contextParentRequestId = requestId; this.independentQuestion = false; this.save_draft();
           })
-        if (this.request_for(requestId)?.snapshotFileRef !== null) {
+        if (this.request_for(requestId)?.snapshotFileRef !== null && this.request_for(requestId)?.snapshotFileRef !== undefined) {
           Button('沿用此作答').height(36).fontSize(11).fontColor(PHONE_COLOR_PRIMARY_DEEP)
             .backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.reuseRequestId = requestId; this.save_draft(); })
         }
@@ -507,7 +516,9 @@ export struct PhoneTutorV2Page {
         .backgroundColor(PHONE_COLOR_SOFT).onClick(() => { this.refresh_detail(requestId); })
     } else if (this.request_for(requestId)?.status === V2TutorRequestStatus.FAILED || this.request_for(requestId)?.status === V2TutorRequestStatus.TIMED_OUT) {
       Text(this.outcome_unknown(requestId) ?
-        '上次调用结果未确认。手动重试可能再次生成讲解，请先检查状态。' : '本次没有发布讲解，可明确重试同一份作答。')
+        '上次调用结果未确认。手动重试可能再次生成讲解，请先检查状态。' :
+        (this.request_for(requestId)?.snapshotInput.kind === 'NO_ANSWER' ?
+          '本次没有发布讲解，可重试本轮题面与问题。' : '本次没有发布讲解，可明确重试同一份作答。'))
         .fontSize(12).lineHeight(19).fontColor(PHONE_COLOR_MUTED)
     } else if (this.request_for(requestId)?.status === V2TutorRequestStatus.CANCELLED) {
       Text('本轮已取消，草稿仍保留。').fontSize(12).fontColor(PHONE_COLOR_MUTED)
@@ -899,7 +910,8 @@ export struct PhoneTutorV2Page {
     const draft: PhoneV2Draft = phone_v2_draft_for(this.accountId, this.loadedQuestionId);
     draft.prompt = this.prompt;
     draft.fullSolution = this.fullSolution;
-    draft.reuseRequestId = this.reuseRequestId;
+    // 沿用作答只作用于下一次显式发送，不随旧草稿恢复。
+    draft.reuseRequestId = '';
     draft.selectedRequestId = this.selectedRequestId;
     draft.contextParentRequestId = this.contextParentRequestId;
     draft.independentQuestion = this.independentQuestion;
@@ -926,7 +938,8 @@ export struct PhoneTutorV2Page {
     const draft: PhoneV2Draft = phone_v2_draft_for(this.accountId, this.questionId);
     this.prompt = draft.prompt;
     this.fullSolution = draft.fullSolution;
-    this.reuseRequestId = draft.reuseRequestId;
+    this.reuseRequestId = '';
+    draft.reuseRequestId = '';
     this.contextParentRequestId = draft.contextParentRequestId;
     this.independentQuestion = draft.independentQuestion;
     this.questionBody = draft.questionBody;
@@ -1255,9 +1268,10 @@ export struct PhoneTutorV2Page {
     this.createIntent.requestId = util.generateRandomUUID(true).toLowerCase();
     this.createIntent.prompt = text;
     this.createIntent.mode = mode;
-    this.createIntent.snapshotKind = this.reuseRequestId.length > 0 ? 'REUSE_REQUEST' : 'NEW_CAPTURE';
+    this.createIntent.snapshotKind = this.reuseRequestId.length > 0 ? 'REUSE_REQUEST' : 'AUTO';
     this.createIntent.sourceRequestId = this.reuseRequestId;
     this.createIntent.contextParentRequestId = parent;
+    this.reuseRequestId = '';
     this.prompt = '';
     this.save_draft();
     await this.dispatch_create(token, accountId, questionId);
@@ -1276,7 +1290,8 @@ export struct PhoneTutorV2Page {
     const mode: V2TutorMode = this.createIntent.mode === V2TutorMode.FULL_SOLUTION ? V2TutorMode.FULL_SOLUTION : V2TutorMode.HINT;
     const parent: string | null = this.createIntent.contextParentRequestId;
     const snapshotInput: V2SnapshotInput = this.createIntent.snapshotKind === 'REUSE_REQUEST' ?
-      { kind: 'REUSE_REQUEST', sourceRequestId: this.createIntent.sourceRequestId } : { kind: 'NEW_CAPTURE' };
+      { kind: 'REUSE_REQUEST', sourceRequestId: this.createIntent.sourceRequestId } :
+        { kind: this.createIntent.snapshotKind === 'NEW_CAPTURE' ? 'NEW_CAPTURE' : 'AUTO' };
     this.createIntent.confirmedMissing = false;
     const seq: number = ++this.seq;
     this.hydrating = false;

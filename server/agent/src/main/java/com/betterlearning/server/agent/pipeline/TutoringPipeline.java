@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import com.betterlearning.server.multiagent.CitationMarkers;
+import com.betterlearning.server.multiagent.MultiAgentModels.AnswerInputKind;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Audit;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Call;
 import com.betterlearning.server.agent.pipeline.RoleProtocol.Candidate;
@@ -28,8 +29,13 @@ import tools.jackson.databind.JsonNode;
 public final class TutoringPipeline {
     private static final Pattern LINK = Pattern.compile("(?i)(https?://|data:|javascript:|<[^>]+>|!?\\[[^]]*]\\s*\\(|\\[[0-9]+])");
 
+    private static final Pattern UNSUPPORTED_NO_ANSWER_OBSERVATION = Pattern.compile(
+            "(?:从|根据)(?:你(?:的)?|当前|本轮|这份|这张)*(?:笔迹|手写|作答图|作答图片|快照).{0,12}(?:看[到出]|判断|可见)"
+            + "|(?:我|我们)(?:已经|已)?(?:看过|看到了|看见|读过|查看了|检查了)(?:你(?:的)?|当前|本轮|这份|这张)*(?:笔迹|手写|作答图|快照)"
+            + "|你(?:还|尚)?(?:没(?:有)?|未)(?:开始)?(?:书写|写|作答)|(?:当前|本轮|你的)(?:作答|快照|画布)(?:是|为)?空白");
+
     public Candidate run(Input input, GenerationBoundary boundary) {
-        TutoringInputBudget.validateModelImages(input.snapshot().images());
+        TutoringInputBudget.validateModelImages(input.snapshot().images(), input.answerInputKind());
         Session session = new Session(input, boundary);
         JsonNode solve = session.call(Role.SOLVE, Map.of());
         JsonNode diagnosis = session.call(Role.DIAGNOSE, Map.of("solve", solve));
@@ -119,6 +125,9 @@ public final class TutoringPipeline {
         if (body.isBlank()) {
             violations.add("EMPTY_TEACHING");
         }
+        if (input.answerInputKind() == AnswerInputKind.NONE && unsupportedNoAnswerObservation(body)) {
+            violations.add("UNSUPPORTED_CURRENT_ANSWER_OBSERVATION");
+        }
         if ("HINT".equals(input.mode())) {
             if (!teach.get("fullSolution").isNull()) {
                 violations.add("HINT_FULL_SOLUTION");
@@ -157,6 +166,10 @@ public final class TutoringPipeline {
             violations.add("UNKNOWN_EVIDENCE_ID");
         }
         return List.copyOf(violations);
+    }
+
+    static boolean unsupportedNoAnswerObservation(String text) {
+        return UNSUPPORTED_NO_ANSWER_OBSERVATION.matcher(text).find();
     }
 
     /** 已授权证据的模型投影；作答状态与原文分开，null不暗示已完成。 */
@@ -256,6 +269,7 @@ public final class TutoringPipeline {
             } else {
                 envelope.put("visibility", "INTERNAL_ONLY_COMPLETE_CONCLUSIONS_REQUIRED");
             }
+            envelope.put("answerInputKind", input.answerInputKind().name());
             envelope.put("questionMarkdown", input.snapshot().questionMarkdown());
             envelope.put("studentPrompt", input.prompt());
             envelope.put("strokeIds", input.strokeIds().stream().sorted().toList());
@@ -266,7 +280,7 @@ public final class TutoringPipeline {
             envelope.put("ocrText", input.ocrText());
             envelope.put("context", context);
             String json = RoleOutputValidator.JSON.writeValueAsString(envelope);
-            Call call = new Call(++sequence, role, RolePrompts.forRole(role), json, input.snapshot());
+            Call call = new Call(++sequence, role, RolePrompts.forRole(role), json, input.snapshot(), input.answerInputKind());
             long started = System.nanoTime();
             Reply reply = boundary.generate(call);
             boundary.checkActive();

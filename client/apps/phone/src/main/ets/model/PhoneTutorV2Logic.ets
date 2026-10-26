@@ -7,7 +7,8 @@ export function phone_v2_active(status: V2TutorRequestStatus): boolean {
 }
 
 export function phone_v2_retryable(request: V2TutorRequest): boolean {
-  return request.snapshotFileRef !== null && request.currentRunId !== null &&
+  return (request.snapshotFileRef !== null || request.snapshotInput.kind === 'NO_ANSWER') &&
+    request.currentRunId !== null &&
     (request.status === V2TutorRequestStatus.FAILED || request.status === V2TutorRequestStatus.TIMED_OUT);
 }
 
@@ -305,4 +306,24 @@ export function phone_v2_stage_text(request: V2TutorRequest, detail: V2TutorRequ
   if (role === 'TEACH') { return '正在整理讲解'; }
   if (role === 'REVIEW') { return '正在核对讲解'; }
   return '正在生成讲解';
+}
+
+/** 来自 create 的原子选择结果；无作答与已冻结的零笔画作答始终是两条路径。 */
+export function phone_v2_input_text(request: V2TutorRequest | null): string {
+  if (request === null) { return ''; }
+  if (request.snapshotInput.kind === 'NO_ANSWER') {
+    if (request.inputSelectionReason === 'OTHER_QUESTION') {
+      return '平板正在其他题目；本轮使用题面、问题和已确认的问答上下文。';
+    }
+    if (request.inputSelectionReason === 'OFFLINE') {
+      return '平板离线或可用状态已过期；本轮使用题面、问题和已确认的问答上下文。';
+    }
+    return '未检测到同账号可用平板；本轮使用题面、问题和已确认的问答上下文。';
+  }
+  if (request.snapshotInput.kind === 'REUSE_REQUEST') { return '本轮沿用所选历史作答。'; }
+  if (request.snapshotFileRef === null) {
+    return request.inputSelectionReason === 'TABLET_AVAILABLE' ? '已检测到本题平板，正在同步本轮作答。' :
+      '本轮等待平板同步当前题作答。';
+  }
+  return '本轮使用平板新冻结的作答；未书写的画布也会作为真实作答同步。';
 }

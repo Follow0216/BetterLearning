@@ -155,11 +155,13 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
             throw invalid();
         }
         MultiAgentModels.Request previous = ledger.get(accountId, questionId, requestId);
-        if (previous.snapshotFileRef() == null) {
+        if (previous.snapshotFileRef() == null && !"NO_ANSWER".equals(previous.snapshotInput().kind())) {
             throw conflict();
         }
         // 已成功重试的同键重放仍由账本核对指纹；只有新建 run 才施加新输入预算。
-        verifyFile(previous.snapshotFileRef(), Objects.equals(previous.currentRunId(), input.targetRunId()));
+        if (previous.snapshotFileRef() != null) {
+            verifyFile(previous.snapshotFileRef(), Objects.equals(previous.currentRunId(), input.targetRunId()));
+        }
         ledger.retry(accountId, questionId, requestId, idempotencyKey, input.targetRunId());
         return detail(accountId, questionId, requestId);
     }
@@ -167,10 +169,18 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
     @Override
     public MultiAgentModels.Snapshot load(long accountId, String requestId) {
         MultiAgentModels.Request request = ledger.getByRequestId(accountId, requestId);
-        if (request.snapshotFileRef() == null || request.snapshotOriginRequestId() == null) {
+        if (!"NO_ANSWER".equals(request.snapshotInput().kind())
+                && (request.snapshotFileRef() == null || request.snapshotOriginRequestId() == null)) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }
         MultiAgentModels.Execution execution = ledger.execution(accountId, request.currentRunId());
+        if ("NO_ANSWER".equals(request.snapshotInput().kind())) {
+            if (execution.frozenQuestionMarkdown() == null || execution.snapshotFileRef() != null
+                    || execution.snapshotSourceId() != null || execution.snapshotVersion() != null) {
+                throw conflict();
+            }
+            return MultiAgentModels.Snapshot.noAnswer(execution.frozenQuestionMarkdown());
+        }
         MultiAgentModels.SourceContent current = sources.get(accountId, execution.snapshotSourceId(),
                 execution.snapshotVersion());
         if (!request.snapshotFileRef().equals(current.version().fileRef())) {
@@ -269,6 +279,9 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         if (value == null || ("NEW_CAPTURE".equals(value.kind()) && value.sourceRequestId() == null)) {
             return new MultiAgentModels.SnapshotInput("NEW_CAPTURE", null);
         }
+        if ("AUTO".equals(value.kind()) && value.sourceRequestId() == null) {
+            return new MultiAgentModels.SnapshotInput("AUTO", null);
+        }
         if ("REUSE_REQUEST".equals(value.kind()) && AnswerManifestValidator.uuid(value.sourceRequestId())) {
             return new MultiAgentModels.SnapshotInput("REUSE_REQUEST", value.sourceRequestId());
         }
@@ -280,7 +293,7 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         return new TutorRequestModels.Request(source.requestId(), source.questionId(), source.prompt(),
                 source.mode().name(), new TutorRequestModels.SnapshotInput(input.kind(), input.sourceRequestId()),
                 source.snapshotOriginRequestId(), source.snapshotFileRef(), source.currentRunId(),
-                source.status().name(), source.revision(), source.createdAt(), source.updatedAt(), source.contextParentRequestId());
+                source.status().name(), source.revision(), source.createdAt(), source.updatedAt(), source.contextParentRequestId(), source.inputSelectionReason());
     }
 
     private static TutorRequestModels.Detail detail(MultiAgentModels.RequestDetail source) {

@@ -76,6 +76,63 @@ class DefaultRolePipelineTests {
             provider(ledger), provider(sources), provider(retriever));
 
     @Test
+    void textOnlyConfirmedReplayUsesFrozenQuestionWithoutSnapshotEvidenceOrProviderCalls() {
+        Execution execution = textOnlyExecution(MultiAgentModels.Status.RUNNING, null);
+        when(ledger.execution(42L, RUN)).thenReturn(execution);
+        PipelineContext context = new PipelineContext(execution,
+                MultiAgentModels.Snapshot.noAnswer(execution.frozenQuestionMarkdown()), List.of());
+        ReplaySteps steps = emptyHistorySteps().reply(Role.DIAGNOSE, NoAnswerPipelineTests.NO_ANSWER)
+                .reply(Role.TEACH, TutoringPipelineTests.TEACH);
+        var first = pipeline.execute(context, steps);
+        assertThat(first.verified()).isTrue();
+        assertThat(first.evidenceIds()).isEmpty();
+        assertThat(first.bodyMarkdown()).contains("消去常数项").doesNotContain("作答图", "补充", "笔迹");
+        assertThat(pipeline.execute(context, steps)).isEqualTo(first);
+        assertThat(steps.actionCalls).isZero();
+        assertThat(steps.invocations).allSatisfy(call -> assertThat(call.inputDigest()).hasSize(64));
+        verifyNoInteractions(sources, retriever);
+    }
+
+    @Test
+    void textOnlyUnknownAndCancellationStillStopWithoutAnotherModelAction() {
+        Execution running = textOnlyExecution(MultiAgentModels.Status.RUNNING, null);
+        when(ledger.execution(42L, RUN)).thenReturn(running);
+        PipelineContext context = new PipelineContext(running,
+                MultiAgentModels.Snapshot.noAnswer(running.frozenQuestionMarkdown()), List.of());
+        ReplaySteps unknown = emptyHistorySteps();
+        unknown.unknown = Role.SOLVE;
+        assertThat(pipeline.execute(context, unknown).reason()).isEqualTo("OUTCOME_UNKNOWN");
+        assertThat(unknown.invocations).extracting(StepInvocation::role).containsExactly(Role.SOLVE);
+        assertThat(unknown.actionCalls).isZero();
+
+        when(ledger.execution(42L, RUN)).thenReturn(running, textOnlyExecution(MultiAgentModels.Status.CANCELLED, Instant.now()));
+        ReplaySteps cancelled = emptyHistorySteps();
+        assertThat(pipeline.execute(context, cancelled).verified()).isFalse();
+        assertThat(cancelled.invocations).extracting(StepInvocation::role).containsExactly(Role.SOLVE);
+        assertThat(cancelled.actionCalls).isZero();
+    }
+
+    @Test
+    void noAnswerCannotBindAnExistingSnapshotOrDifferentFrozenQuestion() {
+        Execution textOnly = textOnlyExecution(MultiAgentModels.Status.RUNNING, null);
+        for (PipelineContext context : List.of(
+                new PipelineContext(execution(MultiAgentModels.Status.RUNNING, null),
+                MultiAgentModels.Snapshot.noAnswer(textOnly.frozenQuestionMarkdown()), List.of()),
+                new PipelineContext(textOnly, MultiAgentModels.Snapshot.noAnswer("其他题目"), List.of()))) {
+            ReplaySteps steps = emptyHistorySteps();
+            assertThat(pipeline.execute(context, steps).verified()).isFalse();
+            assertThat(steps.invocations).isEmpty();
+        }
+        verifyNoInteractions(ledger, sources, retriever);
+    }
+
+    private static Execution textOnlyExecution(MultiAgentModels.Status status, Instant cancel) {
+        return new Execution(42L, REQUEST, "17", RUN, MultiAgentModels.Mode.HINT,
+                "请给下一步提示。", null, null, null, status, 1L, null, Instant.now().plusSeconds(300), cancel, 0,
+                com.betterlearning.server.multiagent.ConversationContexts.empty(), "解方程2x+3=17");
+    }
+
+    @Test
     void executionFrozenConversationReachesModelInputDigestsAndConfirmedReplayWithoutProviderCalls() {
         Execution original = execution(MultiAgentModels.Status.RUNNING, null);
         var conversation = com.betterlearning.server.multiagent.ConversationContexts.append(
