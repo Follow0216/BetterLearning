@@ -162,6 +162,8 @@ public class BatchOcrService {
         if (!closing.compareAndSet(false, true)) {
             return;
         }
+        // 关闭调用者可能已被中断；先清标记，避免排队任务的数据库清理被连接池拒绝。
+        boolean interrupted = Thread.interrupted();
         for (Job job : jobs.values()) {
             job.cancelled.set(true);
         }
@@ -173,7 +175,6 @@ public class BatchOcrService {
                     "执行 worker 已停止，请保留原图和已识别内容");
             job.release();
         }
-        boolean interrupted = false;
         boolean terminated = false;
         while (!terminated) {
             try {

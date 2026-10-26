@@ -24,14 +24,18 @@ import com.betterlearning.server.enums.ErrorCode;
 import com.betterlearning.server.exception.BusinessException;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /** 本地伪存储+真实Engine，断言slot/租约只在底层调用真实退出后释放。 */
 class BatchOcrServiceTests {
-    @Test
-    void closeWaitsForIssuedCallsAndReleasesRunningAndQueuedLeasesAndInputSlots() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void closeWaitsForIssuedCallsAndReleasesRunningAndQueuedLeasesAndInputSlots(boolean initiallyInterrupted)
+            throws Exception {
         MemoryStore store = new MemoryStore();
         CountDownLatch entered = new CountDownLatch(3);
         CountDownLatch release = new CountDownLatch(1);
@@ -57,7 +61,24 @@ class BatchOcrServiceTests {
             await(entered);
             service.submit(2, "queued", "two", () -> List.of(image(100)));
             assertThat(slots(service)).isZero();
-            closed = CompletableFuture.runAsync(service::close);
+            CompletableFuture<Void> completion = new CompletableFuture<>();
+            closed = completion;
+            Thread closer = new Thread(() -> {
+                if (initiallyInterrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                try {
+                    service.close();
+                    assertThat(Thread.currentThread().isInterrupted()).isEqualTo(initiallyInterrupted);
+                    // 重复close仍为直接返回，不得吞掉已恢复的调用者中断标记。
+                    service.close();
+                    assertThat(Thread.currentThread().isInterrupted()).isEqualTo(initiallyInterrupted);
+                    completion.complete(null);
+                } catch (Throwable failure) {
+                    completion.completeExceptionally(failure);
+                }
+            }, "controlled-batch-closer");
+            closer.start();
             org.awaitility.Awaitility.await().atMost(5, TimeUnit.SECONDS).until(() ->
                     "UNKNOWN".equals(store.find(2, "queued").status()) && slots(service) == 1);
             assertThat(closed).isNotDone();
