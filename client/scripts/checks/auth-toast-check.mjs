@@ -134,4 +134,4 @@ await check('Native仅播报：普通非打断、error告警，不请求焦点',
   assert.equal(sent[0].type, 'announceForAccessibilityNotInterrupt'); assert.equal(sent[1].type, 'announceForAccessibility');
   assert.equal(sent[0].textAnnouncedForAccessibility, '完成，说明'); assert.ok(sent.every(event => !event.type.includes('Focus')));
 });
-console.log(JSON.stringify({ suite: 'auth-toast-v1', passed, etsParsedFiles: 5, validation: 'production methods with isolated API/session/accessibility doubles', nativeBuild: 'C4 pending' }));
+console.log(JSON.stringify({ suite: 'auth-toast-v1', passed, etsParsedFiles: 5, validation: 'production methods with isolated API/session/accessibility doubles', nativeBuild: 'not verified' }));

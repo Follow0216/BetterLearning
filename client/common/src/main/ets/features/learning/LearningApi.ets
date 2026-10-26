@@ -191,7 +191,7 @@ function failure_error(result: AuthResult<string>): AuthError {
 /**
  * M1 轻量学习 API。复用 AuthApi 的实际 HTTP 栈，不持有令牌，不自动重试确认请求，
  * 不把网络/503/解析错误当成空数据。调用方以 token guard 处理异步回写及 401。
- * 协议来源：C1 docs/design/mvp-m1-contract.md（2026-10-24）。
+ * 协议来源：docs/design/mvp-m1-contract.md。
  */
 interface CreateCollectionPayload { name: string; parentCollectionId: string | null; }
 interface RenameCollectionPayload { name: string; }

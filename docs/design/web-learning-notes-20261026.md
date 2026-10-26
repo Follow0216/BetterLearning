@@ -51,4 +51,4 @@ Note 响应追加 context（旧字段不变）：`{notebookId,questionId,revisio
 
 迁移 `V2026102602__learning_note_workspace.sql` 新建 `ma_notebook`、`ma_note_context`，将旧笔记补为未归类，不改原来源、历史正文、请求指纹和索引事件。2601 留给并行会话上下文迁移。
 
-验证使用现有 Vitest/testing-library、Maven/JUnit、PostgreSQL+Redis Testcontainers；模型与 embedding 关闭。相关运行记录已归档。
+验证可使用 Vitest/testing-library、Maven/JUnit、PostgreSQL+Redis Testcontainers；真实模型与 embedding 的行为需单独验证。

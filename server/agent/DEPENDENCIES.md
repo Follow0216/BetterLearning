@@ -1,8 +1,8 @@
-# LangChain4j 最小接入依赖审计
+# LangChain4j 依赖版本记录
 
-用户已明确批准加入LangChain4j。仅在agent新增两个显式直接依赖：dev.langchain4j:langchain4j-core:1.22.0 与 dev.langchain4j:langchain4j-open-ai:1.22.0（core也会由open-ai传递引入，显式声明用于标明本模块直接使用的API）。不加高层langchain4j、BOM、Spring starter、插件或其他显式库，不升级Boot/Jackson。
+`agent` 声明 `dev.langchain4j:langchain4j-core:1.22.0` 与 `dev.langchain4j:langchain4j-open-ai:1.22.0` 为直接依赖；core 也由 open-ai 传递引入，显式声明标明本模块直接使用其 API。
 
-下表按官方已发布POM及本机现有缓存只读审计，scope未注明为compile；未执行Maven实际解析，解析与兼容门禁由C4运行：
+下表是根据发布 POM 记录的依赖闭包候选，scope 未注明为 compile；具体解析结果以当前 Maven dependency:tree 为准：
 
 | 生产闭包 | 发布POM | Boot4.0.8预计解析 |
 | --- | --- | --- |
@@ -21,7 +21,7 @@
 
 用途：core提供消息/模型契约，open-ai提供兼容Chat API，http-client与jdk运行时实现HTTP，reactive-streaming/mutiny-zero为库既有流式设施（MVP不启用流式），Jackson2为供应商JSON，jtokkit为token计数，slf4j为日志API，jspecify为空值注解。Boot4现有Jackson3坐标与此Jackson2并存；不将Jackson3当作对2的自动替换。无需opennlp-tools，该库只由不引入的高层AI Services包依赖。
 
-C4必须保存实际 dependency:tree 与有效版本证据，确认上述闭包、scope、无额外新库或版本漂移；检查Jackson覆盖后的编译和真实文本/图像最小调用。不兼容时先报告确定证据，不静默升级版本。
+升级依赖时，应检查实际 dependency:tree、scope、Jackson 版本与兼容性；真实文本和图像调用仍需单独验证。
 
 官方来源：
 - https://raw.githubusercontent.com/langchain4j/langchain4j/1.22.0/langchain4j-open-ai/pom.xml

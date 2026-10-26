@@ -3,8 +3,8 @@
 ## 项目结构与模块边界
 
 - `client/`：HarmonyOS ArkTS/ArkUI 工程；`apps/phone`、`apps/tablet` 为两个入口模块，`common/` 为共享 HAR。源码位于各模块 `src/main/ets/`，资源位于 `src/main/resources/`，应用级资源位于 `AppScope/`。
-- `server/`：Java 17、Spring Boot 单应用、多模块 Maven 工程；`common` 保存公共契约，`user` 实现用户与认证，`learning`、`agent` 预留业务边界，`app` 负责启动与装配且是唯一可执行 jar。源码位于各模块 `src/main/java/`，应用配置与迁移位于 `app/src/main/resources/`，跨模块测试位于 `app/src/test/java/`。
-- `web/`：pnpm workspace；`apps/webui` 为用户端，`apps/admin` 为管理端。路由位于各应用 `src/app/`，静态资源位于 `public/`；`packages/` 尚未创建。
+- `server/`：Java 17、Spring Boot 单应用、多模块 Maven 工程；`common` 保存公共契约，`user` 实现用户与认证，`learning` 提供题库与作答，`agent` 提供辅导与模型能力，`app` 负责启动与装配且是唯一可执行 jar。源码位于各模块 `src/main/java/`，应用配置与迁移位于 `app/src/main/resources/`，跨模块测试位于 `app/src/test/java/`。
+- `web/`：pnpm workspace；`apps/webui` 为用户端，`apps/admin` 为管理端。路由位于各应用 `src/app/`，静态资源位于 `public/`；`packages/` 存放共享 UI 能力。
 
 
 ## 构建、测试与本地开发

@@ -1,6 +1,6 @@
 # 用户账号功能契约 v1（2026-10-25）
 
-状态：冻结；基线 `0c8bd94556d417a00bde847b055d26363a46eda5`。U1 唯一维护后端账号契约及 common API/模型；U2 维护手机账号页面；T1 唯一维护 `common/Index.ets` 和 AuthScreen；C4 负责正式构建、运行和设备验收。本契约复用现有服务端，不新增供应商、验证码、找回密码或第三方依赖。
+本契约复用现有服务端账号能力，不包含验证码、找回密码或第三方依赖。
 
 ## HTTP 与字段语义
 
@@ -44,7 +44,7 @@ update_user_if_token(token: string, user: UserProfile, nowMillis: number = Date.
 
 本地校验仅阻止明显不合法输入；服务端是规范化、唯一性、口令校验和会话有效性的最终依据。PATCH 不提交 username/role 等字段。解析继续复用现有严格 UserProfile 解析，不以不完整对象覆盖会话。`update_user_if_token` 仅在 token 匹配、会话未过期、accountId 相同时生效；迟到响应不得恢复或覆盖其他登录。
 
-T1 负责唯一出口增量：AuthModels 列表增加 `UpdateProfileInput`；AuthValidation 列表增加 `validate_profile_update`、`validate_change_password`。既有 AuthApi/AuthSession 出口不变。U1 不修改 Index、AuthScreen 或 phone/tablet 页面。
+`common/Index.ets` 导出 `UpdateProfileInput`、`validate_profile_update` 与 `validate_change_password`；AuthApi/AuthSession 出口沿用现有接口。
 
 ## 错误与会话规则
 
@@ -63,6 +63,6 @@ T1 负责唯一出口增量：AuthModels 列表增加 `UpdateProfileInput`；Aut
 
 改密网络中断可能发生在服务端已提交之后，不能声称未修改，也不能声称成功；页面提示“无法确认修改结果，可重新登录确认”，保留本地输入且不自动重发。页面退出/账号变化后销毁口令输入；口令不写日志、不持久化。联系方式更新成功后使用响应资料更新当前页面及 `update_user_if_token`，不重新 save_session 或延长有效期。
 
-## 验证与交付边界
+## 验证范围
 
-现有 server/app 已覆盖联系方式缺省/null/格式/冲突/事务和改密旧密码/确认/旧 token/并发。U1 补 common 请求、字段、解析及会话迟到回归；C4 使用专属一次性账号在隔离验收资源中运行正式 JDK 17 门禁、旧 token 回归及手机/平板验证。单元替身与静态检查不等于真实后端、ArkTS 编译或设备验收。不得修改真实用户/管理员账号、题目、作答、草稿或共享服务配置。
+验证需覆盖联系方式缺省/null/格式/冲突/事务、改密旧密码/确认/旧 token/并发，以及手机和平板上的会话迟到响应。单元替身与静态检查不能替代真实后端、ArkTS 编译或设备验收。

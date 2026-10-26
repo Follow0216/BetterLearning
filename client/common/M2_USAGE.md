@@ -1,7 +1,6 @@
-# M2 共享接口接线
+# M2 共享接口使用说明
 
-M2 公共网络、原生画布、本机草稿和完整分块导出已交付源码。未就绪时 controller 明确返回失败。
-C2 开发树只做静态差异检查与本地 SDK 签名复核；构建、网络和设备验收由 C4 独立执行，不能把源码交付当成功验收。
+本文件说明 common 的网络接口、原生画布、本机草稿和完整分块导出。未就绪时 controller 返回失败。
 
 Tablet 从 `../features/canvas/TabletCanvasWorkspace` 引入
 `TabletCanvasWorkspace`、`TabletCanvasController`、`CanvasWorkspaceState`。
@@ -19,8 +18,8 @@ TabletCanvasWorkspace({
 ```
 
 此工作区包括固定题面与笔迹，外层不要并排放独立 Markdown 与空白纸。
-C2 内部工具栏负责笔、整笔橡皮、撤销、移动/双指缩放。
-A-T 外层按钮调用 `save()`、`markCompleted()`、`continueWriting()`，返回
+工作区内部工具栏负责笔、整笔橡皮、撤销、移动/双指缩放。
+外层按钮调用 `save()`、`markCompleted()`、`continueWriting()`，返回
 `Promise<AuthResult<SolutionDetail>>`；返回前 `flushLocal()` 返回 `Promise<AuthResult<boolean>>`。
 每次调用先处理 isSuccess/error，禁止自行伪造 fileRef 或成功状态。
 
@@ -31,7 +30,7 @@ localDraftSaved/errorMessage。保存按钮 ready 且 !busy 且 !completed；完
 common 的 `QuestionSummary`/`QuestionDetail` 新增 `answerState: AnswerState`；
 `QuestionCollection` 新增 `parentCollectionId: string|null`。现有构造参数兼容，末尾新参数有默认值。
 AnswerState 三值为 NOT_STARTED/IN_PROGRESS/COMPLETED；同级题集数只统计直接归属。
-C2 唯一维护共用 Canvas/Solution 类型与网络；页面不得复制另一份 schema。
+共用 Canvas/Solution 类型与网络由 common 提供；页面不得复制另一份 schema。
 
 纯查看器消费 canvas.width/height 和完整 blocks。合成块 x/y 非负，相对完整范围；
 canvas.originX/originY 保留编辑世界原点。Phone 图像源由鉴权下载的私有 file:// 缓存提供，
@@ -40,7 +39,7 @@ documentKey 为 fileRef；不能将 Bearer 放 URL，不能从 strokes 重画或
 
 ## 已实现的 common 网络与缓存
 
-以 C1 冻结契约 `3a9a72a24b2e3283312bc6f0d32ffc0ee78844df` 为准。
+接口参数如下。
 `LearningApi` 新增（均第一个参数 token）：
 
 - `createCollection(token,name,parentCollectionId=null): Promise<AuthResult<QuestionCollection>>`
@@ -66,7 +65,7 @@ GET 已保存作答必须有 manifest；保存/状态的200回执允许不含man
 缓存命中仍会重新读取当前作答并校验 fileRef/图块摘要；不可离线复用旧云端引用。上传前逐文件复核冻结 manifest 的摘要，重试保留原 manifestJson 和文件。JSON 响应上限16MiB（含 manifest envelope），PNG 上限16MiB。
 
 
-## 原生画布首轮接收
+## 原生画布行为
 
 - 题面固定使用现有 Markdown/texmath/KaTeX 资源，等待字体与两帧绘制；逐格平移生成干净题面 PNG。资源白名单和 CSP 禁止外网及图片加载。渲染用 CSS 放开长公式、代码和表格的内层裁切。宿主按账号/题号/请求代次重建；异步结果只回到原上下文。
 - 同一个 Canvas 绘制底图和世界坐标笔迹；笔、整笔擦除、撤销（当前挂载最多50次）、移动、双指缩放、缩放按钮与全览在内部工具栏。完成/保存期间不能改笔迹，仍可移动查看。只缓存当前视口题面，导出计算全部题面与笔迹半笔宽外延，包含负坐标和屏外内容。
@@ -74,6 +73,4 @@ GET 已保存作答必须有 manifest；保存/状态的200回执允许不含man
 - 一次保存冻结原始 JSON 和请求目录下两组 PNG；上传前重新校验所有摘要。超时/5xx 保留原包重试，409 保留草稿并提示手动刷新；不自动更新 base 覆盖。手动刷新先将旧本机草稿写到唯一 `preserved/*.json`，没有历史版本浏览或合并界面。文件暂不做后台回收。
 - `markCompleted()` 如有脏草稿会先完整保存，再对当前 fileRef 调用状态接口；`continueWriting()` 收到真实 IN_PROGRESS 回执后才解锁。纯本机落盘不能完成。
 
-C4 首轮优先：ArkTS 编译/封装、Web 全页快照尺寸、超长公式最右端、长题最底端、负坐标屏外笔迹；保存后 GET/两组 PNG 回读、完成/继续、本机重启恢复。每项必须记录真实结果；未运行构建、HTTP、HDC、签名、安装或设备步骤。
-
-API24 兼容：common 的题集改名、单题移动、作答状态切换调用同路径 POST 别名，JSON 与返回语义不变。C1 保留 PATCH 供 Web；NetworkKit 的 PATCH 枚举 since26，因此 common 不以断言绕过兼容性，也不切换 RCP 或放宽明文网络策略。对应服务端兼容别名必须先接收再验证。
+API24 兼容：common 的题集改名、单题移动、作答状态切换调用同路径 POST 别名，JSON 与返回语义不变。服务端保留 PATCH 供 Web；NetworkKit 的 PATCH 枚举 since26，因此 common 不以断言绕过兼容性，也不切换 RCP 或放宽明文网络策略。对应服务端兼容别名需要与客户端请求路径和返回语义一致。

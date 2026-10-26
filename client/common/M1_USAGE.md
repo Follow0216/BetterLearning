@@ -1,7 +1,6 @@
 # M1 common 接入
 
-协议来源是 C1 `docs/design/mvp-m1-contract.md`（2026-10-24），本次采用的 SHA256 为
-`854d1d8af45dff57398dd8de3afd1a150a6bddbfcbff12ebc652b06b874eac77`。
+协议字段参见 `docs/design/mvp-m1-contract.md`。
 公共导出统一从 `common` 引入，不依赖 P0 fixture 或页面内部类型。
 
 ## 登录与退出
@@ -78,11 +77,9 @@ const result: AuthResult<QuestionDetail> = await api.confirmManualQuestion(token
 `learning_subject_label(subject)`。正文不 trim 或改写，长度上限为 20000 UTF-16 code units。
 API 不持有令牌、不自动刷新、不自动重试确认，也不修改会话。
 
-## 验证边界
+## 题面组件
 
-C2 开发树不运行构建、测试、服务或 HDC。共享接口经只读协议/差异复核及
-`git diff --check` 检查；真实 Phone/Tablet 构建和端到端行为由 C4 独立 TEST 验证。
-Markdown 题面组件及获批的本地资源已作为独立渲染提交提供，入口为：
+Markdown 题面组件使用本地资源，入口为：
 
 ```ts
 QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
@@ -92,4 +89,4 @@ QuestionMarkdownView({ bodyMarkdown: detail.bodyMarkdown })
 
 父容器须给定可用高度，题面在 Web 内滚动；无需页面提供 controller 或资源路径。
 可选 `fontSize: number`（默认 16，范围 12–32）与 `onRenderError: () => void`（默认空）。
-依赖锁、资源哈希与 C4 验收边界见 `M1_RENDERER.md` 和 `renderer-assets.lock.json`。
+依赖版本、资源哈希与内容边界见 `M1_RENDERER.md` 和 `renderer-assets.lock.json`。

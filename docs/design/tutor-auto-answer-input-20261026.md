@@ -49,8 +49,8 @@ Phone 默认自动选择；“沿用该作答”仅用于下一轮，并在输�
 
 Phone、Tablet 及 Web 历史读取都接受 NO_ANSWER 的“无快照、有运行”，并显示明确无作答文案。在线真实零笔仍走现有完整冻结上传及笔画结束时机。
 
-## 迁移与交付边界
+## 迁移与验证
 
-本增量使用 `V2026102604__text_only_tutor_presence.sql`，新增租约表及请求选择/冻结字段，旧 REUSE 数据按实际 snapshot_kind 回填。交接基线中的 `V2026102601__conversation_context.sql` 原文保持不变。
+本增量使用 `V2026102604__text_only_tutor_presence.sql`，新增租约表及请求选择/冻结字段，旧 REUSE 数据按实际 snapshot_kind 回填。`V2026102601__conversation_context.sql` 的顺序与兼容性需在升级时核对。
 
-本分支从 d37297f 加 102 份冻结交接文件建立；独立基线提交为 `4863f156ab4e87cbb295957fe0885f540affe2c7`。它不等同于当前 develop 或已安装候选。协调会话将在最终集成时处理 develop 已有 2602 与未合入对话迁移的顺序；本任务的小样本仅验证自身隔离数据库，不代表 develop 升级、真机或真实模型验收。
+隔离数据库测试不能替代升级测试、真机或真实模型验收。

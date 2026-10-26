@@ -1,6 +1,6 @@
-# M1 HTTP 契约（C1 唯一维护）
+# M1 HTTP 契约
 
-本契约供 Phone、Pad、Web 和共享网络层实现同一套真实题库流程。基线为 develop `53ce627d595842847030084055d4732abefadd11`。M1 仅新增人工确认入库、题库分页、详情、题集浏览及 dev 管理员初始化；不提供题目编辑、题集创建/改名/移动、搜索、作答、AI 或文件上传接口。
+本契约供 Phone、Pad、Web 和共享网络层实现同一套真实题库流程。M1 仅新增人工确认入库、题库分页、详情、题集浏览及 dev 管理员初始化；不提供题目编辑、题集创建/改名/移动、搜索、作答、AI 或文件上传接口。
 
 ## 公共规则
 
@@ -117,7 +117,3 @@
 ```
 
 成功响应沿用既有 `SessionVO`：`accessToken`、`tokenType="Bearer"`、`expiresIn`、`user`；其中 `user.role` 必须为 `ADMIN`。后台用令牌再请求 `GET /api/v1/admin/session`，成功 `200` 返回既有 `UserVO`（accountId、username、phone、email、role、createdAt、updatedAt）。普通 USER 调此接口为 `403 A0300`；前端不能仅检查本地 fixture 或伪造 role 进入管理员会话。沿用现有退出接口，不新增第二套登录/JWT/RBAC。
-
-## 验收边界
-
-独立 C4 TEST 验证迁移、用户隔离、并发 requestId 去重、分页、重启持久、严格 JSON、安全链与管理员初始化。Phone/Pad/Web 仅在接入本契约并通过端到端调用后视为真实题库；开发树不运行构建、测试、服务或设备命令。
