@@ -86,14 +86,14 @@ check('隐藏或销毁的录题实例不能报告导航', () => {
   entry.active = true; entry.alive = false; entry.report_navigation_visibility(); assert.equal(reports.length, 0);
   entry.alive = true; entry.report_navigation_visibility(); assert.equal(reports.pop(), true);
 });
-check('SOURCE遮罩/编辑/读图/裁剪/保存每项都抑制全局导航', () => {
-  for (const flag of ['editorFocused','sourcePicker','discardPrompt','imageLoading','cropBusy','submitting']) {
+check('SOURCE遮罩/编辑/选图/保存每项都抑制全局导航', () => {
+  for (const flag of ['editorFocused','sourcePicker','discardPrompt','imageLoading','submitting']) {
     entry[flag] = true; entry.report_navigation_visibility(); assert.equal(reports.pop(), false, flag);
     entry[flag] = false; entry.report_navigation_visibility(); assert.equal(reports.pop(), true, flag);
   }
 });
-check('裁剪和校对层级隐藏导航，回到SOURCE重新显示', () => {
-  for (const screen of ['CROP','REVIEW']) {entry.screen = screen; entry.report_navigation_visibility(); assert.equal(reports.pop(), false);}
+check('批量和手动校对层级隐藏导航，回到SOURCE重新显示', () => {
+  for (const screen of ['BATCH','REVIEW']) {entry.screen = screen; entry.report_navigation_visibility(); assert.equal(reports.pop(), false);}
   entry.screen = 'SOURCE'; entry.report_navigation_visibility(); assert.equal(reports.pop(), true);
 });
 check('暂离清编辑状态但保留录题正文和未决保存身份', () => {

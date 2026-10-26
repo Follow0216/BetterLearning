@@ -18,7 +18,7 @@ class AgentPropertiesMappingTests {
     void mapsIndependentProvidersAndPreservesBaseUrlPrefix() {
         runner.withPropertyValues("APP_AGENT_OCR_BASE_URL=https://ocr.example.invalid/custom/v1",
                 "APP_AGENT_OCR_MODEL=ocr-unit-model", "APP_AGENT_OCR_API_KEY=unit-dummy-ocr",
-                "APP_AGENT_OCR_TIMEOUT_SECONDS=45", "APP_AGENT_TUTORING_BASE_URL=https://tutor.example.invalid/prefix/v1",
+                "APP_AGENT_OCR_TIMEOUT_SECONDS=45", "APP_AGENT_OCR_BATCH_CONCURRENCY=8", "APP_AGENT_TUTORING_BASE_URL=https://tutor.example.invalid/prefix/v1",
                 "APP_AGENT_TUTORING_MODEL=tutor-unit-model", "APP_AGENT_TUTORING_API_KEY=unit-dummy-tutor",
                 "APP_AGENT_TUTORING_TIMEOUT_SECONDS=90").run(context -> {
                     assertThat(context).hasNotFailed();
@@ -27,6 +27,7 @@ class AgentPropertiesMappingTests {
                     assertThat(properties.getOcr().getModel()).isEqualTo("ocr-unit-model");
                     assertThat(properties.getOcr().getApiKey()).isEqualTo("unit-dummy-ocr");
                     assertThat(properties.getOcr().getTimeoutSeconds()).isEqualTo(45);
+                    assertThat(properties.getOcr().getBatchConcurrency()).isEqualTo(8);
                     assertThat(properties.getTutoring().getBaseUrl()).isEqualTo("https://tutor.example.invalid/prefix/v1");
                     assertThat(properties.getTutoring().getModel()).isEqualTo("tutor-unit-model");
                     assertThat(properties.getTutoring().getApiKey()).isEqualTo("unit-dummy-tutor");
@@ -48,7 +49,19 @@ class AgentPropertiesMappingTests {
                     assertThat(properties.getTutoring().getModel()).isNullOrEmpty();
                     assertThat(properties.getTutoring().getApiKey()).isNullOrEmpty();
                     assertThat(properties.getOcr().getTimeoutSeconds()).isEqualTo(120);
+                    assertThat(properties.getOcr().getBatchConcurrency()).isEqualTo(3);
                     assertThat(properties.getTutoring().getTimeoutSeconds()).isEqualTo(120);
                 });
+    }
+    @Test
+    void mapsMinimumConcurrencyAndRejectsOutOfRangeValues() {
+        runner.withPropertyValues("APP_AGENT_OCR_BATCH_CONCURRENCY=1").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(AgentProperties.class).getOcr().getBatchConcurrency()).isEqualTo(1);
+        });
+        for (String value : new String[]{"0", "9", "-1", "not-an-integer"}) {
+            runner.withPropertyValues("APP_AGENT_OCR_BATCH_CONCURRENCY=" + value).run(context ->
+                    assertThat(context).hasFailed());
+        }
     }
 }

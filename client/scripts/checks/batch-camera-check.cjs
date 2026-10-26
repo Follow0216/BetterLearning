@@ -31,6 +31,14 @@ function component(relative, name, edges) {
   assert.ok(declaration, name);
   const methods = declaration.members.filter(member => member.name && member.name.getText(ast) !== 'build' &&
     !(ts.getDecorators(member) || []).some(d => d.expression.getText(ast) === 'Builder'));
+  const declared = new Set(declaration.members.filter(member => member.name).map(member => member.name.getText(ast)));
+  function checkProperties(node) {
+    if (ts.isPropertyAccessExpression(node) && node.expression.kind === ts.SyntaxKind.ThisKeyword) {
+      assert.ok(declared.has(node.name.text) || node.name.text === 'getUIContext', name + ': missing this.' + node.name.text);
+    }
+    ts.forEachChild(node, checkProperties);
+  }
+  checkProperties(declaration);
   const text = ast.statements.filter(ts.isEnumDeclaration).map(n => n.getText(ast)).join('\n') + '\nclass Harness {\n' +
     methods.map(n => n.getText(ast).replace(/@(State|Prop|ObjectLink)\s*/g, '').replace(/@Watch\([^)]*\)\s*/g, '')).join('\n') +
     '\n}\nglobalThis.Harness = Harness;';
@@ -77,31 +85,30 @@ function harness() {
     calls.saves.push({ owner, input }); return { isSuccess: true, data: { questionId: 'saved-' + calls.saves.length }, error: null };
   } };
   const edges = { ...common, ...drafts, ...imageSource,
-    BatchOcrApi: { create_default: () => api }, LearningApi: { create_default: () => learningApi }, OcrApi: { create_default: () => ({}) },
+    BatchOcrApi: { create_default: () => api }, LearningApi: { create_default: () => learningApi },
     PhoneBackController: class { handleBack = () => false; }, TextAreaController: class { stopEditing() {} },
     KeyboardAvoidMode: { OFFSET: 0, RESIZE: 1 }, getContext: () => ({ cacheDir: '/owned' }),
     setTimeout: callback => { const id = ++timerSerial; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id),
-    takePhoto: (...args) => controls.photo(...args), selectImage: async () => 'gallery://single',
+    takePhoto: (...args) => controls.photo(...args),
     discardPendingPhoto: uri => calls.photos.push(uri), discardBatchImage: p => calls.discarded.push(p),
     copyBatchImage: (...args) => { calls.copies.push(args); return controls.copy(...args); },
-    selectBatchImages: (context, count) => { calls.picker.push(count); return controls.gallery(); },
-    loadPreview: async uri => { calls.previews.push(uri); return { getImageInfo: async () => ({ size: { width: 800, height: 600 } }), release: async () => {} }; }
+    selectBatchImages: (context, count) => { calls.picker.push(count); return controls.gallery(); }
   };
   const entry = component('components/ManualEntry.ets', 'ManualEntry', edges);
   entry.getUIContext = () => ({ getKeyboardAvoidMode: () => 1, setKeyboardAvoidMode: () => {} });
   entry.aboutToAppear();
-  function review(capture = entry.cameraCapture, active = true) {
+  function review(capture = entry.imageImport, active = true) {
     const instance = component('components/BatchOcrReview.ets', 'BatchOcrReview', edges);
-    instance.cameraCapture = capture; instance.active = active;
+    instance.imageImport = capture; instance.active = active;
     const tasks = [];
-    const accept = instance.accept_camera.bind(instance);
-    instance.accept_camera = () => { const promise = accept(); tasks.push(promise); return promise; };
+    const accept = instance.accept_import.bind(instance);
+    instance.accept_import = () => { const promise = accept(); tasks.push(promise); return promise; };
     instance.aboutToAppear();
     instance.tasks = tasks;
     return instance;
   }
   function card(batch) { const c = component('components/BatchOcrReview.ets', 'BatchOcrBatchCard', edges); c.batch = batch; return c; }
-  return { entry, review, card, calls, controls, timers, drafts, job, setToken: value => { token = value; } };
+  return { entry, review, card, calls, controls, timers, drafts, job, imageSource, setToken: value => { token = value; } };
 }
 async function run() {
   let checks = 0;
@@ -122,7 +129,7 @@ async function run() {
     assert.match(card.progress_label(), /上传原图/);
     assert.deepEqual(Array.from(h.calls.starts[0][2]), [original]);
     assert.deepEqual(h.calls.photos, ['file://camera/photo.jpg']);
-    await r.accept_camera(); await r.start(b);
+    await r.accept_import(); await r.start(b);
     assert.equal(h.calls.starts.length, 1, 'repeated lifecycle/start cannot double submit');
     post.resolve({ isSuccess: true, data: h.job(b.requestId), error: null });
     await r.tasks[0];
@@ -150,12 +157,12 @@ async function run() {
       if (stale === 'token') h.setToken('account-B');
       camera.resolve('file://late/photo.jpg'); await pending;
       assert.deepEqual(h.calls.photos, ['file://late/photo.jpg']); assert.equal(h.calls.starts.length, 0);
-      assert.equal(h.entry.cameraCapture, null); assert.equal(h.entry.imageLoading, false);
+      assert.equal(h.entry.imageImport, null); assert.equal(h.entry.imageLoading, false);
     });
   }
   for (const stale of ['back', 'inactive', 'destroy', 'token']) {
     await check('子组件挂载前 ' + stale + ' 不得重播相机意图', async () => {
-      const h = harness(); await h.entry.start_capture(true); const ticket = h.entry.cameraCapture;
+      const h = harness(); await h.entry.start_capture(true); const ticket = h.entry.imageImport;
       if (stale === 'back') h.entry.go_back();
       if (stale === 'inactive') { h.entry.active = false; h.entry.on_active_changed(); }
       if (stale === 'destroy') h.entry.aboutToDisappear();
@@ -185,14 +192,14 @@ async function run() {
     assert.deepEqual(h.calls.photos, ['file://camera/photo.jpg']);
   });
   await check('active=false挂载不会提交，随后明确离开使意图失效', async () => {
-    const h = harness(); await h.entry.start_capture(true); const r = h.review(h.entry.cameraCapture, false);
+    const h = harness(); await h.entry.start_capture(true); const r = h.review(h.entry.imageImport, false);
     await r.tasks[0]; assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 0);
-    r.aboutToDisappear(); const next = h.review(r.cameraCapture); await next.tasks[0];
+    r.aboutToDisappear(); const next = h.review(r.imageImport); await next.tasks[0];
     assert.equal(h.calls.starts.length, 0); assert.deepEqual(h.calls.photos, ['file://camera/photo.jpg']);
   });
   await check('POST等待中暂停与remount保留原requestId，返回只查询不重发', async () => {
     const h = harness(), post = deferred(); h.controls.post = () => post.promise;
-    await h.entry.start_capture(true); const ticket = h.entry.cameraCapture, r = h.review();
+    await h.entry.start_capture(true); const ticket = h.entry.imageImport, r = h.review();
     await new Promise(setImmediate);
     const batch = r.batches[0]; assert.equal(h.calls.starts.length, 1);
     r.aboutToDisappear(); assert.equal(batch.busy, false); assert.equal(h.calls.starts[0][4](), false);
@@ -209,7 +216,7 @@ async function run() {
         if (!known) throw Error('response lost');
         return { isSuccess: false, data: null, error: { httpStatus: 429, serverCode: 'A0502' } };
       };
-      await h.entry.start_capture(true); const ticket = h.entry.cameraCapture, r = h.review(); await r.tasks[0];
+      await h.entry.start_capture(true); const ticket = h.entry.imageImport, r = h.review(); await r.tasks[0];
       const b = r.batches[0]; assert.equal(b.posted, !known); assert.equal(b.busy, false);
       r.aboutToDisappear(); const restored = h.review(ticket); await restored.tasks[0];
       assert.equal(h.calls.starts.length, 1, 'mount never replays even a known pre-accept failure');
@@ -236,7 +243,7 @@ async function run() {
     const old = new h.drafts.BatchReviewDraft([{ ...original, path: '/owned/old.jpg' }]);
     h.drafts.batchDraftSession.batches.push(old);
     await h.entry.start_capture(true); const r = h.review();
-    assert.match(r.prepareStage, /离开将取消本次照片导入，已有批次保留/);
+    assert.match(r.prepareStage, /离开将取消本次图片导入，已有批次保留/);
     h.entry.go_back(); r.aboutToDisappear();
     assert.equal(h.entry.screen, 'SOURCE');
     copy.resolve({ ...original }); await r.tasks[0];
@@ -245,15 +252,151 @@ async function run() {
     assert.deepEqual(h.calls.discarded, [original.path]); assert.deepEqual(h.calls.photos, ['file://camera/photo.jpg']);
     assert.equal(r.choosing, false);
   });
-  await check('相册单题仍进入裁剪，批量图库保留顺序和手动开始', async () => {
-    const h = harness(); await h.entry.start_capture(false);
-    assert.equal(h.entry.screen, 'CROP'); assert.deepEqual(h.calls.previews, ['gallery://single']);
-    assert.equal(h.entry.cameraCapture, null); assert.equal(h.calls.starts.length, 0);
-    const r = h.review(); h.controls.copy = async (context, uri) => ({ ...original, path: '/owned/' + uri.split('//')[1] });
-    await r.choose(4);
-    assert.deepEqual(h.calls.picker, [4]); assert.deepEqual(Array.from(r.batches[0].images, image => image.path), ['/owned/one', '/owned/two']);
-    assert.equal(h.calls.starts.length, 0); assert.equal(r.batches[0].posted, false); assert.equal(r.choosing, false);
-    await r.start(r.batches[0]); assert.equal(h.calls.starts.length, 1);
+  await check('相册入口整图1–4张保序、自动一次批次并保留手动草稿', async () => {
+    for (let count = 1; count <= 4; count++) {
+      const h = harness(); h.entry.bodyMarkdown = '手动输入不变';
+      h.controls.gallery = async () => Array.from({ length: count }, (_, i) => 'gallery://' + (i + 1));
+      h.controls.copy = async (context, uri) => ({ ...original, path: '/owned/' + uri.split('//')[1] });
+      await h.entry.start_capture(false);
+      assert.equal(h.entry.screen, 'BATCH'); assert.equal(h.entry.imageLoading, false);
+      assert.deepEqual(h.calls.picker, [4]); assert.equal(h.calls.previews.length, 0);
+      const ticket = h.entry.imageImport, r = h.review(); await r.tasks[0];
+      assert.equal(r.batches.length, 1); assert.equal(h.calls.starts.length, 1);
+      assert.deepEqual(Array.from(r.batches[0].images, image => image.path), Array.from({ length: count }, (_, i) => '/owned/' + (i + 1)));
+      assert.equal(r.batches[0].posted, true); assert.equal(r.choosing, false); assert.equal(r.prepareStage, '');
+      assert.ok(r.batches[0].drafts.every(d => !d.expanded && !d.selected));
+      await r.accept_import(); await r.start(r.batches[0]); r.aboutToDisappear();
+      const restored = h.review(ticket); await restored.tasks[0];
+      assert.equal(h.calls.starts.length, 1); assert.deepEqual(h.calls.photos, []);
+      assert.equal(h.entry.bodyMarkdown, '手动输入不变');
+    }
+  });
+  await check('图库交接为一次性顺序快照，释放与丢弃不删除图库URI', async () => {
+    const h = harness(); const uris = ['gallery://first', 'gallery://second'];
+    const ticket = h.imageSource.BatchImageImport.fromGallery(uris, 'account-A'); uris.reverse();
+    assert.equal(ticket.claim('account-B'), undefined);
+    assert.deepEqual(Array.from(ticket.claim('account-A')), ['gallery://first', 'gallery://second']);
+    assert.equal(ticket.claim('account-A'), undefined); ticket.releaseOriginals();
+    assert.equal(ticket.isCurrent('account-A'), true); ticket.discard(); ticket.discard();
+    assert.equal(ticket.isCurrent('account-A'), false); assert.deepEqual(h.calls.photos, []);
+  });
+  await check('SOURCE底部冗余删除，有批次时才显示轻量恢复，手动输入保持可用', async () => {
+    const h = harness(); const source = fs.readFileSync(path.join(root, base, 'components/ManualEntry.ets'), 'utf8');
+    const ast = ts.createSourceFile('ManualEntry.ets', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.ETS, parserOptions);
+    const declaration = ast.statements.find(node => node.kind === ts.SyntaxKind.StructDeclaration);
+    const builder = declaration.members.find(node => node.name && node.name.getText(ast) === 'source_screen').getText(ast);
+    assert.doesNotMatch(builder, /一张大图|批量识别与校对/); assert.match(builder, /手动输入/);
+    assert.match(builder, /if \(this.has_batch_drafts\(\)\)/); assert.match(builder, /继续校对/);
+    assert.doesNotMatch(source, /QuestionCropView|cropBusy|cropPath|capturePreview|pendingOcrText|OcrApi|start_recognition|selectImage|loadPreview|EntryScreen.CROP/);
+    assert.equal(h.entry.has_batch_drafts(), false);
+    const old = new h.drafts.BatchReviewDraft([{ ...original, path: '/owned/old.jpg' }]);
+    h.drafts.batchDraftSession.batches.push(old); assert.equal(h.entry.has_batch_drafts(), true);
+    h.entry.go_back(); assert.equal(h.calls.starts.length, 0);
+    h.entry.screen = 'BATCH'; const restored = h.review(null); await restored.tasks[0];
+    assert.equal(restored.batches[0], old); assert.equal(h.calls.starts.length, 0);
+    h.drafts.batchDraftSession.bind('account-B'); assert.equal(h.entry.has_batch_drafts(), false);
+    assert.deepEqual(h.calls.discarded, ['/owned/old.jpg']);
+    h.entry.bodyMarkdown = '手写题目'; h.entry.continue_draft(); assert.equal(h.entry.screen, 'REVIEW');
+    await h.entry.confirm(); assert.equal(h.calls.saves.length, 1); assert.equal(h.calls.starts.length, 0);
+  });
+  await check('相册取消和选择失败均零请求、零批次并退出loading', async () => {
+    for (const failed of [false, true]) {
+      const h = harness(); h.controls.gallery = async () => { if (failed) throw Error('picker unavailable'); return []; };
+      await h.entry.start_capture(false); assert.equal(h.entry.screen, 'SOURCE'); assert.equal(h.entry.imageLoading, false);
+      const r = h.review(); await r.tasks[0]; await r.choose(4);
+      assert.equal(r.choosing, false); assert.equal(r.prepareStage, '');
+      assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 0); assert.equal(r.batches.length, 0);
+      assert.deepEqual(h.calls.photos, []);
+    }
+  });
+  for (const stale of ['inactive', 'destroy', 'token']) {
+    await check('图库选择迟到 ' + stale + ' 零请求且从不删图库原图', async () => {
+      const h = harness(), gallery = deferred(); h.controls.gallery = () => gallery.promise;
+      const pending = h.entry.start_capture(false);
+      if (stale === 'inactive') { h.entry.active = false; h.entry.on_active_changed(); }
+      if (stale === 'destroy') h.entry.aboutToDisappear();
+      if (stale === 'token') h.setToken('account-B');
+      gallery.resolve(['gallery://late-one', 'gallery://late-two']); await pending;
+      assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 0);
+      assert.equal(h.entry.imageImport, null); assert.equal(h.entry.imageLoading, false); assert.deepEqual(h.calls.photos, []);
+    });
+    await check('批量页图库选择迟到 ' + stale + ' 零请求', async () => {
+      const h = harness(), gallery = deferred(); h.controls.gallery = () => gallery.promise;
+      const r = h.review(), pending = r.choose(4);
+      assert.equal(r.choosing, true); assert.match(r.prepareStage, /正在选择/);
+      if (stale === 'destroy') r.aboutToDisappear();
+      else { if (stale === 'token') h.setToken('account-B'); r.active = false; r.active_changed(); }
+      gallery.resolve(['gallery://one']); await pending;
+      assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 0);
+      assert.equal(r.choosing, false); assert.equal(r.prepareStage, ''); assert.deepEqual(h.calls.photos, []);
+    });
+  }
+  for (const stale of ['back', 'inactive', 'destroy', 'token']) {
+    await check('图库交接挂载前 ' + stale + ' 不重播也不删图库', async () => {
+      const h = harness(); await h.entry.start_capture(false); const ticket = h.entry.imageImport;
+      if (stale === 'back') h.entry.go_back();
+      if (stale === 'inactive') { h.entry.active = false; h.entry.on_active_changed(); }
+      if (stale === 'destroy') h.entry.aboutToDisappear();
+      if (stale === 'token') h.setToken('account-B');
+      const r = h.review(ticket); await r.tasks[0];
+      assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 0); assert.deepEqual(h.calls.photos, []);
+    });
+  }
+  await check('多图准备失败或32MiB总量拒绝清理全部已复制缓存且零请求', async () => {
+    for (const reason of ['second-fails', 'total', 'too-many']) {
+      const h = harness();
+      h.controls.gallery = async () => ['one', 'two', 'three', ...(reason === 'too-many' ? ['four', 'five'] : [])].map(id => 'gallery://' + id);
+      h.controls.copy = async (context, uri) => {
+        if (reason === 'second-fails' && uri.endsWith('two')) throw Error('单图须不超过16 MiB / 1600万像素');
+        return { ...original, path: '/owned/' + uri.split('//')[1], byteLength: 12 * 1024 * 1024 };
+      };
+      await h.entry.start_capture(false); const r = h.review(); await r.tasks[0];
+      assert.equal(h.calls.starts.length, 0); assert.equal(r.batches.length, 0); assert.equal(r.choosing, false); assert.equal(r.prepareStage, '');
+      assert.equal(h.calls.discarded.length, reason === 'second-fails' ? 1 : reason === 'total' ? 3 : 0);
+      assert.match(r.notice, reason === 'second-fails' ? /16 MiB/ : reason === 'total' ? /32 MiB/ : /1–4/);
+      assert.deepEqual(h.calls.photos, []);
+    }
+  });
+  for (const stale of ['back', 'inactive', 'destroy', 'token']) {
+    await check('第二张原图复制中 ' + stale + ' 清理已复制项且零跨号请求', async () => {
+      const h = harness(), second = deferred();
+      h.controls.gallery = async () => ['gallery://one', 'gallery://two', 'gallery://three'];
+      h.controls.copy = async (context, uri) => uri.endsWith('two') ? second.promise : { ...original, path: '/owned/' + uri.split('//')[1] };
+      await h.entry.start_capture(false); const r = h.review(); await new Promise(setImmediate);
+      assert.equal(h.calls.copies.length, 2); assert.match(r.prepareStage, /2 \/ 3/);
+      if (stale === 'back') { h.entry.go_back(); r.aboutToDisappear(); }
+      if (stale === 'destroy') r.aboutToDisappear();
+      if (stale === 'inactive' || stale === 'token') { if (stale === 'token') h.setToken('account-B'); r.active = false; r.active_changed(); }
+      second.resolve({ ...original, path: '/owned/two' }); await r.tasks[0];
+      assert.deepEqual(h.calls.discarded, ['/owned/one', '/owned/two']); assert.deepEqual(h.calls.photos, []);
+      assert.equal(h.calls.starts.length, 0); assert.equal(h.calls.copies.length, 2); assert.equal(r.choosing, false);
+      assert.equal(h.drafts.batchDraftSession.batches.length, 0);
+    });
+  }
+  await check('批量页相册同样自动开始，新批置顶且旧POST不会覆盖下一次选图loading', async () => {
+    const h = harness(), firstPost = deferred(), nextPicker = deferred();
+    h.controls.post = () => firstPost.promise;
+    const r = h.review(); const first = r.choose(4); await new Promise(setImmediate);
+    const old = r.batches[0]; assert.equal(old.busy, true); assert.equal(r.choosing, false);
+    h.controls.gallery = () => nextPicker.promise; const next = r.choose(4);
+    assert.equal(r.choosing, true); assert.match(r.prepareStage, /正在选择/);
+    firstPost.resolve({ isSuccess: true, data: h.job(old.requestId), error: null }); await first;
+    assert.equal(r.choosing, true); assert.match(r.prepareStage, /正在选择/);
+    nextPicker.resolve(['gallery://next']); await next;
+    assert.equal(h.calls.starts.length, 2); assert.notEqual(r.batches[0], old); assert.equal(r.batches[1], old);
+    assert.equal(r.choosing, false); assert.equal(r.prepareStage, ''); assert.deepEqual(h.calls.photos, []);
+  });
+  await check('图库POST未知仅GET恢复原requestId，换号会清理旧批所有自有缓存', async () => {
+    const h = harness(); h.controls.post = async () => { throw Error('unknown'); };
+    h.controls.copy = async (context, uri) => ({ ...original, path: '/owned/' + uri.split('//')[1] });
+    await h.entry.start_capture(false); const ticket = h.entry.imageImport, r = h.review(); await r.tasks[0];
+    const batch = r.batches[0]; assert.equal(batch.posted, true); assert.equal(h.calls.starts.length, 1);
+    r.aboutToDisappear(); const restored = h.review(ticket); await restored.tasks[0]; await restored.start(batch);
+    await restored.query(batch, false); assert.equal(h.calls.starts.length, 1); assert.equal(h.calls.queries[0][1], batch.requestId);
+    h.setToken('account-B'); restored.active = false; restored.active_changed();
+    const next = h.review(null); await next.tasks[0];
+    assert.equal(next.batches.length, 0); assert.deepEqual(h.calls.discarded, ['/owned/one', '/owned/two']);
+    assert.deepEqual(h.calls.photos, []); assert.equal(h.calls.starts.length, 1);
   });
   console.log(JSON.stringify({ result: 'PASS', scenarios: checks, boundary: 'Real component methods/drafts; native edges controlled; no ArkUI rendering, device, network or model validation' }));
 }

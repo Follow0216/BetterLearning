@@ -57,14 +57,16 @@ function loadApi(edges) {
   return exports.BatchOcrApi;
 }
 
-function harness(phase, mode = 'current') {
+function harness(phase, mode = 'current', phaseImage = 1) {
   const gate = deferred();
   const arrived = deferred();
-  const calls = { post: [], resource: [], stages: [], releaseMap: 0, releaseSource: 0, reads: 0 };
+  const calls = { post: [], resource: [], stages: [], releaseMap: 0, releaseSource: 0, reads: 0, readPaths: [] };
+  const bytesByPath = new Map();
+  let decodedCount = 0;
   let current = true;
   let accessToken = token;
   const waitAt = async name => {
-    if (phase === name) { arrived.resolve(); await gate.promise; }
+    if (phase === name && decodedCount === phaseImage) { arrived.resolve(); await gate.promise; }
   };
   class AuthApi {
     async request_multipart(...args) {
@@ -79,24 +81,24 @@ function harness(phase, mode = 'current') {
   const Api = loadApi({
     AuthApi,
     authSession: { matches_access_token: candidate => candidate === accessToken },
-    canvasRead: () => {
-      calls.reads++;
-      if (phase === 'canvas_read') {
+    canvasRead: path => {
+      calls.reads++; calls.readPaths.push(path);
+      if (phase === 'canvas_read' && calls.reads === phaseImage) {
         if (mode === 'token') { accessToken = 'new-token'; } else { current = false; }
       }
-      return png;
+      return bytesByPath.get(path) || png;
     },
-    createImageSource: () => ({
+    createImageSource: () => { decodedCount++; return ({
       getImageInfo: async () => { await waitAt('getImageInfo'); return { size: { width: 100, height: 200 } }; },
       createPixelMap: async () => {
         await waitAt('createPixelMap');
         return { release: async () => { calls.releaseMap++; await waitAt('map.release'); } };
       },
       release: async () => { calls.releaseSource++; await waitAt('source.release'); }
-    })
+    }); }
   });
   return {
-    api: new Api(), calls, arrived,
+    api: new Api(), calls, arrived, bytesByPath,
     stale: () => { if (mode === 'token') { accessToken = 'new-token'; } else { current = false; } gate.resolve(); },
     isCurrent: () => current,
     onStage: stage => calls.stages.push(stage)
@@ -161,7 +163,47 @@ async function run() {
     assert.equal(h.calls.resource[1][0], 'DELETE');
     assert.equal(h.calls.post.length, 1, 'cancel must not POST');
   }
-  console.log(JSON.stringify({ result: 'PASS', checks: 'real BatchOcrApi lifecycle; zero POST after stale generation/token at image awaits, canvas read, and UPLOADING callback; one valid POST; GET recovery; DELETE cancellation', boundary: 'Native image, canvas and transport are controlled stubs; no device or network' }));
+  {
+    const images = Array.from({ length: 4 }, (_, i) => ({ ...imageInput, path: '/owned/original-' + i + '.png' }));
+    const h = harness('none');
+    const result = await h.api.start(token, id, images, h.onStage, h.isCurrent);
+    assert.equal(result.isSuccess, true); assert.equal(h.calls.post.length, 1);
+    assert.deepEqual(h.calls.readPaths, images.map(image => image.path));
+    assert.deepEqual(Array.from(h.calls.post[0][2], part => part.name), ['image0', 'image1', 'image2', 'image3']);
+    assert.deepEqual(Array.from(h.calls.post[0][2], part => part.remoteFileName), ['image0.png', 'image1.png', 'image2.png', 'image3.png']);
+    assert.equal(h.calls.releaseMap, 4); assert.equal(h.calls.releaseSource, 4);
+  }
+  for (const phase of ['getImageInfo', 'createPixelMap', 'map.release', 'source.release', 'canvas_read']) {
+    for (const mode of ['current', 'token']) {
+      const h = harness(phase, mode, 2);
+      const images = [imageInput, { ...imageInput, path: '/owned/second.png' }, { ...imageInput, path: '/owned/third.png' }];
+      const pending = h.api.start(token, id, images, h.onStage, h.isCurrent);
+      if (phase !== 'canvas_read') { await h.arrived.promise; h.stale(); }
+      const result = await pending;
+      assert.equal(result.isSuccess, false, `second image ${phase}/${mode} must reject stale import`);
+      assert.equal(h.calls.post.length, 0); assert.equal(h.calls.reads, 2, 'do not prepare later images after invalidation');
+    }
+  }
+  for (const invalid of ['image-count', 'single-size', 'total-size', 'wrong-bytes', 'dimensions']) {
+    const h = harness('none');
+    let images = [imageInput];
+    if (invalid === 'image-count') images = Array.from({ length: 5 }, () => imageInput);
+    if (invalid === 'dimensions') images = [{ ...imageInput, width: 4001, height: 4000 }];
+    if (invalid === 'wrong-bytes') h.bytesByPath.set(imageInput.path, Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7]));
+    if (invalid === 'single-size') {
+      const bytes = new Uint8Array(16777217); bytes.set(png); h.bytesByPath.set(imageInput.path, bytes);
+      images = [{ ...imageInput, byteLength: bytes.length }];
+    }
+    if (invalid === 'total-size') {
+      const bytes = new Uint8Array(16777216); bytes.set(png);
+      images = [0, 1].map(i => ({ ...imageInput, path: '/owned/large-' + i + '.png', byteLength: bytes.length }));
+      images.push({ ...imageInput, path: '/owned/last.png' });
+      for (const input of images.slice(0, 2)) h.bytesByPath.set(input.path, bytes);
+    }
+    const result = await h.api.start(token, id, images, h.onStage, h.isCurrent);
+    assert.equal(result.isSuccess, false, invalid); assert.equal(h.calls.post.length, 0, invalid + ' must send zero multipart requests');
+  }
+  console.log(JSON.stringify({ result: 'PASS', checks: 'real BatchOcrApi lifecycle; zero POST after stale generation/token at image awaits, canvas read, and UPLOADING callback; one valid POST for 1 or 4 ordered originals; multi-image stale guards; count/byte/total/dimension rejection; GET recovery; DELETE cancellation', boundary: 'Native image, canvas and transport are controlled stubs; no device or network' }));
 }
 
 module.exports = run;

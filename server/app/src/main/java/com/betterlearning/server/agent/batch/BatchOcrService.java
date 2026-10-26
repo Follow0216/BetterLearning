@@ -44,6 +44,7 @@ public class BatchOcrService {
     private final BatchOcrStore store;
     private final BatchOcrEngine engine;
     private final String owner = UUID.randomUUID().toString();
+    private final AtomicBoolean closing = new AtomicBoolean();
     private final Semaphore inputSlots = new Semaphore(2);
     private final ConcurrentHashMap<Key, Job> jobs = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor worker;
@@ -67,6 +68,9 @@ public class BatchOcrService {
 
     public Response submit(long accountId, String requestId, String fingerprint, ImageLoader loader)
             throws IOException {
+        if (closing.get()) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+        }
         Snapshot existing = store.find(accountId, requestId);
         if (existing != null) {
             return replay(existing, fingerprint);
@@ -78,6 +82,9 @@ public class BatchOcrService {
         try {
             // 只有占有输入槽的新批次才读取完整字节。重复 POST 只流式计算摘要。
             List<InputImage> images = List.copyOf(loader.load());
+            if (closing.get()) {
+                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE);
+            }
             var created = store.create(accountId, requestId, fingerprint, owner);
             if (!created.created()) {
                 return replay(created.snapshot(), fingerprint);
@@ -90,7 +97,7 @@ public class BatchOcrService {
                 handedOff = true;
             } catch (RejectedExecutionException exception) {
                 jobs.remove(key, job);
-                store.finish(accountId, requestId, owner, "FAILED", null,
+                store.finish(accountId, requestId, owner, closing.get() ? "UNKNOWN" : "FAILED", null,
                         ErrorCode.SERVICE_UNAVAILABLE.getCode(), "识别执行器暂时不可用，请保留原图");
                 return response(required(store.find(accountId, requestId)));
             }
@@ -152,16 +159,33 @@ public class BatchOcrService {
 
     @PreDestroy
     public void close() {
-        heartbeats.shutdownNow();
-        worker.shutdownNow();
+        if (!closing.compareAndSet(false, true)) {
+            return;
+        }
         for (Job job : jobs.values()) {
             job.cancelled.set(true);
+        }
+        // shutdownNow 只中断协调线程；Engine 会先收束全部真实模型调用。
+        // 排队 Job 不会运行，必须单独结束并归还输入槽。
+        for (Runnable queued : worker.shutdownNow()) {
+            Job job = (Job) queued;
+            job.finish("UNKNOWN", job.partial, ErrorCode.SERVICE_UNAVAILABLE.getCode(),
+                    "执行 worker 已停止，请保留原图和已识别内容");
+            job.release();
+        }
+        boolean interrupted = false;
+        boolean terminated = false;
+        while (!terminated) {
             try {
-                store.finish(job.key.accountId(), job.key.requestId(), owner, "UNKNOWN", null,
-                        ErrorCode.SERVICE_UNAVAILABLE.getCode(), "执行 worker 已停止，请保留原图和已识别内容");
-            } catch (RuntimeException ignored) {
-                // 数据库故障时由五分钟租约明确标记 UNKNOWN。
+                terminated = worker.awaitTermination(1, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                interrupted = true;
             }
+        }
+        // 在途请求可能采用最长600秒超时；真实退出前继续续租，不能提前释放全局围栏。
+        heartbeats.shutdownNow();
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -201,7 +225,9 @@ public class BatchOcrService {
                         : result.questions().isEmpty() ? "EMPTY" : "COMPLETED";
                 finish(status, result, null, null);
             } catch (BatchOcrCancelledException exception) {
-                // DELETE 已持久化状态；晚到结果不覆盖取消或已过期 UNKNOWN。
+                // DELETE 时的终态快照保持不变；晚到分片只用于内存收束。
+                // close 仍为 RUNNING，finally 会将收束后的部分结果与 UNKNOWN 一起保存。
+                partial = exception.partialResult();
             } catch (BatchOcrProcessingException exception) {
                 Result result = exception.partialResult();
                 finish("FAILED", result,
@@ -210,11 +236,23 @@ public class BatchOcrService {
                 finish("FAILED", partial, ErrorCode.INVALID_PARAM.getCode(), "图像内容不合法或超出识别限制");
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
-                finish("UNKNOWN", partial, ErrorCode.SERVICE_UNAVAILABLE.getCode(), "识别执行被中断，请保留原图");
             } catch (RuntimeException exception) {
                 finish("UNKNOWN", partial, ErrorCode.INTERNAL_ERROR.getCode(), "识别执行状态未知，请保留原图");
             } finally {
-                release();
+                // 模型已经真实收束；暂清停止信号，避免连接池因中断拒绝归还租约。
+                boolean interrupted = Thread.interrupted();
+                try {
+                    if (closing.get() || interrupted) {
+                        // 覆盖尚未 start 或仍在 WAITING 就被关闭的任务；SQL 围栏不覆盖终态。
+                        finish("UNKNOWN", partial, ErrorCode.SERVICE_UNAVAILABLE.getCode(),
+                                "执行 worker 已停止，请保留原图和已识别内容");
+                    }
+                    release();
+                } finally {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
         }
 

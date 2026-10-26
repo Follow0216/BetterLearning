@@ -107,3 +107,33 @@ export class BatchCameraCapture {
   }
   discard(): void { this.cancelled = true; this.releasePhoto(); }
 }
+
+/** 一次性整图导入意图。图库仅借用URI；相机额外持有自有照片缓存。 */
+export class BatchImageImport {
+  private uris: string[];
+  private ownerToken: string;
+  private cameraCapture: BatchCameraCapture | null;
+  private claimed: boolean = false;
+  private cancelled: boolean = false;
+
+  private constructor(uris: string[], token: string, camera: BatchCameraCapture | null) {
+    this.uris = uris.slice(); this.ownerToken = token; this.cameraCapture = camera;
+  }
+  static fromCamera(uri: string, token: string): BatchImageImport {
+    return new BatchImageImport([uri], token, new BatchCameraCapture(uri, token));
+  }
+  static fromGallery(uris: string[], token: string): BatchImageImport {
+    return new BatchImageImport(uris, token, null);
+  }
+  isCurrent(token: string): boolean { return !this.cancelled && token.length > 0 && this.ownerToken === token; }
+  claim(token: string): string[] | undefined {
+    if (!this.isCurrent(token) || this.claimed) { return undefined; }
+    this.claimed = true;
+    return this.uris.slice();
+  }
+  releaseOriginals(): void {
+    if (this.cameraCapture !== null) { this.cameraCapture.releasePhoto(); }
+    this.uris = [];
+  }
+  discard(): void { this.cancelled = true; this.releaseOriginals(); }
+}

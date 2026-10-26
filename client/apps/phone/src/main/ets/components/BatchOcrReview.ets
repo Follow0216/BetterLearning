@@ -8,7 +8,7 @@ import {
 } from 'common';
 import { BatchQuestionDraft, BatchReviewDraft, batchDraftSession, batch_draft_can_add,
   batch_question_label, batch_question_summary, batch_ocr_stage_label, batch_start_can_retry_manually } from '../features/ocr/BatchOcrDrafts';
-import { BatchCameraCapture, batchImageDisplayUri, copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
+import { BatchImageImport, batchImageDisplayUri, copyBatchImage, discardBatchImage, selectBatchImages } from '../features/ocr/BatchQuestionImageSource';
 import {
   PHONE_COLOR_BORDER, PHONE_COLOR_CARD, PHONE_COLOR_DANGER, PHONE_COLOR_DANGER_SOFT,
   PHONE_COLOR_MUTED, PHONE_COLOR_PRIMARY, PHONE_COLOR_PRIMARY_DEEP, PHONE_COLOR_SOFT,
@@ -19,7 +19,7 @@ import {
 @Component
 export struct BatchOcrReview {
   toast?: ToastStore;
-  cameraCapture: BatchCameraCapture | null = null;
+  imageImport: BatchImageImport | null = null;
   onUnauthorized: (token: string) => void = () => {};
   onSaved: () => void = () => {};
   backController: PhoneBackController = new PhoneBackController();
@@ -50,7 +50,7 @@ export struct BatchOcrReview {
     batchDraftSession.bind(token);
     this.sync();
     this.schedule();
-    this.accept_camera();
+    this.accept_import();
   }
   aboutToDisappear(): void { this.alive = false; this.backController.handleBack = (): boolean => false; this.pause(); }
   active_changed(): void {
@@ -59,13 +59,13 @@ export struct BatchOcrReview {
       if (token === null) { this.viewerImage = null; this.onUnauthorized(''); return; }
       if (!batchDraftSession.owns(token)) { this.viewerImage = null; }
       batchDraftSession.bind(token);
-      this.sync(); this.schedule(); this.accept_camera();
+      this.sync(); this.schedule(); this.accept_import();
     } else { this.pause(); }
   }
   private pause(): void {
     this.generation++;
-    if (this.cameraCapture !== null) {
-      try { this.cameraCapture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
+    if (this.imageImport !== null) {
+      try { this.imageImport.discard(); } catch (error) { /* 仅清相机自有缓存，图库原图只读。 */ }
     }
     this.prepareStage = '';
     this.viewerImage = null;
@@ -191,70 +191,72 @@ export struct BatchOcrReview {
     keys[index - 1] = keys[index]; keys[index] = key;
     batch.images = images; batch.imageKeys = keys; this.sync();
   }
-  /** 只消费本次相机交接；任何恢复入口仍沿用原批次查询。 */
-  private async accept_camera(): Promise<void> {
-    const capture: BatchCameraCapture | null = this.cameraCapture;
+  /** 生命周期重播只会尝试消费一次；恢复入口不创建新的识别调用。 */
+  private async accept_import(): Promise<void> {
+    const capture: BatchImageImport | null = this.imageImport;
     if (capture === null || !this.alive || !this.active || this.choosing) { return; }
     const token: string | null = this.token();
     if (token === null || !capture.isCurrent(token)) {
-      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
+      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存，图库原图只读。 */ }
       return;
     }
-    const uri: string | undefined = capture.claim(token);
-    if (uri === undefined) { return; }
-    const generation: number = this.generation;
-    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
-    let loaded: BatchOcrImage | null = null;
-    this.choosing = true; this.prepareStage = '正在准备与校验相机原图…离开将取消本次照片导入，已有批次保留。'; this.notice = '';
-    try {
-      loaded = await copyBatchImage(context, uri, () => this.current(token, generation) && capture.isCurrent(token));
-      if (!this.current(token, generation) || !capture.isCurrent(token)) { return; }
-      // 先完成原字节复制再释放相机临时文件，不能调用会消费原图的 loadPreview。
-      capture.releasePhoto();
-      const batch: BatchReviewDraft = new BatchReviewDraft([loaded]);
-      // 新照片优先展示进度和题卡；原批次及其稳定身份继续保留。
-      batchDraftSession.batches.unshift(batch);
-      loaded = null;
-      this.choosing = false; this.prepareStage = ''; this.sync();
-      await this.start(batch);
-    } catch (error) {
-      if (this.current(token, generation) && capture.isCurrent(token)) {
-        this.notice = (error as Error).message || '照片校验失败，请拍摄符合限制的PNG/JPEG原图';
-      }
-    } finally {
-      if (loaded !== null) { try { discardBatchImage(loaded.path); } catch (error) {} }
-      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存。 */ }
-      if (this.current(token, generation)) { this.choosing = false; this.prepareStage = ''; }
-    }
+    await this.import_images(capture, token, this.generation);
   }
-  private async choose(maximum: number): Promise<void> {
-    if (this.choosing || !this.active) { return; }
-    const token: string | null = this.token(); if (token === null) { return; }
-    const generation: number = this.generation;
+  private async import_images(capture: BatchImageImport, token: string, generation: number): Promise<void> {
+    const uris: string[] | undefined = capture.claim(token);
+    if (uris === undefined) { return; }
     const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     const loaded: BatchOcrImage[] = [];
-    this.choosing = true; this.prepareStage = '正在选择原图…'; this.notice = '';
+    let prepared: BatchReviewDraft | null = null;
+    this.choosing = true; this.prepareStage = '正在准备与校验原图…离开将取消本次图片导入，已有批次保留。'; this.notice = '';
     try {
-      const uris: string[] = await selectBatchImages(context, maximum);
-      if (!this.current(token, generation)) { return; }
+      if (uris.length < 1 || uris.length > 4) { throw new Error('每批请选择1–4张原图'); }
       let total: number = 0;
       for (let index: number = 0; index < uris.length; index++) {
-        const uri: string = uris[index];
-        this.prepareStage = '正在准备第 ' + (index + 1).toString() + ' / ' + uris.length.toString() + ' 张原图…';
-        const input: BatchOcrImage = await copyBatchImage(context, uri, () => this.current(token, generation));
+        if (!this.current(token, generation) || !capture.isCurrent(token)) { return; }
+        this.prepareStage = '正在准备与校验第 ' + (index + 1).toString() + ' / ' + uris.length.toString() +
+          ' 张原图…离开将取消本次图片导入，已有批次保留。';
+        const input: BatchOcrImage = await copyBatchImage(context, uris[index],
+          () => this.current(token, generation) && capture.isCurrent(token));
         loaded.push(input);
-        if (!this.current(token, generation)) { return; }
+        if (!this.current(token, generation) || !capture.isCurrent(token)) { return; }
         total += input.byteLength;
         if (total > 33554432) { throw new Error('本批原图合计超过32 MiB，请减少图片'); }
       }
-      if (loaded.length > 0) {
-        batchDraftSession.batches.push(new BatchReviewDraft(loaded.slice())); loaded.splice(0, loaded.length); this.sync();
-      }
+      // 相机可释放自有照片；图库只清URI引用，原图绝不删除。
+      capture.releaseOriginals();
+      const batch: BatchReviewDraft = new BatchReviewDraft(loaded.slice());
+      batchDraftSession.batches.unshift(batch);
+      loaded.splice(0, loaded.length);
+      prepared = batch; this.sync();
     } catch (error) {
-      if (this.current(token, generation)) { this.notice = (error as Error).message || '图片校验失败，请选择符合限制的PNG/JPEG'; }
+      if (this.current(token, generation) && capture.isCurrent(token)) {
+        this.notice = (error as Error).message || '图片校验失败，请选择符合限制的PNG/JPEG原图';
+      }
     } finally {
       for (const input of loaded) { try { discardBatchImage(input.path); } catch (error) {} }
-      if (this.current(token, generation)) { this.choosing = false; }
+      try { capture.discard(); } catch (error) { /* 仅清相机自有缓存，图库原图只读。 */ }
+      if (this.current(token, generation)) { this.choosing = false; this.prepareStage = ''; }
+    }
+    // 准备状态先收尾，再等待POST；旧批次响应不能清除后来选图的loading。
+    if (prepared !== null && this.current(token, generation)) { await this.start(prepared); }
+  }
+  private async choose(maximum: number): Promise<void> {
+    if (this.choosing || !this.alive || !this.active) { return; }
+    const token: string | null = this.token(); if (token === null) { return; }
+    const generation: number = this.generation;
+    const context: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    let uris: string[] = [];
+    this.choosing = true; this.prepareStage = '正在选择原图…'; this.notice = '';
+    try {
+      uris = await selectBatchImages(context, maximum);
+    } catch (error) {
+      if (this.current(token, generation)) { this.notice = (error as Error).message || '无法读取所选原图'; }
+    } finally {
+      if (this.current(token, generation)) { this.choosing = false; this.prepareStage = ''; }
+    }
+    if (this.current(token, generation) && uris.length > 0) {
+      await this.import_images(BatchImageImport.fromGallery(uris, token), token, generation);
     }
   }
   private unknown(batch: BatchReviewDraft): void {

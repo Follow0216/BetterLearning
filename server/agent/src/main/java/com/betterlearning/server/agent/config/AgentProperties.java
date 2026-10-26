@@ -22,6 +22,7 @@ public class AgentProperties {
         private String model;
         private String apiKey;
         private int timeoutSeconds = 120;
+        private int batchConcurrency = 3;
 
         public String getBaseUrl() {
             return baseUrl;
@@ -45,6 +46,17 @@ public class AgentProperties {
 
         public void setApiKey(String apiKey) {
             this.apiKey = apiKey;
+        }
+
+        public int getBatchConcurrency() {
+            return batchConcurrency;
+        }
+
+        public void setBatchConcurrency(int batchConcurrency) {
+            if (batchConcurrency < 1 || batchConcurrency > 8) {
+                throw new IllegalArgumentException("OCR批量分片并发数须为1至8");
+            }
+            this.batchConcurrency = batchConcurrency;
         }
 
         public int getTimeoutSeconds() {

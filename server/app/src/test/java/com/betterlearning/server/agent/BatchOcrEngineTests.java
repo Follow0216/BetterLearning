@@ -12,6 +12,7 @@ import java.util.zip.CRC32;
 
 import javax.imageio.ImageIO;
 
+import com.betterlearning.server.agent.config.AgentProperties;
 import com.betterlearning.server.agent.model.AgentModelException;
 import com.betterlearning.server.agent.model.AgentModelException.Failure;
 import com.betterlearning.server.agent.model.BatchOcrCancelledException;
@@ -151,7 +152,7 @@ class BatchOcrEngineTests {
             return "已转写的第一片";
         }, (sources, tiles, finalRound) -> {
             throw new AssertionError("取消后不能重组");
-        });
+        }, serialProperties());
         Observer cancel = new Observer() {
             @Override
             public boolean shouldCancel() {
@@ -170,7 +171,7 @@ class BatchOcrEngineTests {
                 throw new AgentModelException(Failure.MODEL_UNAVAILABLE);
             }
             return "故障前已转写";
-        }, (sources, tiles, finalRound) -> "{}");
+        }, (sources, tiles, finalRound) -> "{}", serialProperties());
         BatchOcrProcessingException failed = assertThrows(BatchOcrProcessingException.class,
                 () -> unavailable.process(List.of(image("image-0", 0, 120, 3300)), null));
         assertEquals(Failure.MODEL_UNAVAILABLE, failed.failure());
@@ -227,6 +228,12 @@ class BatchOcrEngineTests {
         assertFalse(result.incomplete());
         assertTrue(result.questions().isEmpty());
         assertEquals("[无文字]", result.tiles().get(0).markdown());
+    }
+
+    private static AgentProperties serialProperties() {
+        AgentProperties properties = new AgentProperties();
+        properties.getOcr().setBatchConcurrency(1);
+        return properties;
     }
 
     private static Map<String, Object> question(String body, String sourceId, List<Tile> tiles, boolean review) {
