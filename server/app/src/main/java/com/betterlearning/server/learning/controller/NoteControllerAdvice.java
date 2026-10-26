@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /** 仅处理 V2 笔记/来源的请求冲突与前置条件；沿用既有 A0400 错误体。 */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = {NoteController.class, SourceController.class})
+@RestControllerAdvice(assignableTypes = {NoteController.class, NotebookController.class, SourceController.class})
 public class NoteControllerAdvice {
     private final ApiErrorResponseFactory errors;
 

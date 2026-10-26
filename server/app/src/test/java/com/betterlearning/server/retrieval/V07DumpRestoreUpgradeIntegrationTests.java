@@ -202,7 +202,9 @@ class V07DumpRestoreUpgradeIntegrationTests {
         assertThat(projection.get("literal")).isEqualTo("[]");
         assertThat(projection.get("raw")).isEqualTo(rawMetadata);
         assertThat(projection.get("method_projection_hash")).isEqualTo(projection.get("raw_hash"));
-        for (String version : List.of("2026102507", "2026102508", "2026102509", "2026102510")) {
+        migrate(TARGET, "2026102602");
+        assertThat(fresh.queryForObject("SELECT to_regclass('ma_note_context') IS NOT NULL", Boolean.class)).isTrue();
+        for (String version : List.of("2026102507", "2026102508", "2026102509", "2026102510", "2026102602")) {
             assertThat(history(fresh, version).get("success")).isEqualTo(true);
         }
         assertThat(Flyway.configure().dataSource(dataSource(TARGET))
@@ -214,6 +216,7 @@ class V07DumpRestoreUpgradeIntegrationTests {
         evidence.put("targetV08History", history(fresh, "2026102508"));
         evidence.put("targetV09History", history(fresh, "2026102509"));
         evidence.put("targetV10History", history(fresh, "2026102510"));
+        evidence.put("targetNoteWorkspaceHistory", history(fresh, "2026102602"));
         evidence.put("sourceV07SourceRows", 3);
         evidence.put("beforeDumpRows", beforeDumpRows);
         evidence.put("afterRestoreRowsBeforeUpgrade", restoredRows);

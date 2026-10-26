@@ -32,7 +32,7 @@ public final class TestData {
     }
 
     public static void cleanDatabase(JdbcTemplate jdbcTemplate) {
-        jdbcTemplate.update("TRUNCATE TABLE ma_index_stage, ma_legacy_generation_recovery, ma_file_gc, ma_source_deletion, ma_query_embedding, ma_note_request, ma_note_version, ma_retrieval_chunk, ma_index_job, ma_source_operation, ma_source_cursor, ma_cursor, ma_citation, ma_result, ma_evidence, ma_attempt, ma_step, ma_retry, ma_run, ma_request, "
+        jdbcTemplate.update("TRUNCATE TABLE ma_note_context, ma_notebook, ma_index_stage, ma_legacy_generation_recovery, ma_file_gc, ma_source_deletion, ma_query_embedding, ma_note_request, ma_note_version, ma_retrieval_chunk, ma_index_job, ma_source_operation, ma_source_cursor, ma_cursor, ma_citation, ma_result, ma_evidence, ma_attempt, ma_step, ma_retry, ma_run, ma_request, "
                 + "ma_anchor, ma_source_version, ma_source, ma_outbox, tutor_turn, question_answer, "
                 + "question, question_collection, app_user RESTART IDENTITY");
     }

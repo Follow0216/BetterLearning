@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const learningRequestMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() => ({ show: vi.fn(), captureScope: vi.fn(() => 17) }));
 
+vi.mock("./use-note-account", () => ({ useNoteAccount: () => ({ accountId: "7", error: "" }) }));
 vi.mock("@betterlearning/ui-feedback", () => ({ useToast: () => toastMock }));
 vi.mock("@/lib/api/learning-v2-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/learning-v2-client")>()),
@@ -16,6 +17,7 @@ vi.mock("@/features/question-content/QuestionMarkdown", () => ({
 import { LearningApiError } from "@/lib/api/learning-v2-client";
 
 import { NotesWorkspace } from "./NotesWorkspace";
+import { createNoteDraft, readNoteDrafts, storeNoteDraft } from "./note-drafts";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const note = (title: string, version = 1) => ({
@@ -41,6 +43,7 @@ function deferred<T>() {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   learningRequestMock.mockReset();
   toastMock.show.mockReset();
   toastMock.captureScope.mockReset();
@@ -52,6 +55,7 @@ describe("NotesWorkspace", () => {
   it("shows scoped save and delete results without replacing persistent edit state", async () => {
     let updates = 0;
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20") return Promise.resolve(page([]));
       if (path === "notes?limit=20") return Promise.resolve(page([note("原稿")]));
       if (path === `notes/${id}` && options?.method === "PUT") {
@@ -69,9 +73,10 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "原稿" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     const title = (await screen.findByLabelText("标题")) as HTMLInputElement;
     fireEvent.change(title, { target: { value: "已保存" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await waitFor(() =>
       expect(toastMock.show).toHaveBeenCalledWith(
         { key: "note:save", type: "success", message: "笔记已保存" },
@@ -81,7 +86,7 @@ describe("NotesWorkspace", () => {
     expect(screen.getByText(/笔记已保存。索引状态/)).toBeTruthy();
 
     fireEvent.change(title, { target: { value: "失败后保留的改稿" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await waitFor(() =>
       expect(toastMock.show).toHaveBeenCalledWith(
         { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
@@ -91,6 +96,7 @@ describe("NotesWorkspace", () => {
     expect(title.value).toBe("失败后保留的改稿");
     expect(screen.getByText("服务暂不可用")).toBeTruthy();
 
+    fireEvent.click(screen.getByText("笔记详情与操作"));
     fireEvent.click(screen.getByRole("button", { name: "删除笔记" }));
     await waitFor(() =>
       expect(toastMock.show).toHaveBeenCalledWith(
@@ -106,6 +112,7 @@ describe("NotesWorkspace", () => {
     async (status) => {
       const creates: Array<{ key: string; body: string }> = [];
       learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
         if (path === "sources?limit=20" || path === "notes?limit=20")
           return Promise.resolve(page([]));
         if (path === "notes" && options?.method === "POST") {
@@ -130,18 +137,19 @@ describe("NotesWorkspace", () => {
 
       render(<NotesWorkspace />);
       fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      await screen.findByLabelText("标题");
       const title = screen.getByLabelText("标题") as HTMLInputElement;
       const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
       fireEvent.change(title, { target: { value: "原稿" } });
       fireEvent.change(body, { target: { value: "原正文" } });
-      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
       await screen.findByText("创建请求无效");
       expect(screen.queryByRole("button", { name: "确认上次创建并保存改稿" })).toBeNull();
       expect(title.value).toBe("原稿");
       expect(body.value).toBe("原正文");
       fireEvent.change(title, { target: { value: "修订稿" } });
       fireEvent.change(body, { target: { value: "修订正文" } });
-      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
       await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
       expect(creates).toHaveLength(2);
       expect(creates[0]).toEqual({
@@ -161,6 +169,7 @@ describe("NotesWorkspace", () => {
     async (status) => {
       const creates: Array<{ key: string; body: string }> = [];
       learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
         if (path === "sources?limit=20" || path === "notes?limit=20")
           return Promise.resolve(page([]));
         if (path === "notes" && options?.method === "POST") {
@@ -187,11 +196,12 @@ describe("NotesWorkspace", () => {
 
       render(<NotesWorkspace />);
       fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      await screen.findByLabelText("标题");
       const title = screen.getByLabelText("标题") as HTMLInputElement;
       const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
       fireEvent.change(title, { target: { value: "原稿" } });
       fireEvent.change(body, { target: { value: "原正文" } });
-      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
       await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
       fireEvent.change(title, { target: { value: "改稿" } });
       fireEvent.change(body, { target: { value: "改正文" } });
@@ -205,6 +215,7 @@ describe("NotesWorkspace", () => {
   it("does not release the original key when a replay is rejected with 400", async () => {
     const creates: Array<{ key: string; body: string }> = [];
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST") {
@@ -232,11 +243,12 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
     fireEvent.change(title, { target: { value: "改稿" } });
     fireEvent.change(body, { target: { value: "改正文" } });
@@ -256,6 +268,7 @@ describe("NotesWorkspace", () => {
   ])("blocks creation on %i without discarding the local draft", async (status, alertText) => {
     const creates: RequestInit[] = [];
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST") {
@@ -267,19 +280,20 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByText(new RegExp(alertText));
     expect(screen.queryByRole("button", { name: "确认上次创建并保存改稿" })).toBeNull();
-    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(true);
     expect(title.value).toBe("原稿");
     expect(body.value).toBe("原正文");
     fireEvent.change(title, { target: { value: "仍保留的改稿" } });
     expect(title.value).toBe("仍保留的改稿");
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     expect(creates).toHaveLength(1);
     if (status === 401) expect(toastMock.show).not.toHaveBeenCalled();
     else
@@ -292,6 +306,7 @@ describe("NotesWorkspace", () => {
   it("retries an uncertain creation with its original key and body, then saves later edits with ETag", async () => {
     const createCalls: Array<{ key: string; body: string }> = [];
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST") {
@@ -316,11 +331,12 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
     fireEvent.change(title, { target: { value: "改稿" } });
     fireEvent.change(body, { target: { value: "改正文" } });
@@ -347,6 +363,7 @@ describe("NotesWorkspace", () => {
       let creates = 0;
       const puts: Array<{ body: string; etag: string }> = [];
       learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+        if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
         if (path === "sources?limit=20" || path === "notes?limit=20")
           return Promise.resolve(page([]));
         if (path === "notes" && options?.method === "POST") {
@@ -378,11 +395,12 @@ describe("NotesWorkspace", () => {
 
       render(<NotesWorkspace />);
       fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+      await screen.findByLabelText("标题");
       const title = screen.getByLabelText("标题") as HTMLInputElement;
       const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
       fireEvent.change(title, { target: { value: "原稿" } });
       fireEvent.change(body, { target: { value: "原正文" } });
-      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
       await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
       fireEvent.change(title, { target: { value: "改稿" } });
       fireEvent.change(body, { target: { value: "改正文" } });
@@ -392,11 +410,13 @@ describe("NotesWorkspace", () => {
       expect(puts).toHaveLength(0);
       expect(title.value).toBe("改稿");
       expect(body.value).toBe("改正文");
-      expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(
+        true,
+      );
       fireEvent.click(screen.getByRole("button", { name: "使用此版本标签，保留本地编辑" }));
       expect(title.value).toBe("改稿");
       expect(body.value).toBe("改正文");
-      fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+      fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
       await waitFor(() => expect(puts).toHaveLength(1));
       expect(puts[0]).toEqual({
         body: JSON.stringify({ title: "改稿", bodyMarkdown: "改正文" }),
@@ -409,6 +429,7 @@ describe("NotesWorkspace", () => {
   it("recovers a known created note after its ETag GET fails without another POST", async () => {
     let reads = 0;
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST")
@@ -432,21 +453,24 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByRole("button", { name: "重新读取版本标签" });
     fireEvent.change(title, { target: { value: "改稿" } });
     fireEvent.change(body, { target: { value: "改正文" } });
     fireEvent.click(screen.getByRole("button", { name: "重新读取版本标签" }));
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(false),
+      expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(
+        false,
+      ),
     );
     expect(title.value).toBe("改稿");
     expect(body.value).toBe("改正文");
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await waitFor(() => expect(screen.getByText(/笔记已保存/)).toBeTruthy());
     expect(
       learningRequestMock.mock.calls.filter(
@@ -459,6 +483,7 @@ describe("NotesWorkspace", () => {
     let reads = 0;
     const puts: RequestInit[] = [];
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST")
@@ -481,11 +506,12 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByRole("button", { name: "重新读取版本标签" });
     fireEvent.change(title, { target: { value: "改稿" } });
     fireEvent.change(body, { target: { value: "改正文" } });
@@ -495,9 +521,9 @@ describe("NotesWorkspace", () => {
     expect(title.value).toBe("改稿");
     expect(body.value).toBe("改正文");
     expect(puts).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "使用此版本标签，保留本地编辑" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await waitFor(() => expect(puts).toHaveLength(1));
     expect((puts[0].headers as Record<string, string>)["If-Match"]).toBe('"v2"');
     expect(
@@ -510,6 +536,7 @@ describe("NotesWorkspace", () => {
   it("retains later edits when the PUT after creation returns 412", async () => {
     let creates = 0;
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20" || path === "notes?limit=20")
         return Promise.resolve(page([]));
       if (path === "notes" && options?.method === "POST") {
@@ -527,11 +554,12 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
     const title = screen.getByLabelText("标题") as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "原稿" } });
     fireEvent.change(body, { target: { value: "原正文" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
     await screen.findByRole("button", { name: "确认上次创建并保存改稿" });
     fireEvent.change(title, { target: { value: "改稿" } });
     fireEvent.change(body, { target: { value: "改正文" } });
@@ -539,7 +567,7 @@ describe("NotesWorkspace", () => {
     await screen.findByText(/保存冲突：本地编辑已保留/);
     expect(title.value).toBe("改稿");
     expect(body.value).toBe("改正文");
-    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(true);
     expect(creates).toBe(2);
   });
 
@@ -547,6 +575,7 @@ describe("NotesWorkspace", () => {
     const oldMore = deferred<ReturnType<typeof page>>();
     let firstPage = 0;
     learningRequestMock.mockImplementation((path: string) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20") return Promise.resolve(page([]));
       if (path === "notes?limit=20") {
         firstPage += 1;
@@ -588,6 +617,7 @@ describe("NotesWorkspace", () => {
   it("keeps local title and Markdown after a 412 until the user explicitly adopts a new ETag", async () => {
     let reads = 0;
     learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
       if (path === "sources?limit=20") return Promise.resolve(page([]));
       if (path === "notes?limit=20") return Promise.resolve(page([note("原始笔记")]));
       if (path === `notes/${id}` && options?.method === "PUT") {
@@ -605,16 +635,17 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace />);
     fireEvent.click(await screen.findByRole("button", { name: "原始笔记" }));
+    fireEvent.click(await screen.findByRole("button", { name: "编辑" }));
     const title = (await screen.findByLabelText("标题")) as HTMLInputElement;
     const body = screen.getByLabelText("Markdown 与公式原文") as HTMLTextAreaElement;
     fireEvent.change(title, { target: { value: "我的本地标题" } });
     fireEvent.change(body, { target: { value: "我的本地公式 $x^2$" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存到云端" }));
 
     await screen.findByRole("alert", { name: "" });
     expect(title.value).toBe("我的本地标题");
     expect(body.value).toBe("我的本地公式 $x^2$");
-    expect(screen.getByRole("button", { name: "保存笔记" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "保存到云端" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "读取服务器最新版本" }));
     await screen.findByText(/服务器版本 2/);
     expect(title.value).toBe("我的本地标题");
@@ -622,5 +653,92 @@ describe("NotesWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "使用此版本标签，保留本地编辑" }));
     expect(title.value).toBe("我的本地标题");
     expect(body.value).toBe("我的本地公式 $x^2$");
+  });
+  it("keeps the active input when storage failure blocks switching to another note", async () => {
+    learningRequestMock.mockImplementation((path: string) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
+      if (path === "sources?limit=20") return Promise.resolve(page([]));
+      if (path === "notes?limit=20") return Promise.resolve(page([note("另一篇云端笔记")]));
+      return Promise.resolve({ data: note("另一篇云端笔记"), etag: '"v1"' });
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    render(<NotesWorkspace />);
+    await screen.findByRole("button", { name: "另一篇云端笔记" });
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByLabelText("标题");
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "只在内存里的理解" } });
+    fireEvent.click(screen.getByRole("button", { name: "另一篇云端笔记" }));
+    expect((screen.getByLabelText("标题") as HTMLInputElement).value).toBe("只在内存里的理解");
+    expect(screen.getByText(/复制当前内容/)).toBeTruthy();
+  });
+
+  it("renames notebooks inline, supports Escape, and preserves a failed edit for retry", async () => {
+    const bookId = "33333333-3333-4333-8333-333333333333";
+    let attempts = 0,
+      name = "高数";
+    learningRequestMock.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === "notebooks")
+        return Promise.resolve({
+          data: {
+            items: [{ notebookId: bookId, name, revision: 1, updatedAt: "2026-10-25T00:00:00Z" }],
+          },
+          etag: null,
+        });
+      if (path === `notebooks/${bookId}`) {
+        attempts += 1;
+        if (attempts === 1)
+          return Promise.reject(new LearningApiError(503, "W0001", "暂不可用", ""));
+        name = JSON.parse(options?.body as string).name;
+        return Promise.resolve({
+          data: { notebookId: bookId, name, revision: 2, updatedAt: "2026-10-25T00:00:00Z" },
+          etag: null,
+        });
+      }
+      return Promise.resolve(page([]));
+    });
+    render(<NotesWorkspace />);
+    await screen.findByRole("option", { name: "高数" });
+    fireEvent.click(screen.getByText("管理笔记本"));
+    fireEvent.click(screen.getByRole("button", { name: "改名" }));
+    fireEvent.keyDown(screen.getByLabelText("重命名笔记本"), { key: "Escape" });
+    expect(screen.queryByLabelText("重命名笔记本")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "改名" }));
+    fireEvent.change(screen.getByLabelText("重命名笔记本"), { target: { value: "高数复习" } });
+    fireEvent.submit(screen.getByLabelText("重命名笔记本").closest("form")!);
+    await screen.findByText("暂不可用");
+    expect((screen.getByLabelText("重命名笔记本") as HTMLInputElement).value).toBe("高数复习");
+    fireEvent.submit(screen.getByLabelText("重命名笔记本").closest("form")!);
+    await screen.findByRole("option", { name: "高数复习" });
+    expect(screen.queryByLabelText("重命名笔记本")).toBeNull();
+    expect(attempts).toBe(2);
+  });
+  it("protects the current recovered snapshot before selecting another note after external overwrite", async () => {
+    const original = {
+      ...createNoteDraft(),
+      title: "切篇前查看的恢复稿",
+      body: "当前标签的原理解",
+      revision: 1,
+    };
+    storeNoteDraft("7", original);
+    learningRequestMock.mockImplementation((path: string) => {
+      if (path === "notebooks") return Promise.resolve({ data: { items: [] }, etag: null });
+      if (path === "sources?limit=20") return Promise.resolve(page([]));
+      if (path === "notes?limit=20") return Promise.resolve(page([note("另一篇笔记")]));
+      return Promise.resolve({ data: note("另一篇笔记"), etag: '"v1"' });
+    });
+    render(<NotesWorkspace />);
+    await screen.findByRole("button", { name: "另一篇笔记" });
+    fireEvent.click(screen.getByRole("button", { name: "新建笔记" }));
+    await screen.findByDisplayValue(original.title);
+    storeNoteDraft("7", { ...original, body: "另一标签改写的理解", revision: 2 });
+    fireEvent.click(screen.getByRole("button", { name: "另一篇笔记" }));
+    await screen.findByRole("button", { name: "编辑" });
+    const copies = readNoteDrafts("7").value;
+    expect(copies.find((item) => item.draftId === original.draftId)?.body).toBe(
+      "另一标签改写的理解",
+    );
+    expect(copies.find((item) => item.body === original.body)?.draftId).not.toBe(original.draftId);
   });
 });

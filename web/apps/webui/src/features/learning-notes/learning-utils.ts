@@ -59,3 +59,15 @@ export function highlightPercent(
     height: `${((bottom - top) / block.height) * 100}%`,
   };
 }
+
+/** 只改展示文本；冻结摘录及原创建请求仍保留精确原 Markdown。 */
+export function excerptDisplayMarkdown(
+  markdown: string,
+  knownCitationIds: readonly string[] = [],
+): string {
+  const known = new Set(knownCitationIds);
+  return markdown.replace(
+    /\[\[citation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/g,
+    (marker, id: string) => (known.has(id) ? marker : "[引用见原辅导]"),
+  );
+}

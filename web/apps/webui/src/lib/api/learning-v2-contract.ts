@@ -22,6 +22,40 @@ export interface Note {
   bodyMarkdown: string;
   indexStatus: IndexStatus;
   updatedAt: string;
+  context?: NoteContext | null;
+}
+export interface NoteExcerptWrite {
+  resultId: string | null;
+  turnId: string | null;
+  text: string;
+}
+export interface NoteContextWrite {
+  notebookId: string | null;
+  questionId: string | null;
+  excerpt: NoteExcerptWrite | null;
+}
+export interface NoteExcerpt extends Omit<NoteExcerptWrite, "text"> {
+  requestId: string | null;
+  sourceId: string | null;
+  version: number | null;
+  versionHash: string;
+  text: string | null;
+  available: boolean;
+}
+export interface NoteContext {
+  notebookId: string | null;
+  questionId: string | null;
+  revision: number;
+  excerpt: NoteExcerpt | null;
+}
+export interface Notebook {
+  notebookId: string;
+  name: string;
+  revision: number;
+  updatedAt: string;
+}
+export interface NotebookList {
+  items: Notebook[];
 }
 export interface Source {
   sourceId: string;
@@ -185,6 +219,12 @@ const date = (v: unknown): string => {
   const s = str(v);
   return s.length > 0 && !Number.isNaN(Date.parse(s)) ? s : fail();
 };
+const question = (v: unknown): string => {
+  const value = str(v);
+  return /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= BigInt("9223372036854775807")
+    ? value
+    : fail();
+};
 const sourceType = (v: unknown): SourceType =>
   enumeration(v, ["QUESTION", "SAVED_ANSWER", "TUTOR_SNAPSHOT", "TUTOR_REPLY", "NOTE"]);
 const indexStatus = (v: unknown): IndexStatus =>
@@ -212,7 +252,63 @@ export function parseNote(v: unknown): Note {
     bodyMarkdown: str(o.bodyMarkdown),
     indexStatus: indexStatus(o.indexStatus),
     updatedAt: date(o.updatedAt),
+    ...(o.context === undefined ? {} : { context: nullable(o.context, parseNoteContext) }),
   };
+}
+export function parseNoteContext(v: unknown): NoteContext {
+  const o = obj(v);
+  return {
+    notebookId: nullable(o.notebookId, uuid),
+    questionId: nullable(o.questionId, question),
+    revision: integer(o.revision, 1),
+    excerpt: nullable(o.excerpt, (value) => {
+      const e = obj(value);
+      return {
+        resultId: nullable(e.resultId, uuid),
+        turnId: nullable(e.turnId, uuid),
+        requestId: nullable(e.requestId, uuid),
+        sourceId: nullable(e.sourceId, uuid),
+        version: nullable(e.version, (x) => integer(x, 1)),
+        versionHash: str(e.versionHash),
+        text: nullable(e.text, str),
+        available: typeof e.available === "boolean" ? e.available : fail(),
+      };
+    }),
+  };
+}
+export function parseNoteContextWrite(v: unknown): NoteContextWrite {
+  const o = obj(v);
+  if (Object.keys(o).some((key) => !["notebookId", "questionId", "excerpt"].includes(key))) fail();
+  return {
+    notebookId: nullable(o.notebookId ?? null, uuid),
+    questionId: nullable(o.questionId ?? null, question),
+    excerpt: nullable(o.excerpt ?? null, (value) => {
+      const e = obj(value);
+      if (Object.keys(e).some((key) => !["resultId", "turnId", "text"].includes(key))) fail();
+      const resultId = nullable(e.resultId ?? null, uuid),
+        turnId = nullable(e.turnId ?? null, uuid),
+        text = str(e.text);
+      if (
+        (resultId === null) === (turnId === null) ||
+        !text.trim() ||
+        new TextEncoder().encode(text).length > 16384
+      )
+        fail();
+      return { resultId, turnId, text };
+    }),
+  };
+}
+export function parseNotebook(v: unknown): Notebook {
+  const o = obj(v);
+  return {
+    notebookId: uuid(o.notebookId),
+    name: str(o.name),
+    revision: integer(o.revision, 1),
+    updatedAt: date(o.updatedAt),
+  };
+}
+export function parseNotebooks(v: unknown): NotebookList {
+  return { items: list(obj(v).items, parseNotebook) };
 }
 export function parseSource(v: unknown): Source {
   const o = obj(v);

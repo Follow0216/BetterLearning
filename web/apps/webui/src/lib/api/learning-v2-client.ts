@@ -9,6 +9,8 @@ import {
   parseCitationResolution,
   parseCursorPage,
   parseNote,
+  parseNotebook,
+  parseNotebooks,
   parseSource,
   parseTutorDetail,
   parseTutorRequest,
@@ -28,7 +30,7 @@ export class LearningApiError extends Error {
 function localPath(path: string): string {
   const relative = path.startsWith("/api/learning/") ? path.slice("/api/learning/".length) : path;
   if (
-    !/^(notes|sources|questions|citations)(?:[/?]|$)/.test(relative) ||
+    !/^(notes|notebooks|sources|questions|citations)(?:[/?]|$)/.test(relative) ||
     relative.includes("\\") ||
     relative.includes("#") ||
     relative.split(/[/?]/).some((part) => part === "." || part === "..") ||
@@ -46,6 +48,8 @@ function parseByPath(path: string, method: string, value: unknown): unknown {
     return segments.length === 1 && method === "GET"
       ? parseCursorPage(value, parseNote)
       : parseNote(value);
+  if (segments[0] === "notebooks")
+    return segments.length === 1 && method === "GET" ? parseNotebooks(value) : parseNotebook(value);
   if (segments[0] === "sources")
     return segments.length === 1 ? parseCursorPage(value, parseSource) : parseSource(value);
   if (segments[0] === "questions")

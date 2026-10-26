@@ -35,6 +35,7 @@ interface TutorTurnItemProps {
   isLatest: boolean;
   hasAnswer: boolean;
   children?: ReactNode;
+  focused?: boolean;
 }
 
 export function TutorTurnItem({
@@ -44,8 +45,9 @@ export function TutorTurnItem({
   isLatest,
   hasAnswer,
   children,
+  focused = false,
 }: TutorTurnItemProps) {
-  const [expanded, setExpanded] = useState(isLatest);
+  const [expanded, setExpanded] = useState(isLatest || focused);
   const [snapshotExpanded, setSnapshotExpanded] = useState(false);
   const panelId = useId();
   const status = STATUS_META[turn.status];

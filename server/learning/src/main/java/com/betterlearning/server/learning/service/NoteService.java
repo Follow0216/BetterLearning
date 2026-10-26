@@ -37,6 +37,14 @@ public interface NoteService {
     NoteModels.Note update(long accountId, String noteId, String ifMatch, NoteModels.Write write);
     void delete(long accountId, String noteId, String ifMatch);
     NoteModels.Page list(long accountId, String cursor, Integer limit);
+    NoteModels.Page search(long accountId, String query, String notebookId, String questionId,
+            String cursor, Integer limit);
+    NoteModels.Note file(long accountId, String noteId, String ifMatch, NoteModels.Filing filing);
+    NoteModels.Notebooks notebooks(long accountId);
+    NoteModels.Notebook createNotebook(long accountId, String key, NoteModels.NotebookWrite write);
+    NoteModels.Notebook renameNotebook(long accountId, String notebookId, String ifMatch,
+            NoteModels.NotebookWrite write);
+    void deleteNotebook(long accountId, String notebookId, String ifMatch, boolean confirmed);
     SourceView source(long accountId, String sourceId);
     SourcePage sources(long accountId, String type, String cursor, Integer limit);
 }

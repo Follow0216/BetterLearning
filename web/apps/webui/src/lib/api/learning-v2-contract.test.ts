@@ -5,6 +5,8 @@ import {
   parseCitationResolution,
   parseCursorPage,
   parseNote,
+  parseNoteContextWrite,
+  parseNotebooks,
   parseTutorDetail,
 } from "./learning-v2-contract";
 
@@ -199,6 +201,67 @@ describe("learning response parsers", () => {
       createdAt: now,
     };
     expect(() => parseTutorDetail({ request, run, runs: [run], result })).toThrow(
+      LearningContractError,
+    );
+  });
+});
+
+describe("note workspace contract compatibility", () => {
+  const base = {
+    noteId: id,
+    sourceId,
+    version: 1,
+    title: "笔记",
+    bodyMarkdown: "公式 $x^2$",
+    indexStatus: "READY",
+    updatedAt: now,
+  };
+  it("keeps old note shape and accepts independent context metadata", () => {
+    expect(parseNote(base)).toEqual(base);
+    const context = {
+      notebookId: anchorId,
+      questionId: "17",
+      revision: 3,
+      excerpt: {
+        resultId: id,
+        turnId: null,
+        requestId: id,
+        sourceId,
+        version: 2,
+        versionHash: "a".repeat(64),
+        text: "原段落",
+        available: true,
+      },
+    };
+    expect(parseNote({ ...base, context }).context).toEqual(context);
+    expect(
+      parseNote({
+        ...base,
+        context: { ...context, excerpt: { ...context.excerpt, text: null, available: false } },
+      }).context?.excerpt?.text,
+    ).toBeNull();
+    expect(() => parseNote({ ...base, context: { ...context, revision: 0 } })).toThrow(
+      LearningContractError,
+    );
+    expect(() =>
+      parseNote({ ...base, context: { ...context, questionId: "9223372036854775808" } }),
+    ).toThrow(LearningContractError);
+  });
+  it("validates notebook revision and context write without allowing identity injection", () => {
+    const notebook = { notebookId: id, name: "高数", revision: 1, updatedAt: now };
+    expect(parseNotebooks({ items: [notebook] })).toEqual({ items: [notebook] });
+    expect(() => parseNotebooks({ items: [{ ...notebook, revision: 0 }] })).toThrow(
+      LearningContractError,
+    );
+    expect(parseNoteContextWrite({ questionId: "17" })).toEqual({
+      notebookId: null,
+      questionId: "17",
+      excerpt: null,
+    });
+    expect(() => parseNoteContextWrite({ questionId: "17", accountId: "7" })).toThrow(
+      LearningContractError,
+    );
+    expect(() => parseNoteContextWrite({ questionId: "17", excerpt: { text: "伪造" } })).toThrow(
       LearningContractError,
     );
   });

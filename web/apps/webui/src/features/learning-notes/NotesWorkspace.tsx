@@ -1,449 +1,19 @@
 "use client";
 
-import { useToast } from "@betterlearning/ui-feedback";
-import { useEffect, useRef, useState } from "react";
-
-import { QuestionMarkdown } from "@/features/question-content/QuestionMarkdown";
-import { learningRequest, LearningApiError } from "@/lib/api/learning-v2-client";
-import type { CursorPage, Note, Source } from "@/lib/api/learning-v2-contract";
-
-import {
-  displayTime,
-  errorMessage,
-  indexLabels,
-  MAX_NOTE_BYTES,
-  noteByteLength,
-  sourceLabels,
-} from "./learning-utils";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { learningRequest } from "@/lib/api/learning-v2-client";
+import type {
+  CursorPage,
+  Note,
+  Notebook,
+  NotebookList,
+  Source,
+} from "@/lib/api/learning-v2-contract";
+import { displayTime, errorMessage, indexLabels, sourceLabels } from "./learning-utils";
+import { NoteComposer } from "./NoteComposer";
+import { readNoteDrafts, type NoteDraft } from "./note-drafts";
+import { useNoteAccount } from "./use-note-account";
 import styles from "./learning.module.css";
-
-const DEFINITE_CREATE_REJECTIONS = new Set([400, 413, 415, 422]);
-type CreateBlock = "conflict" | "session" | "rejected";
-
-function NoteEditor({
-  noteId,
-  onSaved,
-  onDeleted,
-  onBack,
-}: {
-  noteId: string | null;
-  onSaved: () => void;
-  onDeleted: () => void;
-  onBack: () => void;
-}) {
-  const toast = useToast();
-  const [note, setNote] = useState<Note | null>(null);
-  const [etag, setEtag] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [loading, setLoading] = useState(noteId !== null);
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [conflict, setConflict] = useState(false);
-  const [latest, setLatest] = useState<{ data: Note; etag: string | null } | null>(null);
-  const [reload, setReload] = useState(0);
-  const requestKey = useRef<{ payload: string; key: string } | null>(null);
-  const [createUncertain, setCreateUncertain] = useState(false);
-  const [createBlocked, setCreateBlocked] = useState<CreateBlock | null>(null);
-  const createNeedsReview = createUncertain || createBlocked === "conflict";
-  const lifetime = useRef<AbortController | null>(null);
-  const bytes = noteByteLength(body);
-  const dirty = title !== (note?.title ?? "") || body !== (note?.bodyMarkdown ?? "");
-
-  useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    if (noteId !== null) {
-      learningRequest<Note>(`notes/${noteId}`, { signal: controller.signal })
-        .then(({ data, etag }) => {
-          if (controller.signal.aborted) return;
-          setNote(data);
-          setEtag(etag);
-          setTitle(data.title);
-          setBody(data.bodyMarkdown);
-          setLoading(false);
-          setMessage("");
-        })
-        .catch((error: unknown) => {
-          if (!controller.signal.aborted) {
-            setMessage(errorMessage(error));
-            setLoading(false);
-          }
-        });
-    }
-    return () => controller.abort();
-  }, [noteId, reload]);
-
-  useEffect(() => {
-    if (!dirty && !createNeedsReview) return;
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    const navigate = (event: MouseEvent) => {
-      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (
-        link &&
-        !window.confirm(
-          createNeedsReview
-            ? "上次新建尚未确认或存在冲突，服务器可能已有这篇笔记。离开将放弃核对，确定离开？"
-            : "有尚未保存的笔记编辑，确定离开？",
-        )
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    window.addEventListener("beforeunload", beforeUnload);
-    document.addEventListener("click", navigate, true);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      document.removeEventListener("click", navigate, true);
-    };
-  }, [dirty, createNeedsReview]);
-
-  async function save() {
-    if (
-      pending ||
-      bytes > MAX_NOTE_BYTES ||
-      !title.trim() ||
-      !body.trim() ||
-      conflict ||
-      createBlocked
-    )
-      return;
-    const requestScope = toast.captureScope();
-    setPending(true);
-    setMessage("");
-    const payload = JSON.stringify({ title, bodyMarkdown: body.replace(/\r\n/g, "\n") });
-    try {
-      if (note) {
-        if (!etag) throw new Error("尚未获得版本标签，请重新读取后保存");
-        const result = await learningRequest<Note>(`notes/${note.noteId}`, {
-          method: "PUT",
-          headers: { "If-Match": etag },
-          body: payload,
-          signal: lifetime.current?.signal,
-        });
-        if (lifetime.current?.signal.aborted) return;
-        setNote(result.data);
-        setEtag(result.etag);
-        setTitle(result.data.title);
-        setBody(result.data.bodyMarkdown);
-      } else {
-        // 未确认的创建请求只能用原键和原请求体重试；改稿在确认 noteId 后另行 PUT。
-        requestKey.current ??= { payload, key: crypto.randomUUID() };
-        const result = await learningRequest<Note>("notes", {
-          method: "POST",
-          headers: { "Idempotency-Key": requestKey.current.key },
-          body: requestKey.current.payload,
-          signal: lifetime.current?.signal,
-        });
-        if (lifetime.current?.signal.aborted) return;
-        // 已确认 noteId，之后即使 GET 失败也只允许继续读取或更新这篇笔记。
-        setNote(result.data);
-        requestKey.current = null;
-        setCreateUncertain(false);
-        setCreateBlocked(null);
-        const loaded = await learningRequest<Note>(`notes/${result.data.noteId}`, {
-          signal: lifetime.current?.signal,
-        });
-        if (lifetime.current?.signal.aborted) return;
-        if (result.data.version > 1 || loaded.data.version !== result.data.version) {
-          setConflict(true);
-          setLatest(loaded);
-          setMessage("原笔记已被更新，请核对服务器版本后明确合并本地改稿。");
-          toast.show(
-            { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
-            requestScope,
-          );
-          return;
-        }
-        setNote(loaded.data);
-        setEtag(loaded.etag);
-        if (!loaded.etag) throw new Error("尚未获得版本标签，请重新读取后保存");
-        if (
-          payload !==
-          JSON.stringify({
-            title: loaded.data.title,
-            bodyMarkdown: loaded.data.bodyMarkdown.replace(/\r\n/g, "\n"),
-          })
-        ) {
-          const updated = await learningRequest<Note>(`notes/${loaded.data.noteId}`, {
-            method: "PUT",
-            headers: { "If-Match": loaded.etag },
-            body: payload,
-            signal: lifetime.current?.signal,
-          });
-          if (lifetime.current?.signal.aborted) return;
-          setNote(updated.data);
-          setEtag(updated.etag);
-          setTitle(updated.data.title);
-          setBody(updated.data.bodyMarkdown);
-        }
-      }
-      setMessage("笔记已保存。索引状态可在列表中刷新查看。");
-      toast.show({ key: "note:save", type: "success", message: "笔记已保存" }, requestScope);
-      onSaved();
-    } catch (error) {
-      if (lifetime.current?.signal.aborted) return;
-      const awaitingCreate = !note && requestKey.current !== null;
-      if (awaitingCreate) {
-        const status = error instanceof LearningApiError ? error.status : 0;
-        if (status === 401) {
-          requestKey.current = null;
-          setCreateUncertain(false);
-          setCreateBlocked("session");
-        } else if (status === 409 || status === 412) {
-          // 冲突不是结果未知，也不能靠换键绕过。先返回列表核对已有笔记。
-          setCreateUncertain(false);
-          setCreateBlocked("conflict");
-        } else if (DEFINITE_CREATE_REJECTIONS.has(status) && !createUncertain) {
-          // 首次明确拒绝确认未创建；保留编辑，修正后用新键提交新请求体。
-          requestKey.current = null;
-          setCreateUncertain(false);
-          setCreateBlocked(null);
-        } else if (createUncertain || status === 0 || status >= 500 || status === 429) {
-          // 先前已有未知结果时，后续校验失败不能证明原操作没有提交。
-          setCreateUncertain(true);
-        } else {
-          requestKey.current = null;
-          setCreateUncertain(false);
-          setCreateBlocked("rejected");
-        }
-      } else if (error instanceof LearningApiError && error.status === 412) {
-        setConflict(true);
-      }
-      setMessage(errorMessage(error));
-      if (!(error instanceof LearningApiError && error.status === 401))
-        toast.show(
-          { key: "note:save", type: "error", message: "笔记保存未完成，请查看编辑器提示" },
-          requestScope,
-        );
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function readLatest() {
-    if (!note) return;
-    setPending(true);
-    try {
-      const loaded = await learningRequest<Note>(`notes/${note.noteId}`, {
-        signal: lifetime.current?.signal,
-      });
-      if (lifetime.current?.signal.aborted) return;
-      if (!etag && !conflict) {
-        if (loaded.data.version !== note.version) {
-          setConflict(true);
-          setLatest(loaded);
-          setMessage("原笔记已被更新，请核对服务器版本后明确合并本地改稿。");
-        } else {
-          setNote(loaded.data);
-          setEtag(loaded.etag);
-          setMessage(
-            loaded.etag
-              ? "已取得版本标签，本地编辑仍保留；请再次保存。"
-              : "尚未获得版本标签，请重新读取后保存",
-          );
-        }
-      } else {
-        setLatest(loaded);
-      }
-    } catch (error) {
-      if (!lifetime.current?.signal.aborted) setMessage(errorMessage(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function remove() {
-    if (!note || !etag || pending || !window.confirm("删除此笔记？已有引用将立即失效。")) return;
-    const requestScope = toast.captureScope();
-    setPending(true);
-    setMessage("");
-    try {
-      await learningRequest(`notes/${note.noteId}`, {
-        method: "DELETE",
-        headers: { "If-Match": etag },
-        signal: lifetime.current?.signal,
-      });
-      if (lifetime.current?.signal.aborted) return;
-      toast.show({ key: "note:delete", type: "success", message: "笔记已删除" }, requestScope);
-      onDeleted();
-    } catch (error) {
-      if (lifetime.current?.signal.aborted) return;
-      if (error instanceof LearningApiError && error.status === 412) setConflict(true);
-      setMessage(errorMessage(error));
-      if (!(error instanceof LearningApiError && error.status === 401))
-        toast.show(
-          { key: "note:delete", type: "error", message: "笔记删除未完成，请查看编辑器提示" },
-          requestScope,
-        );
-    } finally {
-      setPending(false);
-    }
-  }
-
-  if (loading) return <p role="status">正在读取笔记…</p>;
-  if (noteId && !note)
-    return (
-      <div className={styles.panel}>
-        <p role="alert" className={styles.error}>
-          {message}
-        </p>
-        <button className={styles.button} onClick={() => setReload(reload + 1)}>
-          重新读取
-        </button>
-        <button className={styles.button} onClick={onBack}>
-          返回笔记列表
-        </button>
-      </div>
-    );
-
-  return (
-    <section className={styles.panel} aria-label="笔记编辑器">
-      <div className={styles.toolbar}>
-        <h2 className="mr-auto text-lg font-semibold">{note ? "编辑笔记" : "新建笔记"}</h2>
-        <button
-          className={styles.button}
-          disabled={pending}
-          onClick={() => {
-            if (
-              (!dirty && !createNeedsReview) ||
-              window.confirm(
-                createNeedsReview
-                  ? "上次新建尚未确认或存在冲突，服务器可能已有这篇笔记。放弃核对并返回列表？"
-                  : "放弃尚未保存的编辑？",
-              )
-            )
-              onBack();
-          }}
-        >
-          返回列表
-        </button>
-        {note && (
-          <button
-            className={`${styles.button} ${styles.danger}`}
-            disabled={pending || !etag || conflict}
-            onClick={() => void remove()}
-          >
-            删除笔记
-          </button>
-        )}
-        <button
-          className={`${styles.button} ${styles.primary}`}
-          disabled={
-            pending ||
-            !title.trim() ||
-            !body.trim() ||
-            bytes > MAX_NOTE_BYTES ||
-            conflict ||
-            createBlocked !== null ||
-            (!!note && !etag)
-          }
-          onClick={() => void save()}
-        >
-          {pending ? "处理中…" : createUncertain ? "确认上次创建并保存改稿" : "保存笔记"}
-        </button>
-      </div>
-      {note && (
-        <p className={styles.muted}>
-          版本 {note.version} · {indexLabels[note.indexStatus]} · {displayTime(note.updatedAt)}
-        </p>
-      )}
-      <label htmlFor="note-title" className={styles.label}>
-        标题
-      </label>
-      <input
-        id="note-title"
-        className={styles.input}
-        value={title}
-        disabled={pending}
-        onChange={(event) => setTitle(event.target.value)}
-      />
-      <div className={styles.columns}>
-        <div>
-          <label htmlFor="note-body" className={styles.label}>
-            Markdown 与公式原文
-          </label>
-          <textarea
-            id="note-body"
-            className={styles.textarea}
-            value={body}
-            disabled={pending}
-            onChange={(event) => setBody(event.target.value)}
-            aria-describedby="note-limit"
-          />
-          <p id="note-limit" className={bytes > MAX_NOTE_BYTES ? styles.error : styles.muted}>
-            {bytes.toLocaleString()} / 65,536 字节（UTF-8）；支持 $…$、$$…$$、\\(…\\) 和 \\[…\\]。
-          </p>
-        </div>
-        <div>
-          <h3 className={styles.label}>预览</h3>
-          <div className={`${styles.panel} ${styles.preview}`}>
-            <QuestionMarkdown bodyMarkdown={body} ariaLabel="笔记公式预览" />
-          </div>
-        </div>
-      </div>
-      {message && (
-        <p role="status" className={styles.error}>
-          {message}
-        </p>
-      )}
-      {createBlocked && (
-        <p role="alert" className={styles.error}>
-          {createBlocked === "conflict"
-            ? "创建请求冲突，已停止重复提交。请返回列表核对已有笔记；明确放弃核对后才能重新新建。"
-            : createBlocked === "session"
-              ? "登录状态已变化，当前创建操作已结束。请重新登录后打开笔记。"
-              : "创建请求已被拒绝，当前操作已停止。请返回列表核对服务和访问权限。"}
-        </p>
-      )}
-      {createUncertain && (
-        <p className={styles.warning} role="alert">
-          上次新建请求的结果未知，服务器可能已有这篇笔记。请用原请求确认后保存改稿；放弃确认可能留下原笔记。
-        </p>
-      )}
-      {note && !etag && !conflict && (
-        <button className={styles.button} disabled={pending} onClick={() => void readLatest()}>
-          重新读取版本标签
-        </button>
-      )}
-      {conflict && (
-        <div className={styles.warning} role="alert">
-          <h3 className="font-semibold">保存冲突：本地编辑已保留</h3>
-          <p>
-            服务器版本已改变。先读取最新版本，在下方核对；再明确选择以最新版本为基线，保留本地编辑继续合并。
-          </p>
-          <button className={styles.button} disabled={pending} onClick={() => void readLatest()}>
-            读取服务器最新版本
-          </button>
-        </div>
-      )}
-      {latest && (
-        <div className={styles.row}>
-          <h3 className="font-semibold">
-            服务器版本 {latest.data.version}：{latest.data.title}
-          </h3>
-          <QuestionMarkdown bodyMarkdown={latest.data.bodyMarkdown} ariaLabel="服务器最新笔记" />
-          <button
-            className={styles.button}
-            disabled={!latest.etag}
-            onClick={() => {
-              setNote(latest.data);
-              setEtag(latest.etag);
-              setConflict(false);
-              setLatest(null);
-              setMessage("已更新版本基线，本地编辑仍保留；请合并后再次保存。");
-            }}
-          >
-            使用此版本标签，保留本地编辑
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
 
 function SourceList() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -544,22 +114,74 @@ function SourceList() {
   );
 }
 
-export function NotesWorkspace() {
+function Workspace({ accountId }: { accountId: string }) {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+  const [drafts, setDrafts] = useState<NoteDraft[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null | undefined>(undefined);
+  const [selected, setSelected] = useState<{
+    noteId: string | null;
+    draftId?: string;
+    key: string;
+  } | null>(null);
+  const [queryInput, setQueryInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [book, setBook] = useState("");
+  const [question, setQuestion] = useState("");
+  const [bookName, setBookName] = useState("");
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    renameInput.current?.focus();
+  }, [renaming]);
+  const [bookPending, setBookPending] = useState(false);
   const [error, setError] = useState("");
+  const [navigationError, setNavigationError] = useState("");
+  const [bookError, setBookError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const [pending, setPending] = useState(true);
   const [revision, setRevision] = useState(0);
   const requests = useRef<AbortController | null>(null);
+  const unsafe = useRef(false);
+  const leaveGuard = useRef<(() => boolean) | null>(null);
+  const registerLeaveGuard = useCallback((guard: (() => boolean) | null) => {
+    leaveGuard.current = guard;
+  }, []);
+  function select(next: typeof selected) {
+    if (leaveGuard.current ? !leaveGuard.current() : unsafe.current) {
+      setNavigationError(
+        "本机保护不可用，请先保存到云端或复制当前内容；也可在笔记详情中明确丢弃草稿。",
+      );
+      return;
+    }
+    setNavigationError("");
+    setSelected(next);
+  }
+  const notebookKey = useRef<{ key: string; name: string } | null>(null);
+  const params = new URLSearchParams({ limit: "20" });
+  if (query) params.set("q", query);
+  if (book) params.set("notebookId", book);
+  if (question) params.set("questionId", question);
+  const filter = params.toString();
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      const url = new URL(window.location.href),
+        noteId = url.searchParams.get("noteId"),
+        questionId = url.searchParams.get("questionId");
+      if (noteId && /^[0-9a-f-]{36}$/.test(noteId)) setSelected({ noteId, key: noteId });
+      if (questionId && /^[1-9][0-9]{0,18}$/.test(questionId)) setQuestion(questionId);
+    });
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     requests.current = controller;
-    learningRequest<CursorPage<Note>>("notes?limit=20", { signal: controller.signal })
+    learningRequest<CursorPage<Note>>(`notes?${filter}`, { signal: controller.signal })
       .then(({ data }) => {
         if (controller.signal.aborted) return;
         setNotes(data.items);
-        setCursor(data.nextCursor ?? null);
+        setCursor(data.nextCursor);
         setError("");
         setPending(false);
       })
@@ -571,7 +193,43 @@ export function NotesWorkspace() {
         }
       });
     return () => controller.abort();
+  }, [filter, revision]);
+  useEffect(() => {
+    const controller = new AbortController();
+    learningRequest<NotebookList>("notebooks", { signal: controller.signal })
+      .then(({ data }) => {
+        if (!controller.signal.aborted) {
+          setNotebooks(data.items);
+          setBookError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setBookError(errorMessage(error));
+      });
+    return () => controller.abort();
   }, [revision]);
+  useEffect(() => {
+    const refresh = () => {
+      const local = readNoteDrafts(accountId);
+      setDrafts(local.value);
+      setDraftError(local.error);
+    };
+    refresh();
+    const storage = (event: StorageEvent) => {
+      if (event.key === null || event.key.startsWith(`bl.notes.draft.v1:${accountId}:`)) refresh();
+    };
+    window.addEventListener("storage", storage);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("storage", storage);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [accountId, selected, revision]);
+  function refresh() {
+    requests.current?.abort();
+    setPending(true);
+    setRevision((value) => value + 1);
+  }
   async function more() {
     if (!cursor || pending) return;
     const signal = requests.current?.signal;
@@ -579,15 +237,15 @@ export function NotesWorkspace() {
     setPending(true);
     try {
       const { data } = await learningRequest<CursorPage<Note>>(
-        `notes?limit=20&cursor=${encodeURIComponent(cursor)}`,
+        `notes?${filter}&cursor=${encodeURIComponent(cursor)}`,
         { signal },
       );
       if (signal.aborted) return;
-      setNotes((items) => [
-        ...items,
-        ...data.items.filter((item) => !items.some((old) => old.noteId === item.noteId)),
+      setNotes((old) => [
+        ...old,
+        ...data.items.filter((item) => !old.some((previous) => previous.noteId === item.noteId)),
       ]);
-      setCursor(data.nextCursor ?? null);
+      setCursor(data.nextCursor);
       setError("");
     } catch (error) {
       if (!signal.aborted) setError(errorMessage(error));
@@ -595,79 +253,358 @@ export function NotesWorkspace() {
       if (!signal.aborted) setPending(false);
     }
   }
+  async function createBook(event: FormEvent) {
+    event.preventDefault();
+    if (!bookName.trim() || bookPending) return;
+    const controller = requests.current;
+    if (!controller || controller.signal.aborted) return;
+    setBookPending(true);
+    if (notebookKey.current?.name !== bookName.trim())
+      notebookKey.current = { key: crypto.randomUUID(), name: bookName.trim() };
+    try {
+      await learningRequest<Notebook>("notebooks", {
+        method: "POST",
+        headers: { "Idempotency-Key": notebookKey.current.key },
+        body: JSON.stringify({ name: notebookKey.current.name }),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setBookName("");
+      notebookKey.current = null;
+      setBookPending(false);
+      refresh();
+    } catch (error) {
+      if (!controller.signal.aborted) setBookError(errorMessage(error));
+    } finally {
+      if (!controller.signal.aborted) setBookPending(false);
+    }
+  }
+  async function changeBook(item: Notebook, remove: boolean, name?: string) {
+    if (bookPending) return;
+    if (!remove && (!name || !name.trim())) return;
+    if (remove && !window.confirm(`删除“${item.name}”？其中笔记会保留并移回未归类。`)) return;
+    const controller = requests.current;
+    if (!controller || controller.signal.aborted) return;
+    setBookPending(true);
+    try {
+      await learningRequest(`notebooks/${item.notebookId}${remove ? "?confirm=true" : ""}`, {
+        method: remove ? "DELETE" : "PUT",
+        headers: { "If-Match": `"notebook:${item.notebookId}:${item.revision}"` },
+        ...(remove ? {} : { body: JSON.stringify({ name }) }),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      if (remove && book === item.notebookId) setBook("");
+      setRenaming(null);
+      setBookPending(false);
+      refresh();
+    } catch (error) {
+      if (!controller.signal.aborted) setBookError(errorMessage(error));
+    } finally {
+      if (!controller.signal.aborted) setBookPending(false);
+    }
+  }
   return (
-    <div className="space-y-5">
-      <section className={styles.panel}>
+    <div className={styles.notesSpace}>
+      <header className={styles.notesHeader}>
+        <div>
+          <h1 className={styles.spaceTitle}>我的笔记</h1>
+          <p className={styles.muted}>把一道题里的理解，留成自己的知识。</p>
+        </div>
         <div className={styles.toolbar}>
-          <h1 className="mr-auto text-xl font-semibold">我的笔记</h1>
-          <button
-            className={styles.button}
-            onClick={() => {
-              requests.current?.abort();
-              setPending(true);
-              setRevision(revision + 1);
-            }}
-          >
+          <button className={styles.button} onClick={refresh}>
             刷新列表
           </button>
-          {selected === undefined && (
-            <button
-              className={`${styles.button} ${styles.primary}`}
-              onClick={() => setSelected(null)}
-            >
-              新建笔记
-            </button>
-          )}
+          <button
+            className={`${styles.button} ${styles.primary}`}
+            onClick={() => select({ noteId: null, key: crypto.randomUUID() })}
+          >
+            新建笔记
+          </button>
         </div>
-        <p className={styles.muted}>记录文字、Markdown 与公式；辅导历史请从题目详情进入。</p>
-        {error && (
-          <p role="alert" className={styles.error}>
-            {error}
-          </p>
-        )}
-        {pending && <p role="status">正在读取笔记…</p>}
-        {selected === undefined && (
-          <>
-            <ul className={styles.list}>
-              {notes.map((note) => (
-                <li className={styles.row} key={note.noteId}>
-                  <button
-                    className="text-left font-semibold hover:underline focus-visible:outline-2"
-                    onClick={() => setSelected(note.noteId)}
-                  >
-                    {note.title}
-                  </button>
-                  <p className={styles.muted}>
-                    版本 {note.version} · {indexLabels[note.indexStatus]} ·{" "}
-                    {displayTime(note.updatedAt)}
-                  </p>
+      </header>
+      {navigationError && (
+        <p role="alert" className={styles.error}>
+          {navigationError}
+        </p>
+      )}
+      <div className={`${styles.notesLayout} ${selected ? styles.hasSelection : ""}`}>
+        <aside className={styles.notesSidebar} aria-label="笔记列表与笔记本">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              requests.current?.abort();
+              setPending(true);
+              setQuery(queryInput.trim());
+              setRevision((value) => value + 1);
+            }}
+            className={styles.searchForm}
+          >
+            <label htmlFor="note-search" className={styles.label}>
+              搜索笔记
+            </label>
+            <div className={styles.toolbar}>
+              <input
+                id="note-search"
+                className={styles.input}
+                type="search"
+                maxLength={200}
+                placeholder="标题或正文关键词"
+                value={queryInput}
+                onChange={(event) => setQueryInput(event.target.value)}
+              />
+              <button className={styles.button}>搜索</button>
+            </div>
+          </form>
+          <label htmlFor="notebook-filter" className={styles.label}>
+            笔记本
+          </label>
+          <select
+            id="notebook-filter"
+            className={styles.input}
+            value={book}
+            onChange={(event) => {
+              requests.current?.abort();
+              setPending(true);
+              setBook(event.target.value);
+            }}
+          >
+            <option value="">全部笔记</option>
+            <option value="unfiled">未归类</option>
+            {notebooks.map((item) => (
+              <option key={item.notebookId} value={item.notebookId}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+          {question && (
+            <p className={styles.muted}>
+              仅看题目 #{question}{" "}
+              <button
+                className={styles.textButton}
+                onClick={() => {
+                  setQuestion("");
+                  setPending(true);
+                }}
+              >
+                查看全部题目
+              </button>
+            </p>
+          )}
+          <details className={styles.previewDetails}>
+            <summary>管理笔记本</summary>
+            <form onSubmit={(event) => void createBook(event)}>
+              <label htmlFor="new-notebook" className={styles.label}>
+                新笔记本名称
+              </label>
+              <input
+                id="new-notebook"
+                className={styles.input}
+                maxLength={64}
+                disabled={bookPending}
+                value={bookName}
+                onChange={(event) => setBookName(event.target.value)}
+              />
+              <button className={styles.button} disabled={!bookName.trim() || bookPending}>
+                创建笔记本
+              </button>
+            </form>
+            <ul>
+              {notebooks.map((item) => (
+                <li key={item.notebookId} className={styles.notebookRow}>
+                  {renaming === item.notebookId ? (
+                    <form
+                      className={styles.renameForm}
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void changeBook(item, false, renameValue);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape" && !bookPending) {
+                          event.preventDefault();
+                          setRenaming(null);
+                        }
+                      }}
+                    >
+                      <label className={styles.label} htmlFor={`rename-${item.notebookId}`}>
+                        重命名笔记本
+                      </label>
+                      <input
+                        ref={renameInput}
+                        id={`rename-${item.notebookId}`}
+                        className={styles.input}
+                        value={renameValue}
+                        disabled={bookPending}
+                        maxLength={64}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                      />
+                      <div className={styles.toolbar}>
+                        <button
+                          className={styles.button}
+                          disabled={bookPending || !renameValue.trim()}
+                        >
+                          保存名称
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.button}
+                          disabled={bookPending}
+                          onClick={() => setRenaming(null)}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <span>{item.name}</span>
+                      <button
+                        className={styles.textButton}
+                        disabled={bookPending}
+                        onClick={() => {
+                          setRenaming(item.notebookId);
+                          setRenameValue(item.name);
+                          setBookError("");
+                        }}
+                      >
+                        改名
+                      </button>
+                      <button
+                        className={styles.textButton}
+                        disabled={bookPending}
+                        onClick={() => void changeBook(item, true)}
+                      >
+                        删除
+                      </button>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
-            {!pending && !error && notes.length === 0 && (
-              <p className={styles.muted}>还没有笔记，创建第一篇笔记吧。</p>
-            )}
-            {cursor && (
-              <button className={styles.button} disabled={pending} onClick={() => void more()}>
-                加载更多笔记
+          </details>
+          {bookError && (
+            <p role="alert" className={styles.error}>
+              {bookError}
+            </p>
+          )}
+          {draftError && (
+            <p role="alert" className={styles.error}>
+              {draftError}
+            </p>
+          )}
+          {drafts.length > 0 && (
+            <details className={styles.previewDetails}>
+              <summary>本机草稿 · {drafts.length}</summary>
+              <ul>
+                {drafts.map((item) => (
+                  <li key={item.draftId}>
+                    <button
+                      className={styles.draftLink}
+                      onClick={() =>
+                        select({
+                          noteId: item.noteId,
+                          draftId: item.draftId,
+                          key: item.draftId,
+                        })
+                      }
+                    >
+                      {item.title || "未命名草稿"}
+                      <span>
+                        {displayTime(item.updatedAt)}
+                        {item.createRequest ? " · 创建待核对" : ""}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
+          {pending && (
+            <p role="status" className={styles.muted}>
+              正在读取笔记…
+            </p>
+          )}
+          <ul className={styles.noteList}>
+            {notes.map((item) => (
+              <li key={item.noteId}>
+                <button
+                  className={styles.noteListItem}
+                  aria-label={item.title}
+                  aria-pressed={selected?.noteId === item.noteId}
+                  onClick={() => select({ noteId: item.noteId, key: item.noteId })}
+                >
+                  <strong>{item.title}</strong>
+                  <span>{item.bodyMarkdown.slice(0, 100).replace(/[#*_`]/g, "")}</span>
+                  <time dateTime={item.updatedAt}>
+                    {displayTime(item.updatedAt)}
+                    {item.context?.questionId ? " · 随题摘记" : ""}
+                  </time>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {!pending && !error && notes.length === 0 && (
+            <p className={styles.emptySmall}>
+              {query || book || question
+                ? "没有找到匹配的笔记，换个关键词或笔记本试试。"
+                : "还没有云端笔记。记下第一条自己的理解吧。"}
+            </p>
+          )}
+          {cursor && (
+            <button className={styles.button} disabled={pending} onClick={() => void more()}>
+              加载更多笔记
+            </button>
+          )}
+        </aside>
+        <div className={styles.noteArea}>
+          {selected ? (
+            <NoteComposer
+              key={selected.key}
+              accountId={accountId}
+              noteId={selected.noteId}
+              draftId={selected.draftId}
+              notebooks={notebooks}
+              onLeaveGuardChange={registerLeaveGuard}
+              onProtectionChange={(blocked) => {
+                unsafe.current = blocked;
+              }}
+              onSaved={() => refresh()}
+              onDeleted={() => {
+                setSelected(null);
+                refresh();
+              }}
+              onBack={() => select(null)}
+            />
+          ) : (
+            <div className={styles.emptyPaper}>
+              <span className={styles.paperMark}>记</span>
+              <h2>让理解慢慢积累</h2>
+              <p>从左侧打开一篇笔记，或记下今天的一点收获。</p>
+              <button
+                className={styles.button}
+                onClick={() => select({ noteId: null, key: crypto.randomUUID() })}
+              >
+                写一篇自由笔记
               </button>
-            )}
-          </>
-        )}
-      </section>
-      {selected !== undefined && (
-        <NoteEditor
-          key={selected ?? "new"}
-          noteId={selected}
-          onSaved={() => setRevision((value) => value + 1)}
-          onDeleted={() => {
-            setSelected(undefined);
-            setRevision((value) => value + 1);
-          }}
-          onBack={() => setSelected(undefined)}
-        />
-      )}
-      <SourceList key={revision} />
+            </div>
+          )}
+        </div>
+      </div>
+      <details className={styles.sourceDetails}>
+        <summary>资料与同步状态</summary>
+        <SourceList key={revision} />
+      </details>
     </div>
   );
+}
+
+export function NotesWorkspace() {
+  const { accountId, error } = useNoteAccount();
+  if (!accountId) return <p role={error ? "alert" : "status"}>{error || "正在核验账号…"}</p>;
+  return <Workspace key={accountId} accountId={accountId} />;
 }

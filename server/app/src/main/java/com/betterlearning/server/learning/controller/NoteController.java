@@ -45,9 +45,13 @@ public class NoteController {
     @GetMapping
     public ResponseEntity<NoteModels.Page> list(
             @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
-            @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String q, @RequestParam(required = false) String notebookId,
+            @RequestParam(required = false) String questionId) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(service.list(account.accountId(), cursor, limit));
+                .body(q == null && notebookId == null && questionId == null
+                        ? service.list(account.accountId(), cursor, limit)
+                        : service.search(account.accountId(), q, notebookId, questionId, cursor, limit));
     }
 
     @PostMapping
@@ -85,6 +89,18 @@ public class NoteController {
         NoteModels.Note note = service.update(account.accountId(), noteId, ifMatch, write);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .eTag(NoteContent.etag(note.noteId(), note.version())).body(note);
+    }
+
+    @PutMapping("/{noteId}/context")
+    public ResponseEntity<NoteModels.Note> file(
+            @Parameter(hidden = true) @AuthenticationPrincipal AuthenticatedAccount account,
+            @PathVariable String noteId,
+            @Parameter(name = "If-Match", in = ParameterIn.HEADER, required = true,
+            description = "独立归类版本标签，正文版本不随归类变化")
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @RequestBody NoteModels.Filing filing) {
+        NoteModels.Note note = service.file(account.accountId(), noteId, ifMatch, filing);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(note);
     }
 
     @DeleteMapping("/{noteId}")

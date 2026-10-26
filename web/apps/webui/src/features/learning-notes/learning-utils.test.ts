@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { highlightPercent, MAX_NOTE_BYTES, noteByteLength } from "./learning-utils";
+import {
+  excerptDisplayMarkdown,
+  highlightPercent,
+  MAX_NOTE_BYTES,
+  noteByteLength,
+} from "./learning-utils";
 
 describe("noteByteLength", () => {
   it("counts UTF-8 bytes at the 64 KiB boundary, including multibyte text", () => {
@@ -50,4 +55,11 @@ describe("highlightPercent", () => {
       ),
     ).toThrow("引用区域不在原图内");
   });
+});
+
+it("uses a readable citation placeholder without mutating raw excerpts, retaining known links", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+  const raw = `一整段说明 [[citation:${id}]]。`;
+  expect(excerptDisplayMarkdown(raw)).toBe("一整段说明 [引用见原辅导]。");
+  expect(excerptDisplayMarkdown(raw, [id])).toBe(raw);
 });

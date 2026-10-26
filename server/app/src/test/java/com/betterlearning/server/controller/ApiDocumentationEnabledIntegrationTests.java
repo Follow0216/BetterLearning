@@ -109,7 +109,7 @@ class ApiDocumentationEnabledIntegrationTests {
     }
 
     @Test
-    void documentsExactlyTheFortyNineM3M4V2AndP4Operations() throws Exception {
+    void documentsExactlyTheLearningAndNoteWorkspaceOperations() throws Exception {
         Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
         assertThat(docs.get("openapi")).isEqualTo("3.1.0");
         Map<String, Object> paths = asMap(docs.get("paths"));
@@ -147,6 +147,9 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}/retry", List.of("post")),
                 Map.entry("/api/v2/learning/notes", List.of("get", "post")),
                 Map.entry("/api/v2/learning/notes/{noteId}", List.of("get", "put", "delete")),
+                Map.entry("/api/v2/learning/notes/{noteId}/context", List.of("put")),
+                Map.entry("/api/v2/learning/notebooks", List.of("get", "post")),
+                Map.entry("/api/v2/learning/notebooks/{notebookId}", List.of("put", "delete")),
                 Map.entry("/api/v2/learning/sources", List.of("get")),
                 Map.entry("/api/v2/learning/sources/{sourceId}", List.of("get")),
                 Map.entry("/api/v2/learning/citations/{citationId}/resolve", List.of("get")),
@@ -209,6 +212,11 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v2/learning/notes/{noteId}", "get", "200"},
                 new String[] {"/api/v2/learning/notes/{noteId}", "put", "200"},
                 new String[] {"/api/v2/learning/notes/{noteId}", "delete", "204"},
+                new String[] {"/api/v2/learning/notes/{noteId}/context", "put", "200"},
+                new String[] {"/api/v2/learning/notebooks", "get", "200"},
+                new String[] {"/api/v2/learning/notebooks", "post", "201"},
+                new String[] {"/api/v2/learning/notebooks/{notebookId}", "put", "200"},
+                new String[] {"/api/v2/learning/notebooks/{notebookId}", "delete", "204"},
                 new String[] {"/api/v2/learning/sources", "get", "200"},
                 new String[] {"/api/v2/learning/sources/{sourceId}", "get", "200"},
                 new String[] {"/api/v2/learning/citations/{citationId}/resolve", "get", "200"},
@@ -226,6 +234,10 @@ class ApiDocumentationEnabledIntegrationTests {
         assertRequiredHeader(docs, "/api/v2/learning/notes", "post", "Idempotency-Key");
         assertRequiredHeader(docs, "/api/v2/learning/notes/{noteId}", "put", "If-Match");
         assertRequiredHeader(docs, "/api/v2/learning/notes/{noteId}", "delete", "If-Match");
+        assertRequiredHeader(docs, "/api/v2/learning/notes/{noteId}/context", "put", "If-Match");
+        assertRequiredHeader(docs, "/api/v2/learning/notebooks", "post", "Idempotency-Key");
+        assertRequiredHeader(docs, "/api/v2/learning/notebooks/{notebookId}", "put", "If-Match");
+        assertRequiredHeader(docs, "/api/v2/learning/notebooks/{notebookId}", "delete", "If-Match");
     }
 
     @Test
@@ -281,6 +293,11 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v2/learning/notes/{noteId}", "get"},
                 new String[] {"/api/v2/learning/notes/{noteId}", "put"},
                 new String[] {"/api/v2/learning/notes/{noteId}", "delete"},
+                new String[] {"/api/v2/learning/notes/{noteId}/context", "put"},
+                new String[] {"/api/v2/learning/notebooks", "get"},
+                new String[] {"/api/v2/learning/notebooks", "post"},
+                new String[] {"/api/v2/learning/notebooks/{notebookId}", "put"},
+                new String[] {"/api/v2/learning/notebooks/{notebookId}", "delete"},
                 new String[] {"/api/v2/learning/sources", "get"},
                 new String[] {"/api/v2/learning/sources/{sourceId}", "get"},
                 new String[] {"/api/v2/learning/citations/{citationId}/resolve", "get"},

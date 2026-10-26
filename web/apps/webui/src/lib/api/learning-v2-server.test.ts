@@ -219,3 +219,186 @@ describe("learning BFF route allowlist", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 });
+
+function workspaceMutation(
+  path: string,
+  method: "POST" | "PUT" | "DELETE",
+  body: unknown,
+  headers: Record<string, string> = {},
+) {
+  return new NextRequest(`http://localhost:3000/api/learning/${path}`, {
+    method,
+    headers: {
+      Host: "localhost:3000",
+      Origin: "http://localhost:3000",
+      Cookie: "bl_session=private-token",
+      ...(method === "DELETE" ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
+    ...(method === "DELETE" ? {} : { body: JSON.stringify(body) }),
+  });
+}
+describe("note workspace BFF contract", () => {
+  it("forwards real keyword and combination filters but rejects duplicate or foreign query fields", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => Response.json({ items: [note], nextCursor: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleLearningRequest(
+      new NextRequest(
+        `http://localhost:3000/api/learning/notes?q=100%25_%5C&notebookId=${id}&questionId=9&limit=1`,
+        { headers: { Cookie: "bl_session=private-token" } },
+      ),
+      ["notes"],
+      "GET",
+    );
+    expect(response.status).toBe(200);
+    const upstream = new URL(fetchMock.mock.calls[0][0]);
+    expect(upstream.searchParams.get("q")).toBe("100%_\\");
+    expect(upstream.searchParams.get("notebookId")).toBe(id);
+    expect(upstream.searchParams.get("questionId")).toBe("9");
+    expect((await handleLearningRequest(request("notes?q=a&q=b"), ["notes"], "GET")).status).toBe(
+      404,
+    );
+    expect(
+      (await handleLearningRequest(request("notes?q=a&accountId=7"), ["notes"], "GET")).status,
+    ).toBe(404);
+  });
+  it("preserves the exact old dual-field payload and forwards optional provenance without credentials", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json(note, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const old = { title: "学习笔记", bodyMarkdown: "正文" };
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation("notes", "POST", old, { "Idempotency-Key": id }),
+          ["notes"],
+          "POST",
+        )
+      ).status,
+    ).toBe(201);
+    expect(fetchMock.mock.calls[0][1].body).toBe(JSON.stringify(old));
+    const context = {
+      notebookId: id,
+      questionId: "9",
+      excerpt: { resultId: id, turnId: null, text: "原文段落" },
+    };
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation("notes", "POST", { ...old, context }, { "Idempotency-Key": id }),
+          ["notes"],
+          "POST",
+        )
+      ).status,
+    ).toBe(201);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).context).toEqual(context);
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notes/${id}`, "PUT", { ...old, context }, { "If-Match": '"old"' }),
+          ["notes", id],
+          "PUT",
+        )
+      ).status,
+    ).toBe(400);
+  });
+  it("forwards independent filing CAS and requires explicit notebook deletion confirmation", async () => {
+    const notebook = { notebookId: id, name: "高数", revision: 2, updatedAt: note.updatedAt };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async (_url, options) =>
+        options.method === "DELETE"
+          ? new Response(null, { status: 204 })
+          : Response.json(options.body.includes("notebookId") ? note : notebook),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(
+            `notes/${id}/context`,
+            "PUT",
+            { notebookId: null },
+            { "If-Match": `"context:${id}:1"` },
+          ),
+          ["notes", id, "context"],
+          "PUT",
+        )
+      ).status,
+    ).toBe(200);
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("If-Match")).toBe(
+      `"context:${id}:1"`,
+    );
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notebooks/${id}`, "PUT", { name: "高数" }),
+          ["notebooks", id],
+          "PUT",
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notebooks/${id}?confirm=false`, "DELETE", null, {
+            "If-Match": `"notebook:${id}:2"`,
+          }),
+          ["notebooks", id],
+          "DELETE",
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notebooks/${id}?confirm=true`, "DELETE", null, {
+            "If-Match": `"notebook:${id}:2"`,
+          }),
+          ["notebooks", id],
+          "DELETE",
+        )
+      ).status,
+    ).toBe(204);
+  });
+  it("preserves notebook precondition errors and rejects a response for another notebook", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ code: "A0400", traceId: "revision-1" }, { status: 412 }),
+        ),
+    );
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notebooks/${id}`, "PUT", { name: "改名" }, { "If-Match": '"old"' }),
+          ["notebooks", id],
+          "PUT",
+        )
+      ).status,
+    ).toBe(412);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        Response.json({
+          notebookId: note.sourceId,
+          name: "错本",
+          revision: 1,
+          updatedAt: note.updatedAt,
+        }),
+      ),
+    );
+    expect(
+      (
+        await handleLearningRequest(
+          workspaceMutation(`notebooks/${id}`, "PUT", { name: "改名" }, { "If-Match": '"old"' }),
+          ["notebooks", id],
+          "PUT",
+        )
+      ).status,
+    ).toBe(502);
+  });
+});
