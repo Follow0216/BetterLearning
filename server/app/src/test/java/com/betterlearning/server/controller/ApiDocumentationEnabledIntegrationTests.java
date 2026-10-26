@@ -141,6 +141,7 @@ class ApiDocumentationEnabledIntegrationTests {
                 Map.entry("/api/v1/learning/ocr", List.of("post")),
                 Map.entry("/api/v2/learning/tablet-presence", List.of("post")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tablet-availability", List.of("get")),
+                Map.entry("/api/v1/learning/ocr/batches/{requestId}", List.of("get", "post", "delete")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests", List.of("get", "post")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/pending", List.of("get")),
                 Map.entry("/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}", List.of("get")),
@@ -209,12 +210,98 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/cancel", "post", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", "get", "200"},
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", "get", "200"},
-                new String[] {"/api/v1/learning/ocr", "post", "200"})) {
+                new String[] {"/api/v1/learning/ocr", "post", "200"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "get", "200"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "post", "200"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "delete", "200"})) {
             Map<String, Object> responses = asMap(operation(docs, addedOperation[0], addedOperation[1])
                     .get("responses"));
             assertThat(responses).containsKey(addedOperation[2]);
             assertThat(asMap(responses.get(addedOperation[2]))).containsKey("content");
         }
+    }
+
+    @Test
+    void documentsBatchOcrMultipartAndDraftSchemas() throws Exception {
+        Map<String, Object> docs = jsonBody(get("/v3/api-docs"));
+        Map<String, Object> schemas = asMap(asMap(docs.get("components")).get("schemas"));
+        String path = "/api/v1/learning/ocr/batches/{requestId}";
+        String responseReference = null;
+        for (String method : List.of("get", "post", "delete")) {
+            assertOperation(docs, path, method, "200");
+            Map<String, Object> current = operation(docs, path, method);
+            List<Object> parameters = asList(current.get("parameters"));
+            assertThat(parameters).hasSize(1);
+            Map<String, Object> requestId = asMap(parameters.get(0));
+            assertThat(requestId).containsEntry("name", "requestId").containsEntry("in", "path")
+                    .containsEntry("required", true);
+            assertThat(asMap(requestId.get("schema"))).containsEntry("type", "string")
+                    .containsEntry("format", "uuid");
+            Map<String, Object> responses = asMap(current.get("responses"));
+            assertThat(responses).containsKeys("200", "401");
+            assertThat(description(responses.get("401"))).contains("A0200");
+            Map<String, Object> success = asMap(responses.get("200"));
+            assertThat(asMap(success.get("content"))).containsOnlyKeys("application/json");
+            String reference = responseSchema(success);
+            if (responseReference == null) {
+                responseReference = reference;
+            } else {
+                assertThat(reference).isEqualTo(responseReference);
+            }
+            if (!"post".equals(method)) {
+                assertThat(current).doesNotContainKey("requestBody");
+            }
+        }
+
+        Map<String, Object> request = asMap(operation(docs, path, "post").get("requestBody"));
+        assertThat(request).containsEntry("required", true);
+        assertThat(description(request)).contains("1 至 4").contains("连续").contains("16 MiB").contains("32 MiB");
+        Map<String, Object> content = asMap(request.get("content"));
+        assertThat(content).containsOnlyKeys("multipart/form-data");
+        Map<String, Object> multipart = asMap(content.get("multipart/form-data"));
+        Map<String, Object> upload = resolvedSchema(schemas, multipart.get("schema"));
+        assertThat(upload).containsEntry("type", "object").containsEntry("additionalProperties", false)
+                .containsEntry("minProperties", 1).containsEntry("maxProperties", 4);
+        assertThat(asList(upload.get("required"))).containsExactly("image0");
+        Map<String, Object> parts = asMap(upload.get("properties"));
+        assertThat(parts).containsOnlyKeys("image0", "image1", "image2", "image3");
+        Map<String, Object> encodings = asMap(multipart.get("encoding"));
+        assertThat(encodings).containsOnlyKeys("image0", "image1", "image2", "image3");
+        for (String name : List.of("image0", "image1", "image2", "image3")) {
+            assertThat(asMap(parts.get(name))).containsEntry("type", "string").containsEntry("format", "binary");
+            assertThat(asMap(encodings.get(name))).containsEntry("contentType", "image/png,image/jpeg");
+        }
+
+        Map<String, Object> response = resolvedSchema(schemas, Map.of("$ref", responseReference));
+        Map<String, Object> responseProperties = asMap(response.get("properties"));
+        assertThat(responseProperties).containsOnlyKeys("requestId", "status", "stage", "completedTiles",
+                "totalTiles", "result", "errorCode", "message");
+        Map<String, Object> result = resolvedSchema(schemas, responseProperties.get("result"));
+        Map<String, Object> resultProperties = asMap(result.get("properties"));
+        assertThat(resultProperties).containsOnlyKeys("questions", "sources", "tiles", "warnings", "incomplete");
+        assertThat(asMap(resultProperties.get("incomplete"))).containsEntry("type", "boolean");
+        Map<String, Object> questions = resolvedSchema(schemas,
+                asMap(resultProperties.get("questions")).get("items"));
+        assertThat(asMap(questions.get("properties"))).containsOnlyKeys("itemId", "bodyMarkdown", "sourceIds",
+                "tileIds", "needsReview", "warnings");
+        Map<String, Object> sources = resolvedSchema(schemas,
+                asMap(resultProperties.get("sources")).get("items"));
+        assertThat(asMap(sources.get("properties"))).containsOnlyKeys("sourceId", "order", "width", "height");
+        Map<String, Object> tiles = resolvedSchema(schemas, asMap(resultProperties.get("tiles")).get("items"));
+        Map<String, Object> tileProperties = asMap(tiles.get("properties"));
+        assertThat(tileProperties).containsOnlyKeys("tileId", "sourceId", "x", "y", "width", "height",
+                "repair", "markdown");
+        assertThat(asMap(tileProperties.get("repair"))).containsEntry("type", "boolean");
+
+        Map<String, Object> tutorResponses = asMap(operation(docs,
+                "/api/v2/learning/questions/{questionId}/tutor-requests/{requestId}", "get").get("responses"));
+        Map<String, Object> tutorDetail = resolvedSchema(schemas,
+                Map.of("$ref", responseSchema(asMap(tutorResponses.get("200")))));
+        Map<String, Object> tutorResult = asMap(asMap(tutorDetail.get("properties")).get("result"));
+        assertThat(tutorResult.get("$ref")).isNotNull()
+                .isNotEqualTo(asMap(responseProperties.get("result")).get("$ref"));
+        assertThat(asMap(resolvedSchema(schemas, tutorResult).get("properties")))
+                .containsOnlyKeys("resultId", "mode", "status", "bodyMarkdown", "citations", "evidence", "createdAt");
     }
 
     @Test
@@ -302,6 +389,9 @@ class ApiDocumentationEnabledIntegrationTests {
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/blocks/{index}", "get"},
                 new String[] {"/api/v1/learning/questions/{questionId}/tutor-turns/{turnId}/answer/files/{fileRef}/question-blocks/{index}", "get"},
                 new String[] {"/api/v1/learning/ocr", "post"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "get"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "post"},
+                new String[] {"/api/v1/learning/ocr/batches/{requestId}", "delete"},
                 new String[] {"/api/v2/learning/notes", "get"},
                 new String[] {"/api/v2/learning/notes", "post"},
                 new String[] {"/api/v2/learning/notes/{noteId}", "get"},
@@ -489,6 +579,19 @@ class ApiDocumentationEnabledIntegrationTests {
         assertThat(content).isNotEmpty();
         Map<String, Object> media = asMap(content.values().iterator().next());
         return (String) asMap(media.get("schema")).get("$ref");
+    }
+
+    private static Map<String, Object> resolvedSchema(Map<String, Object> schemas, Object schemaValue) {
+        Map<String, Object> schema = asMap(schemaValue);
+        if (schema.containsKey("$ref")) {
+            String reference = (String) schema.get("$ref");
+            String prefix = "#/components/schemas/";
+            assertThat(reference).startsWith(prefix);
+            Map<String, Object> resolved = asMap(schemas.get(reference.substring(prefix.length())));
+            assertThat(resolved).as(reference).isNotNull();
+            return resolved;
+        }
+        return schema;
     }
 
     private static void assertPassword(Object schemaValue, int minLength) {

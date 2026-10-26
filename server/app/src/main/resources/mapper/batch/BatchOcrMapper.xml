@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.betterlearning.server.agent.batch.mapper.BatchOcrMapper">
+    <!-- 全局只有两个内存批次、一个模型worker；锁仅覆盖短事务，不跨模型调用。 -->
+    <select id="lockAdmission" resultType="java.lang.Long">
+        SELECT 1 FROM (SELECT pg_advisory_xact_lock(20261026, 902)) batch_lock
+    </select>
+    <select id="lockAccount" resultType="java.lang.Long">
+        SELECT account_id FROM app_user WHERE account_id=#{accountId} FOR UPDATE
+    </select>
+    <update id="expire">
+        UPDATE ocr_batch SET status='UNKNOWN', stage='UNKNOWN', worker_owner=NULL, lease_until=NULL,
+            error_code='C0001', message='识别执行状态未知，已保留可校对内容；请保留原图', updated_at=CURRENT_TIMESTAMP
+        WHERE account_id=#{accountId} AND status IN ('QUEUED','RUNNING')
+            AND lease_until &lt;= CURRENT_TIMESTAMP
+        <if test="requestId != null">AND request_id=#{requestId}</if>
+    </update>
+    <select id="find" resultType="map">
+        SELECT request_id AS "requestId", fingerprint, status, stage,
+            completed_tiles AS "completedTiles", total_tiles AS "totalTiles", result_json AS "resultJson",
+            error_code AS "errorCode", message, worker_owner AS "owner"
+        FROM ocr_batch WHERE account_id=#{accountId} AND request_id=#{requestId}
+    </select>
+    <select id="activeCount" resultType="int">
+        SELECT count(*) FROM ocr_batch WHERE worker_owner IS NOT NULL AND lease_until &gt; CURRENT_TIMESTAMP
+        <if test="accountId != null">AND account_id=#{accountId} AND status IN ('QUEUED','RUNNING')</if>
+        <if test="runningOnly">AND status IN ('RUNNING','CANCELLED')</if>
+    </select>
+    <insert id="insert">
+        INSERT INTO ocr_batch(account_id,request_id,fingerprint,status,stage,worker_owner,lease_until)
+        VALUES(#{accountId},#{requestId},#{fingerprint},'QUEUED','QUEUED',#{owner},
+            CURRENT_TIMESTAMP + INTERVAL '5 minutes')
+    </insert>
+    <update id="start">
+        UPDATE ocr_batch SET status='RUNNING',stage='VALIDATING',updated_at=CURRENT_TIMESTAMP,
+            lease_until=CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+        WHERE account_id=#{accountId} AND request_id=#{requestId} AND worker_owner=#{owner}
+            AND status='QUEUED' AND lease_until &gt; CURRENT_TIMESTAMP
+    </update>
+    <update id="heartbeat">
+        UPDATE ocr_batch SET lease_until=CURRENT_TIMESTAMP + INTERVAL '5 minutes'
+        WHERE account_id=#{accountId} AND request_id=#{requestId} AND worker_owner=#{owner}
+            AND status IN ('QUEUED','RUNNING','CANCELLED') AND lease_until &gt; CURRENT_TIMESTAMP
+    </update>
+    <update id="progress">
+        UPDATE ocr_batch SET completed_tiles=#{completed},total_tiles=#{total},stage=#{stage},
+            result_json=COALESCE(#{resultJson},result_json),updated_at=CURRENT_TIMESTAMP
+        WHERE account_id=#{accountId} AND request_id=#{requestId} AND worker_owner=#{owner}
+            AND status='RUNNING' AND lease_until &gt; CURRENT_TIMESTAMP
+    </update>
+    <update id="finish">
+        UPDATE ocr_batch SET status=#{status},stage=#{status},result_json=COALESCE(#{resultJson},result_json),
+            error_code=#{errorCode},message=#{message},worker_owner=NULL,lease_until=NULL,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE account_id=#{accountId} AND request_id=#{requestId} AND worker_owner=#{owner}
+            AND status IN ('QUEUED','RUNNING') AND lease_until &gt; CURRENT_TIMESTAMP
+    </update>
+    <update id="cancel">
+        UPDATE ocr_batch SET status='CANCELLED',stage='CANCELLED',
+            message='已取消；已发出的模型调用可能仍在结束中',updated_at=CURRENT_TIMESTAMP
+        WHERE account_id=#{accountId} AND request_id=#{requestId} AND status IN ('QUEUED','RUNNING')
+    </update>
+    <update id="releaseCancelled">
+        UPDATE ocr_batch SET worker_owner=NULL,lease_until=NULL WHERE account_id=#{accountId}
+            AND request_id=#{requestId} AND worker_owner=#{owner} AND status='CANCELLED'
+    </update>
+</mapper>
