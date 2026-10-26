@@ -49,7 +49,9 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
             TutorRequestModels.CreateRequest input) {
         if (input == null || !AnswerManifestValidator.uuid(idempotencyKey)
                 || !idempotencyKey.equals(input.requestId()) || input.prompt() == null
-                || input.prompt().isBlank() || input.prompt().length() > 4000) {
+                || input.prompt().isBlank() || input.prompt().length() > 4000
+                || input.contextParentRequestId() != null && (!AnswerManifestValidator.uuid(input.contextParentRequestId())
+                || input.requestId().equals(input.contextParentRequestId()))) {
             throw invalid();
         }
         MultiAgentModels.Mode mode = mode(input.mode());
@@ -72,7 +74,7 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
             }
         }
         MultiAgentModels.CreateRequest command = new MultiAgentModels.CreateRequest(input.requestId(),
-                input.prompt(), mode, snapshot);
+                input.prompt(), mode, snapshot, input.contextParentRequestId());
         return request(ledger.create(accountId, questionId, idempotencyKey, command));
     }
 
@@ -278,7 +280,7 @@ public class TutorRequestServiceImpl implements TutorRequestService, SnapshotPor
         return new TutorRequestModels.Request(source.requestId(), source.questionId(), source.prompt(),
                 source.mode().name(), new TutorRequestModels.SnapshotInput(input.kind(), input.sourceRequestId()),
                 source.snapshotOriginRequestId(), source.snapshotFileRef(), source.currentRunId(),
-                source.status().name(), source.revision(), source.createdAt(), source.updatedAt());
+                source.status().name(), source.revision(), source.createdAt(), source.updatedAt(), source.contextParentRequestId());
     }
 
     private static TutorRequestModels.Detail detail(MultiAgentModels.RequestDetail source) {

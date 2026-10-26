@@ -991,6 +991,152 @@ class TutorLedgerIntegrationTests {
                 String.class, retiredId)).isEqualTo("RETIRED");
     }
 
+    @Test
+    void conversationFreezesSelectedPublishedParentIndependentlyOfSnapshotAndRetry() {
+        long account = account();
+        String question = question(account);
+        Request first = publishedConversation(account, question, null, "第一轮第二步：两边同时减3。");
+        Request second = publishedConversation(account, question, first.requestId(), "第二轮解释：等式两边做相同操作仍相等。");
+        String requestId = id();
+        CreateRequest followup = new CreateRequest(requestId, "你刚才第二步为什么这样做？", Mode.HINT,
+                new SnapshotInput("REUSE_REQUEST", first.requestId()), second.requestId());
+        Request request = ledger.create(account, question, requestId, followup);
+        assertThat(request.contextParentRequestId()).isEqualTo(second.requestId());
+        assertThat(request.snapshotOriginRequestId()).isEqualTo(first.snapshotOriginRequestId());
+        Execution execution = ledger.execution(account, request.currentRunId());
+        assertThat(execution.conversationContext().turns()).extracting(turn -> turn.requestId())
+                .containsExactly(first.requestId(), second.requestId());
+        assertThat(execution.conversationContext().turns().get(1).bodyMarkdown()).contains("等式两边做相同操作");
+        String frozen = jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, account, requestId);
+        Execution running = start(account, request.currentRunId());
+        assertThat(ledger.fail(account, running.runId(), running.revision(), "MODEL_UNAVAILABLE")).isTrue();
+        // 新的成功轮不改变已创建request的父轮；同请求重试仅复用冻结副本。
+        Request later = publishedConversation(account, question, second.requestId(), "后来的无关讲解");
+        assertThat(ledger.create(account, question, requestId, followup).contextParentRequestId()).isEqualTo(second.requestId());
+        assertConflict(() -> ledger.create(account, question, requestId, new CreateRequest(requestId,
+                followup.prompt(), Mode.HINT, followup.snapshotInput(), later.requestId())));
+        Request retry = ledger.retry(account, question, requestId, id(), running.runId());
+        assertThat(ledger.execution(account, retry.currentRunId()).conversationContext()).isEqualTo(execution.conversationContext());
+        assertThat(jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, account, requestId)).isEqualTo(frozen);
+    }
+
+    @Test
+    void explicitOlderParentIsValidAndLegacyNullNeverSelectsLatestAutomatically() {
+        long account = account();
+        String question = question(account);
+        Request first = publishedConversation(account, question, null, "较早完整解释");
+        publishedConversation(account, question, first.requestId(), "最新解释");
+        String requestId = id();
+        Request older = ledger.create(account, question, requestId, new CreateRequest(requestId,
+                "针对较早解释追问", Mode.HINT, null, first.requestId()));
+        assertThat(older.contextParentRequestId()).isEqualTo(first.requestId());
+        ledger.cancel(account, question, requestId, null);
+        String legacyId = id();
+        assertThat(ledger.create(account, question, legacyId, create(legacyId)).contextParentRequestId()).isNull();
+    }
+
+    @Test
+    void conversationRejectsForeignQuestionAccountAndUnsuccessfulOrOversizedParent() {
+        long account = account();
+        long other = account();
+        String question = question(account);
+        String otherQuestion = question(account);
+        String foreignQuestion = question(other);
+        Request first = publishedConversation(account, question, null, "完整解释");
+        for (String targetQuestion : List.of(otherQuestion, foreignQuestion)) {
+            long targetAccount = targetQuestion.equals(foreignQuestion) ? other : account;
+            String requestId = id();
+            assertContextError(() -> ledger.create(targetAccount, targetQuestion, requestId,
+                    new CreateRequest(requestId, "追问", Mode.HINT, null, first.requestId())), ErrorCode.NOT_FOUND);
+        }
+        Request failed = captured(account, question, id());
+        Execution running = start(account, failed.currentRunId());
+        ledger.fail(account, running.runId(), running.revision(), "MODEL_UNAVAILABLE");
+        String invalidId = id();
+        assertContextError(() -> ledger.create(account, question, invalidId,
+                new CreateRequest(invalidId, "追问", Mode.HINT, null, failed.requestId())), ErrorCode.CONTEXT_PARENT_UNAVAILABLE);
+        Request large = publishedConversation(account, question, null, "字".repeat(23000));
+        String largeId = id();
+        assertContextError(() -> ledger.create(account, question, largeId,
+                new CreateRequest(largeId, "追问", Mode.HINT, null, large.requestId())), ErrorCode.CONVERSATION_CONTEXT_TOO_LARGE);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ma_request WHERE account_id=? AND request_id=?",
+                Integer.class, account, largeId)).isZero();
+    }
+
+    @Test
+    void withdrawingParentClearsOnlyDependentCopiesAndCancelsInFlightWithoutResendingOrHoldingSlot() {
+        long account = account();
+        String question = question(account);
+        Request parent = publishedConversation(account, question, null, "已发布父轮");
+        String childId = id();
+        Request child = ledger.create(account, question, childId, new CreateRequest(childId, "解释第二步", Mode.HINT,
+                new SnapshotInput("REUSE_REQUEST", parent.requestId()), parent.requestId()));
+        Execution running = start(account, child.currentRunId());
+        var attempt = ledger.beginAttempt(account, running.runId(), Role.TEACH, 1, digest("frozen-input"));
+        assertThat(ledger.callIntent(account, running.runId(), attempt.attemptId(), attempt.fence())).isTrue();
+        assertThat(ledger.providerCallsInFlight(account)).isEqualTo(1);
+        long other = account();
+        String otherQuestion = question(other);
+        Request otherParent = publishedConversation(other, otherQuestion, null, "另一个账号父轮");
+        String otherChildId = id();
+        ledger.create(other, otherQuestion, otherChildId, new CreateRequest(otherChildId, "追问", Mode.HINT, null, otherParent.requestId()));
+        String otherFrozen = jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, other, otherChildId);
+        String resultId = ledger.detail(account, question, parent.requestId()).result().resultId();
+        String sourceId = sources.findOrigin(account, SourceType.TUTOR_REPLY, resultId).orElseThrow().source().sourceId();
+        sources.withdraw(account, sourceId);
+        assertThat(jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, account, childId)).isNull();
+        assertThat(jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, other, otherChildId)).isEqualTo(otherFrozen);
+        assertThat(ledger.execution(account, running.runId()).status()).isEqualTo(Status.CANCELLING);
+        assertThat(ledger.callIntent(account, running.runId(), attempt.attemptId(), attempt.fence())).isFalse();
+        assertThat(ledger.confirm(account, running.runId(), attempt.attemptId(), attempt.fence(), "迟到结果", digest("迟到结果"))).isFalse();
+        assertThat(ledger.publish(account, running.runId(), running.revision(), new ResultDraft("迟到结果", List.of()))).isFalse();
+        assertThat(ledger.finishProviderCall(account, running.runId(), attempt.attemptId())).isTrue();
+        assertThat(ledger.providerCallsInFlight(account)).isZero();
+        assertThat(ledger.outstandingEvents(Set.of("RUN_CANCEL"), 100))
+                .anySatisfy(event -> assertThat(event.aggregateId()).isEqualTo(running.runId()));
+        assertThat(ledger.get(other, otherQuestion, otherChildId).status()).isEqualTo(Status.WAITING_INPUT);
+        // journal重放会再次更新已删除来源，也必须清除从旧备份恢复的副本。
+        jdbc.update("UPDATE ma_request SET conversation_context_json=? WHERE account_id=? AND request_id=?",
+                com.betterlearning.server.multiagent.ConversationContexts.encode(running.conversationContext()), account, childId);
+        jdbc.update("UPDATE ma_source SET status='DELETED' WHERE source_id=?", sourceId);
+        assertThat(jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, account, childId)).isNull();
+    }
+
+    @Test
+    void withdrawingOnlyReplyVersionAlsoInvalidatesWaitingContext() {
+        long account = account();
+        String question = question(account);
+        Request parent = publishedConversation(account, question, null, "父轮解释");
+        String childId = id();
+        ledger.create(account, question, childId, new CreateRequest(childId, "追问", Mode.HINT, null, parent.requestId()));
+        String resultId = ledger.detail(account, question, parent.requestId()).result().resultId();
+        String sourceId = sources.findOrigin(account, SourceType.TUTOR_REPLY, resultId).orElseThrow().source().sourceId();
+        jdbc.update("UPDATE ma_source_version SET status='WITHDRAWN',purged_at=CURRENT_TIMESTAMP WHERE source_id=?", sourceId);
+        assertThat(ledger.get(account, question, childId).status()).isEqualTo(Status.CANCELLED);
+        assertThat(jdbc.queryForObject("SELECT conversation_context_json FROM ma_request WHERE account_id=? AND request_id=?",
+                String.class, account, childId)).isNull();
+    }
+
+    private Request publishedConversation(long account, String question, String parent, String body) {
+        String requestId = id();
+        ledger.create(account, question, requestId, new CreateRequest(requestId, "请解释第二步", Mode.FULL_SOLUTION, null, parent));
+        Request captured = ledger.bindSnapshot(account, question, requestId, binding(account, requestId));
+        Execution running = start(account, captured.currentRunId());
+        assertThat(ledger.publish(account, running.runId(), running.revision(), new ResultDraft(body, List.of()))).isTrue();
+        return ledger.get(account, question, requestId);
+    }
+
+    private static void assertContextError(org.assertj.core.api.ThrowableAssert.ThrowingCallable action, ErrorCode code) {
+        assertThatThrownBy(action).isInstanceOfSatisfying(BusinessException.class,
+                failure -> assertThat(failure.getErrorCode()).isEqualTo(code));
+    }
+
     private void assertPublishedReplyHasOnlySourceOutbox(long account, String resultId) {
         String replySourceId = jdbc.queryForObject("SELECT source_id FROM ma_source WHERE account_id = ? "
                 + "AND type = 'TUTOR_REPLY' AND origin_id = ?", String.class, account, resultId);
